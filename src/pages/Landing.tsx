@@ -1,8 +1,51 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 const heroImg = 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=80';
 
 export default function Landing() {
+  const [settings, setSettings] = useState<{ tahun_pelajaran?: string; semester?: string; nama_sekolah?: string; nama_aplikasi?: string }>({});
+  const [stats, setStats] = useState({ siswaCount: 0, guruCount: 0, classCount: 0 });
+
+  useEffect(() => {
+    fetchInitialData();
+  }, []);
+
+  async function fetchInitialData() {
+    try {
+      // Fetch app settings
+      const { data: setts } = await supabase
+        .from('app_settings')
+        .select('*')
+        .limit(1)
+        .single();
+      if (setts) setSettings(setts);
+
+      // Fetch dynamic stats from database
+      const { count: siswa } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('role', 'siswa');
+
+      const { count: guru } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('role', 'guru');
+
+      const { count: kelas } = await supabase
+        .from('classes')
+        .select('*', { count: 'exact', head: true });
+
+      setStats({
+        siswaCount: siswa || 0,
+        guruCount: guru || 0,
+        classCount: kelas || 0
+      });
+    } catch (err) {
+      console.error('Error loading landing data:', err);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans flex flex-col overflow-hidden">
       <nav className="h-20 bg-blue-800 flex items-center justify-between px-6 md:px-10 shadow-lg shrink-0 text-white">
@@ -11,13 +54,19 @@ export default function Landing() {
             21
           </div>
           <div>
-            <h1 className="text-xl font-bold leading-tight uppercase">SMAN 21 GARUT</h1>
-            <p className="text-xs opacity-80 uppercase tracking-widest hidden sm:block">Portal Pembelajaran Digital</p>
+            <h1 className="text-xl font-bold leading-tight uppercase">
+              {settings.nama_sekolah || 'SMAN 21 GARUT'}
+            </h1>
+            <p className="text-xs opacity-80 uppercase tracking-widest hidden sm:block">
+              {settings.nama_aplikasi || 'Portal Pembelajaran Digital'}
+            </p>
           </div>
         </div>
         <div className="hidden md:flex gap-6 text-sm font-medium">
-          <span className="opacity-70">Tahun Ajaran 2023/2024</span>
-          <span className="bg-blue-600 px-3 py-1 rounded">Semester Ganjil</span>
+          <span className="opacity-90">Tahun Ajaran {settings.tahun_pelajaran || '2023/2024'}</span>
+          <span className="bg-blue-600 px-3 py-1 rounded shadow-sm">
+            Semester {settings.semester || 'Ganjil'}
+          </span>
         </div>
       </nav>
 
@@ -48,15 +97,21 @@ export default function Landing() {
 
           <div className="mt-10 grid grid-cols-3 gap-6">
             <div className="text-center">
-              <p className="text-2xl md:text-3xl font-bold text-blue-700">1.240</p>
+              <p className="text-2xl md:text-3xl font-bold text-blue-700">
+                {stats.siswaCount > 0 ? stats.siswaCount.toLocaleString('id-ID') : '0'}
+              </p>
               <p className="text-[10px] md:text-xs text-slate-500 uppercase font-semibold">Siswa Aktif</p>
             </div>
             <div className="text-center border-x border-slate-200">
-              <p className="text-2xl md:text-3xl font-bold text-blue-700">68</p>
+              <p className="text-2xl md:text-3xl font-bold text-blue-700">
+                {stats.guruCount > 0 ? stats.guruCount.toLocaleString('id-ID') : '0'}
+              </p>
               <p className="text-[10px] md:text-xs text-slate-500 uppercase font-semibold">Guru Pengampu</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl md:text-3xl font-bold text-blue-700">36</p>
+              <p className="text-2xl md:text-3xl font-bold text-blue-700">
+                {stats.classCount > 0 ? stats.classCount.toLocaleString('id-ID') : '0'}
+              </p>
               <p className="text-[10px] md:text-xs text-slate-500 uppercase font-semibold">Kelas Tersedia</p>
             </div>
           </div>

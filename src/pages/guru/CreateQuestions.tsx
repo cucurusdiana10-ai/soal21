@@ -12,6 +12,7 @@ export default function CreateQuestions() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [customTopic, setCustomTopic] = useState(false);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   
   const [form, setForm] = useState({
     class_id: '',
@@ -163,10 +164,26 @@ export default function CreateQuestions() {
     if (!error) fetchTasks();
   };
 
-  // Filter topics for the selected subject
-  const availableTopics = materialTopics.filter(
-    m => !form.subject_name || m.subject_name?.toLowerCase().includes(form.subject_name.toLowerCase()) || m.topic
+  // Filter and deduplicate topics for the selected subject
+  const uniqueMaterialTopics: string[] = Array.from(
+    new Set(
+      materialTopics
+        .filter(m => !form.subject_name || (m.subject_name && m.subject_name.toLowerCase().includes(form.subject_name.toLowerCase())) || m.topic)
+        .map(m => String(m.topic || m.title || ''))
+        .filter(Boolean)
+    )
   );
+
+  const toggleTopic = (topicName: string) => {
+    let updated: string[];
+    if (selectedTopics.includes(topicName)) {
+      updated = selectedTopics.filter(t => t !== topicName);
+    } else {
+      updated = [...selectedTopics, topicName];
+    }
+    setSelectedTopics(updated);
+    setForm(prev => ({ ...prev, title: updated.join(', ') }));
+  };
 
   return (
     <div className="space-y-8 max-w-5xl">
@@ -226,35 +243,60 @@ export default function CreateQuestions() {
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Judul / Topik Soal (Dari Bahan Ajar)
-              </label>
-              {!customTopic && availableTopics.length > 0 ? (
+            <div className="md:col-span-2 lg:col-span-1">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Judul / Topik Soal (Dapat Pilih Multi-Topik)
+                </label>
+                {uniqueMaterialTopics.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomTopic(!customTopic);
+                      if (!customTopic) setSelectedTopics([]);
+                    }}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800"
+                  >
+                    {customTopic ? '← Pilih dari Bahan Ajar' : '+ Ketik Manual'}
+                  </button>
+                )}
+              </div>
+
+              {!customTopic && uniqueMaterialTopics.length > 0 ? (
                 <div className="space-y-2">
-                  <select
+                  <div className="p-3 bg-gray-50 border border-gray-300 rounded-xl max-h-40 overflow-y-auto space-y-2">
+                    <div className="text-xs text-gray-500 font-medium border-b border-gray-200 pb-1 mb-1 flex justify-between">
+                      <span>Centang 1 atau Lebih Topik:</span>
+                      <span className="font-bold text-blue-600">{selectedTopics.length} Terpilih</span>
+                    </div>
+                    {uniqueMaterialTopics.map((topName, idx) => {
+                      const isChecked = selectedTopics.includes(topName);
+                      return (
+                        <label 
+                          key={idx} 
+                          className={`flex items-center gap-2 text-xs p-2 rounded-lg cursor-pointer transition font-medium ${
+                            isChecked ? 'bg-blue-100 text-blue-900 font-bold border border-blue-300' : 'bg-white hover:bg-gray-100 border border-gray-200 text-gray-700'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleTopic(topName)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                          />
+                          <span className="flex-1 truncate">{topName}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <input
+                    type="text"
                     required
                     value={form.title}
-                    onChange={e => {
-                      if (e.target.value === '__CUSTOM__') {
-                        setCustomTopic(true);
-                        setForm({ ...form, title: '' });
-                      } else {
-                        setForm({ ...form, title: e.target.value });
-                      }
-                    }}
-                    className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
-                  >
-                    <option value="">-- Pilih Topik Bahan Ajar AI --</option>
-                    {availableTopics.map((m, idx) => (
-                      <option key={m.id || idx} value={m.topic || m.title}>
-                        {m.topic || m.title} {m.grade ? `(Kelas ${m.grade})` : ''}
-                      </option>
-                    ))}
-                    <option value="__CUSTOM__" className="font-bold text-blue-600 bg-blue-50">
-                      + Ketik Topik Baru Lainya...
-                    </option>
-                  </select>
+                    onChange={e => setForm({ ...form, title: e.target.value })}
+                    placeholder="Judul Soal Tergabung"
+                    className="w-full p-2 text-xs font-semibold bg-white border border-gray-200 rounded-lg text-gray-700"
+                  />
                 </div>
               ) : (
                 <div className="relative">
@@ -263,18 +305,9 @@ export default function CreateQuestions() {
                     required
                     value={form.title}
                     onChange={e => setForm({ ...form, title: e.target.value })}
-                    placeholder="Contoh: Persamaan Kuadrat / Sistem Pencernaan"
-                    className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 pr-20"
+                    placeholder="Contoh: Persamaan Kuadrat & Trigonometri"
+                    className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
                   />
-                  {availableTopics.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setCustomTopic(false)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-lg font-bold"
-                    >
-                      Pilih Topik
-                    </button>
-                  )}
                 </div>
               )}
             </div>

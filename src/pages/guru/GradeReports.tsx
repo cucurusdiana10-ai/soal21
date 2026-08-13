@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download } from 'lucide-react';
 
 export default function GradeReports() {
   const { user } = useAuth();
@@ -161,6 +161,40 @@ export default function GradeReports() {
     }
   };
 
+  const handleDownloadReport = () => {
+    if (!selectedTask || submissions.length === 0) {
+      alert('Tidak ada data siswa untuk diunduh');
+      return;
+    }
+
+    const headers = ['No', 'Nama', 'NISN', 'Nilai', 'Status'];
+    const rows = submissions.map((item, idx) => {
+      const st = item.student;
+      const sub = item.submission;
+      const scoreVal = sub && sub.score !== null ? sub.score : '-';
+      const statusText = !sub ? 'Belum Mengumpulkan' : sub.status === 'graded' ? 'Sudah Dinilai' : 'Sudah Mengumpulkan';
+      return [
+        idx + 1,
+        `"${st.name ? st.name.replace(/"/g, '""') : ''}"`,
+        `"${st.username ? st.username.replace(/"/g, '""') : ''}"`,
+        scoreVal,
+        `"${statusText}"`
+      ];
+    });
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const className = selectedTask.class?.name || 'Kelas';
+    const taskTitle = (selectedTask.title || 'Tugas').replace(/[^a-zA-Z0-9_-]/g, '_');
+    link.setAttribute('download', `Hasil_Siswa_${className}_${taskTitle}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-8 max-w-5xl">
       <div>
@@ -208,6 +242,14 @@ export default function GradeReports() {
                 Tugas: <span className="font-semibold text-gray-900">{selectedTask.title}</span> • Kelas {selectedTask.class?.name}
               </p>
             </div>
+
+            <button
+              onClick={handleDownloadReport}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-2"
+              title="Unduh Hasil Perkelas (No, Nama, NISN, Nilai)"
+            >
+              <Download className="w-4 h-4" /> Download Perkelas (CSV/Excel)
+            </button>
           </div>
 
           <div className="overflow-x-auto">

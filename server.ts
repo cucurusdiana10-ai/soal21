@@ -17,14 +17,15 @@ async function startServer() {
         return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
       }
 
-      const { subject, grade, topic } = req.body;
+      const { subject, grade, topic, description } = req.body;
       if (!subject || !grade || !topic) {
         return res.status(400).json({ error: 'Missing required fields: subject, grade, topic' });
       }
 
       const ai = new GoogleGenAI({ apiKey });
+      const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
       
-      const prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan bahan ajar interaktif untuk mata pelajaran ${subject} Kelas ${grade} dengan Capaian Pembelajaran/Topik: "${topic}". 
+      const prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan bahan ajar interaktif untuk mata pelajaran ${subject} Kelas ${grade} dengan Capaian Pembelajaran/Topik: "${fullTopic}".
       Berikan respons dalam format JSON dengan struktur:
       {
         "imageUrl": "URL gambar Unsplash berkualitas tinggi yang relevan, contoh: https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",

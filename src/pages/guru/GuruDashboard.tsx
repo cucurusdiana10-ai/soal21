@@ -19,11 +19,15 @@ function MaterialGenerator() {
   const [savedMaterials, setSavedMaterials] = useState<any[]>([]);
   const [selectedMaterial, setSelectedMaterial] = useState<any | null>(null);
 
+  const [editingSavedMaterial, setEditingSavedMaterial] = useState<any | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const [form, setForm] = useState({
     subject: '',
     grade: '',
     class_id: '',
-    topic: ''
+    topic: '',
+    description: ''
   });
 
   useEffect(() => {
@@ -84,7 +88,8 @@ function MaterialGenerator() {
         body: JSON.stringify({
           subject: form.subject,
           grade: form.grade,
-          topic: form.topic
+          topic: form.topic,
+          description: form.description
         })
       });
       const data = await res.json();
@@ -151,7 +156,7 @@ function MaterialGenerator() {
 
       setResult(null);
       setIsEditing(false);
-      setForm({ subject: teacherSubjects[0] || '', grade: '', class_id: '', topic: '' });
+      setForm({ subject: teacherSubjects[0] || '', grade: '', class_id: '', topic: '', description: '' });
       fetchSavedMaterials();
     } catch (err: any) {
       alert('Gagal menyimpan bahan ajar: ' + (err.message || 'Terjadi kesalahan saat menyimpan'));
@@ -164,6 +169,33 @@ function MaterialGenerator() {
     if (!confirm('Hapus bahan ajar ini?')) return;
     const { error } = await supabase.from('teaching_materials').delete().eq('id', id);
     if (!error) fetchSavedMaterials();
+  };
+
+  const handleSaveEditedMaterial = async () => {
+    if (!editingSavedMaterial) return;
+    setSavingEdit(true);
+    try {
+      const { error } = await supabase
+        .from('teaching_materials')
+        .update({
+          title: editingSavedMaterial.title,
+          topic: editingSavedMaterial.topic,
+          subject_name: editingSavedMaterial.subject_name,
+          grade: editingSavedMaterial.grade,
+          class_id: editingSavedMaterial.class_id,
+          content_json: editingSavedMaterial.content_json
+        })
+        .eq('id', editingSavedMaterial.id);
+
+      if (error) throw error;
+      alert('Bahan ajar berhasil diperbarui!');
+      setEditingSavedMaterial(null);
+      fetchSavedMaterials();
+    } catch (err: any) {
+      alert('Gagal memperbarui bahan ajar: ' + err.message);
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   // Filter classes according to grade if selected
@@ -238,15 +270,28 @@ function MaterialGenerator() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Topik / Capaian</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Topik / Capaian Utama</label>
             <input 
               type="text" 
               value={form.topic}
               onChange={e => setForm({...form, topic: e.target.value})}
-              placeholder="Contoh: Sistem Pencernaan" 
-              className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              placeholder="Contoh: Sistem Pencernaan Manusia" 
+              className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 font-medium"
             />
           </div>
+        </div>
+
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Deskripsi Materi / Instruksi Khusus (Opsional - Agar AI Lebih Presisi)
+          </label>
+          <textarea
+            rows={2}
+            value={form.description}
+            onChange={e => setForm({...form, description: e.target.value})}
+            placeholder="Contoh: Fokuskan pada penjelasan organ lambung & usus halus, enzim yang bekerja, serta penyakit pencernaan seperti maag dan diare."
+            className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+          />
         </div>
 
         <button 
@@ -434,55 +479,93 @@ function MaterialGenerator() {
         </div>
       )}
 
-      {/* Saved Materials Section */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-          <BookOpen className="w-5 h-5 mr-2 text-indigo-600" /> Daftar Bahan Ajar Terbit untuk Siswa
-        </h2>
+      {/* Saved Materials Section - Table View */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 flex items-center">
+              <BookOpen className="w-5 h-5 mr-2 text-indigo-600" /> Daftar Bahan Ajar Terbit untuk Siswa
+            </h2>
+            <p className="text-xs text-gray-500">Materi pembelajaran AI yang telah disimpan dan dapat diakses oleh siswa.</p>
+          </div>
+          <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100">
+            Total: {savedMaterials.length} Bahan Ajar
+          </span>
+        </div>
 
         {savedMaterials.length === 0 ? (
-          <p className="text-gray-500 text-sm py-4 text-center">Belum ada bahan ajar yang disimpan & dibagikan.</p>
+          <p className="text-gray-500 text-sm py-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+            Belum ada bahan ajar yang disimpan & dibagikan.
+          </p>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {savedMaterials.map((mat) => (
-              <div key={mat.id} className="py-4 flex items-center justify-between gap-4 hover:bg-gray-50 px-2 rounded-xl transition">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold text-gray-900">{mat.title || mat.topic}</span>
-                    <span className="text-xs px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-semibold rounded-full border border-indigo-100">
-                      Kelas: {mat.class?.name || mat.grade}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Topik: {mat.topic} • Diterbitkan: {new Date(mat.created_at).toLocaleDateString('id-ID')}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => setSelectedMaterial(mat)}
-                    className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-                    title="Lihat Detail"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-                  <button 
-                    onClick={() => setFullscreenMaterial(mat)}
-                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
-                    title="Modus Presentasi / Fullscreen"
-                  >
-                    <Maximize2 className="w-4 h-4" />
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteMaterial(mat.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                    title="Hapus Bahan Ajar"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-gray-600 border-collapse">
+              <thead className="bg-gray-100/80 text-gray-700 font-semibold border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3">No</th>
+                  <th className="px-4 py-3">Judul & Topik</th>
+                  <th className="px-4 py-3">Mata Pelajaran</th>
+                  <th className="px-4 py-3">Target Kelas</th>
+                  <th className="px-4 py-3">Tanggal Terbit</th>
+                  <th className="px-4 py-3 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {savedMaterials.map((mat, idx) => (
+                  <tr key={mat.id} className="hover:bg-indigo-50/40 transition">
+                    <td className="px-4 py-3 font-medium text-gray-900">{idx + 1}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-bold text-gray-900">{mat.title || mat.topic}</div>
+                      <div className="text-xs text-indigo-600">{mat.topic}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-semibold text-gray-800">{mat.subject_name || '-'}</span>
+                      <div className="text-xs text-gray-500">Tingkat {mat.grade || '-'}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-lg border border-indigo-100 inline-block">
+                        Kelas {mat.class?.name || mat.grade}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                      {new Date(mat.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1">
+                        <button 
+                          onClick={() => setSelectedMaterial(mat)}
+                          className="px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                          title="Lihat Detail"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> Lihat
+                        </button>
+                        <button 
+                          onClick={() => setFullscreenMaterial(mat)}
+                          className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                          title="Modus Fullscreen"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5" /> Fullscreen
+                        </button>
+                        <button 
+                          onClick={() => setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)))}
+                          className="px-2.5 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                          title="Edit Bahan Ajar"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" /> Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteMaterial(mat.id)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
+                          title="Hapus"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -614,6 +697,138 @@ function MaterialGenerator() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Saved Material Modal */}
+      {editingSavedMaterial && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-amber-50">
+              <div>
+                <h3 className="text-lg font-bold text-amber-950 flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-amber-600" /> Edit Bahan Ajar
+                </h3>
+                <p className="text-xs text-amber-700">Perbarui judul, topik, target kelas, atau isi materi yang tersimpan.</p>
+              </div>
+              <button 
+                onClick={() => setEditingSavedMaterial(null)} 
+                className="text-gray-400 hover:text-gray-600 p-2"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Judul Bahan Ajar</label>
+                  <input
+                    type="text"
+                    value={editingSavedMaterial.title || ''}
+                    onChange={e => setEditingSavedMaterial({ ...editingSavedMaterial, title: e.target.value })}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl font-bold text-sm focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Topik Utama</label>
+                  <input
+                    type="text"
+                    value={editingSavedMaterial.topic || ''}
+                    onChange={e => setEditingSavedMaterial({ ...editingSavedMaterial, topic: e.target.value })}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Mata Pelajaran</label>
+                  <input
+                    type="text"
+                    value={editingSavedMaterial.subject_name || ''}
+                    onChange={e => setEditingSavedMaterial({ ...editingSavedMaterial, subject_name: e.target.value })}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Target Kelas</label>
+                  <select
+                    value={editingSavedMaterial.class_id || ''}
+                    onChange={e => setEditingSavedMaterial({ ...editingSavedMaterial, class_id: e.target.value })}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="">-- Pilih Kelas --</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>Kelas {c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Edit Materials Content List */}
+              {editingSavedMaterial.content_json?.materials && (
+                <div className="space-y-4 pt-2 border-t border-gray-100">
+                  <h4 className="font-bold text-gray-900 text-sm">Sunting Isi Submateri</h4>
+                  {editingSavedMaterial.content_json.materials.map((m: any, mIdx: number) => (
+                    <div key={mIdx} className="bg-amber-50/40 p-4 rounded-xl border border-amber-200/60 space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Judul Submateri #{mIdx + 1}</label>
+                        <input
+                          type="text"
+                          value={m.title}
+                          onChange={e => {
+                            const newMats = [...editingSavedMaterial.content_json.materials];
+                            newMats[mIdx].title = e.target.value;
+                            setEditingSavedMaterial({
+                              ...editingSavedMaterial,
+                              content_json: { ...editingSavedMaterial.content_json, materials: newMats }
+                            });
+                          }}
+                          className="w-full p-2 border border-gray-300 rounded-lg text-sm font-bold bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Isi / Penjelasan Submateri</label>
+                        <textarea
+                          rows={3}
+                          value={m.content}
+                          onChange={e => {
+                            const newMats = [...editingSavedMaterial.content_json.materials];
+                            newMats[mIdx].content = e.target.value;
+                            setEditingSavedMaterial({
+                              ...editingSavedMaterial,
+                              content_json: { ...editingSavedMaterial.content_json, materials: newMats }
+                            });
+                          }}
+                          className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setEditingSavedMaterial(null)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-100 transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={handleSaveEditedMaterial}
+                className="px-5 py-2 bg-amber-600 text-white rounded-xl text-sm font-bold hover:bg-amber-700 transition flex items-center gap-1.5 disabled:opacity-70 shadow-sm"
+              >
+                {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+            </div>
           </div>
         </div>
       )}
