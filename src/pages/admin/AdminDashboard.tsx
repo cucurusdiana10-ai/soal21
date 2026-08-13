@@ -1,64 +1,56 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { Users, Plus, Edit2, Trash2, Search } from 'lucide-react';
-import { User } from '../../types';
+import { Users, GraduationCap, BookOpen, Shield } from 'lucide-react';
 
 export default function AdminDashboard() {
+  const [counts, setCounts] = useState({
+    admin: 0,
+    guru: 0,
+    siswa: 0,
+    kelas: 0
+  });
+
+  useEffect(() => {
+    async function fetchCounts() {
+      const getCount = async (table: string, filter?: { column: string, value: string }) => {
+        let query = supabase.from(table).select('id', { count: 'exact', head: true });
+        if (filter) query = query.eq(filter.column, filter.value);
+        const { count } = await query;
+        return count || 0;
+      };
+
+      const [admin, guru, siswa, kelas] = await Promise.all([
+        getCount('users', { column: 'role', value: 'admin' }),
+        getCount('users', { column: 'role', value: 'guru' }),
+        getCount('users', { column: 'role', value: 'siswa' }),
+        getCount('classes')
+      ]);
+
+      setCounts({ admin, guru, siswa, kelas });
+    }
+
+    fetchCounts();
+  }, []);
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard Admin</h1>
-        <p className="text-gray-500">Kelola pengguna, guru, siswa, dan kelas.</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Dashboard Admin</h1>
+        <p className="text-gray-500 mt-1">Ringkasan data SMAN 21 Garut.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <StatCard title="Total Admin" count="-" icon={Users} color="blue" />
-        <StatCard title="Total Guru" count="-" icon={Users} color="green" />
-        <StatCard title="Total Siswa" count="-" icon={Users} color="purple" />
-        <StatCard title="Total Kelas" count="-" icon={Users} color="orange" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <StatCard title="Total Admin" count={counts.admin} icon={Shield} color="blue" />
+        <StatCard title="Total Guru" count={counts.guru} icon={Users} color="green" />
+        <StatCard title="Total Siswa" count={counts.siswa} icon={GraduationCap} color="purple" />
+        <StatCard title="Total Kelas" count={counts.kelas} icon={BookOpen} color="orange" />
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-          <h2 className="text-lg font-bold text-gray-900">Data Pengguna (Demo View)</h2>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium flex items-center hover:bg-blue-700">
-            <Plus className="w-4 h-4 mr-2" />
-            Tambah Pengguna
-          </button>
-        </div>
-        
-        <div className="p-4 border-b border-gray-100 bg-gray-50">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Cari pengguna..." 
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-4">Nama Lengkap</th>
-                <th className="px-6 py-4">Username / NISN</th>
-                <th className="px-6 py-4">Peran</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              <tr>
-                <td className="px-6 py-4 text-gray-500 italic" colSpan={5}>
-                  Harap konfigurasikan Supabase untuk melihat dan mengelola data sebenarnya.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 md:p-8 text-center mt-8">
+        <h2 className="text-xl font-bold text-blue-900 mb-2">Selamat Datang di Portal Administrator</h2>
+        <p className="text-blue-700 max-w-2xl mx-auto">
+          Gunakan menu di samping (atau tombol menu di layar kecil) untuk mengelola data master seperti Guru, Siswa, Kelas, dan Pengaturan Aplikasi. Semua fitur telah dioptimalkan untuk performa tinggi dan kuota minimal.
+        </p>
       </div>
     </div>
   );
@@ -73,14 +65,15 @@ function StatCard({ title, count, icon: Icon, color }: { title: string, count: s
   };
   
   return (
-    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex items-center gap-4">
-      <div className={`p-4 rounded-xl ${colors[color as keyof typeof colors]}`}>
-        <Icon className="w-6 h-6" />
+    <div className="bg-white p-5 md:p-6 rounded-2xl border border-gray-200 shadow-sm flex items-center gap-4">
+      <div className={`p-3 md:p-4 rounded-xl ${colors[color as keyof typeof colors]}`}>
+        <Icon className="w-6 h-6 md:w-7 md:h-7" />
       </div>
       <div>
         <p className="text-sm text-gray-500 font-medium mb-1">{title}</p>
-        <p className="text-2xl font-bold text-gray-900">{count}</p>
+        <p className="text-2xl md:text-3xl font-bold text-gray-900">{count}</p>
       </div>
     </div>
   );
 }
+

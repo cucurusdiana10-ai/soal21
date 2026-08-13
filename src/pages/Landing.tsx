@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import heroImg from '../assets/images/sman_21_learning_1786499884070.jpg';
+const heroImg = 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=80';
 
 export default function Landing() {
   return (

@@ -25,20 +25,43 @@ export default function Login() {
     setError('');
 
     try {
-      const { data, error: dbError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('username', username)
-        .eq('password', password)
-        .eq('role', requestedRole)
-        .eq('status', 'active')
-        .single();
+      const cleanUsername = username.trim();
+      const cleanPassword = password.trim();
+      
+      const email = `${cleanUsername}@sekolah.com`;
 
-      if (dbError || !data) {
-        throw new Error('Kredensial tidak valid atau akun tidak aktif.');
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: cleanPassword
+      });
+
+      if (authError) {
+        console.error("Auth Error:", authError);
+        throw new Error(`Kredensial tidak valid: Pastikan username dan password benar.`);
       }
 
-      login(data);
+      if (!authData.user) {
+        throw new Error('Kredensial tidak valid: User tidak ditemukan.');
+      }
+
+      // Fetch user profile
+      const { data: userData, error: dbError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+
+      if (dbError || !userData) {
+        console.error("DB Error:", dbError);
+        throw new Error(`Database Error: Gagal memuat profil pengguna.`);
+      }
+
+      if (userData.status !== 'active') {
+        await supabase.auth.signOut();
+        throw new Error('Akun Anda tidak aktif.');
+      }
+
+      login(userData);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Terjadi kesalahan saat login.');
