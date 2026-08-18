@@ -60,47 +60,36 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
 }
 
 export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
-  try {
-    const res = await fetch('/api/generate-material', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+  const res = await fetch('/api/generate-material', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
-    const contentType = res.headers.get('content-type') || '';
-    const rawText = await res.text();
+  const contentType = res.headers.get('content-type') || '';
+  const rawText = await res.text();
 
-    if (!res.ok) {
-      // If error returned as JSON
-      if (contentType.includes('application/json')) {
-        try {
-          const errJson = JSON.parse(rawText);
-          throw new Error(errJson.error || `Server error: ${res.status}`);
-        } catch {
-          // ignore
-        }
-      }
-      // If 404 / HTML error, try client fallback
-      return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
-    }
-
+  if (!res.ok) {
     if (contentType.includes('application/json')) {
-      return JSON.parse(rawText);
-    } else {
-      // Try to parse raw text as json or fallback
       try {
-        return parseJsonSafely(rawText);
-      } catch {
-        return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
+        const errJson = JSON.parse(rawText);
+        throw new Error(errJson.error || `Server error: ${res.status}`);
+      } catch (e: any) {
+        if (e.message && !e.message.startsWith('Unexpected token')) throw e;
       }
     }
-  } catch (err: any) {
-    // If network error/backend 404, attempt client-side fallback if possible
+    // Attempt client fallback if available
     try {
       return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
-    } catch (fallbackErr: any) {
-      throw new Error(err.message || fallbackErr.message || 'Gagal memproses bahan ajar AI.');
+    } catch {
+      throw new Error(`Server error (${res.status}): ${rawText.slice(0, 120)}`);
     }
+  }
+
+  if (contentType.includes('application/json')) {
+    return JSON.parse(rawText);
+  } else {
+    return parseJsonSafely(rawText);
   }
 }
 
