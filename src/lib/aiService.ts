@@ -10,7 +10,7 @@ function parseJsonSafely(text: string) {
   return JSON.parse(cleaned);
 }
 
-// Client-side fallback if backend API route is unreachable or hosted on static SPA
+// Client-side fallback if backend API route is unreachable
 async function clientFallbackGenerateMaterial(subject: string, grade: string, topic: string, description?: string) {
   const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
   if (!apiKey) {
@@ -47,7 +47,47 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
 }`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.6-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+    }
+  });
+
+  const text = response.text;
+  if (!text) throw new Error('Respon kosong dari AI Gemini.');
+  return parseJsonSafely(text);
+}
+
+// Client-side fallback for generating questions
+async function clientFallbackGenerateQuestions(topic: string, type: string, count: number) {
+  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Server backend tidak dapat dihubungi. Pastikan server aktif atau GEMINI_API_KEY tersedia.');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
+  prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
+  prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
+  prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
+  prompt += `[\n`;
+  prompt += `  {\n`;
+  prompt += `    "type": "pg",\n`;
+  prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
+  prompt += `    "options": ["Teks pilihan A", "Teks pilihan B", "Teks pilihan C", "Teks pilihan D"],\n`;
+  prompt += `    "answer": "A",\n`;
+  prompt += `    "explanation": "Penjelasan singkat jawaban yang tepat."\n`;
+  prompt += `  },\n`;
+  prompt += `  {\n`;
+  prompt += `    "type": "essay",\n`;
+  prompt += `    "question": "Kalimat pertanyaan esai pemahaman konsep?",\n`;
+  prompt += `    "answerKey": "Kunci jawaban dan poin kriteria penilaian guru."\n`;
+  prompt += `  }\n`;
+  prompt += `]`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.6-flash',
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
@@ -60,36 +100,39 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
 }
 
 export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
-  const res = await fetch('/api/generate-material', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  try {
+    const res = await fetch('/api/generate-material', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-  const contentType = res.headers.get('content-type') || '';
-  const rawText = await res.text();
+    const contentType = res.headers.get('content-type') || '';
+    const rawText = await res.text();
 
-  if (!res.ok) {
-    if (contentType.includes('application/json')) {
-      try {
-        const errJson = JSON.parse(rawText);
-        throw new Error(errJson.error || `Server error: ${res.status}`);
-      } catch (e: any) {
-        if (e.message && !e.message.startsWith('Unexpected token')) throw e;
+    if (!res.ok) {
+      if (contentType.includes('application/json')) {
+        try {
+          const errJson = JSON.parse(rawText);
+          throw new Error(errJson.error || `Server error: ${res.status}`);
+        } catch (e: any) {
+          if (e.message && !e.message.startsWith('Unexpected token')) throw e;
+        }
       }
+      return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
     }
-    // Attempt client fallback if available
+
+    if (contentType.includes('application/json')) {
+      return JSON.parse(rawText);
+    } else {
+      return parseJsonSafely(rawText);
+    }
+  } catch (err: any) {
     try {
       return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
     } catch {
-      throw new Error(`Server error (${res.status}): ${rawText.slice(0, 120)}`);
+      throw new Error(err.message || 'Gagal meracik bahan ajar AI.');
     }
-  }
-
-  if (contentType.includes('application/json')) {
-    return JSON.parse(rawText);
-  } else {
-    return parseJsonSafely(rawText);
   }
 }
 
@@ -109,16 +152,24 @@ export async function generateQuestionsApi(payload: { topic: string; type: strin
         try {
           const errJson = JSON.parse(rawText);
           throw new Error(errJson.error || `Server error: ${res.status}`);
-        } catch {
-          // ignore
+        } catch (e: any) {
+          if (e.message && !e.message.startsWith('Unexpected token')) throw e;
         }
       }
-      throw new Error(`Server error (${res.status}): Gagal meracik soal dari backend.`);
+      return await clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count);
     }
 
-    return parseJsonSafely(rawText);
+    if (contentType.includes('application/json')) {
+      return JSON.parse(rawText);
+    } else {
+      return parseJsonSafely(rawText);
+    }
   } catch (err: any) {
-    throw new Error(err.message || 'Gagal meracik soal dari AI.');
+    try {
+      return await clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count);
+    } catch {
+      throw new Error(err.message || 'Gagal meracik soal dari AI.');
+    }
   }
 }
 

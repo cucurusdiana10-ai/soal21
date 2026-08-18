@@ -95,7 +95,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
 }`;
 
             const response = await ai.models.generateContent({
-              model: 'gemini-3.7-flash',
+              model: 'gemini-3.6-flash',
               contents: prompt,
               config: { responseMimeType: 'application/json' }
             });
@@ -161,7 +161,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
             prompt += `]`;
 
             const response = await ai.models.generateContent({
-              model: 'gemini-3.7-flash',
+              model: 'gemini-3.6-flash',
               contents: prompt,
               config: { responseMimeType: 'application/json' }
             });
@@ -215,7 +215,7 @@ Berikan penilaian dalam format JSON dengan struktur:
 }`;
 
             const response = await ai.models.generateContent({
-              model: 'gemini-3.7-flash',
+              model: 'gemini-3.6-flash',
               contents: prompt,
               config: { responseMimeType: 'application/json' }
             });
