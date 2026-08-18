@@ -394,6 +394,43 @@ function MaterialGenerator() {
               </div>
             )}
 
+            {/* Fun Fact & Real World Application */}
+            {result.funFact && (
+              <div className="p-5 bg-amber-50 rounded-2xl border border-amber-200">
+                <h4 className="font-bold text-amber-900 text-sm flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-600" /> Tahukah Kamu? (Fun Fact Menarik)
+                </h4>
+                {isEditing ? (
+                  <textarea
+                    rows={2}
+                    value={result.funFact}
+                    onChange={e => setResult({ ...result, funFact: e.target.value })}
+                    className="w-full p-2.5 mt-2 bg-white border border-amber-300 rounded-lg text-xs text-amber-950 font-medium"
+                  />
+                ) : (
+                  <p className="text-amber-800 text-xs mt-1 leading-relaxed">{result.funFact}</p>
+                )}
+              </div>
+            )}
+
+            {result.realWorldApplication && (
+              <div className="p-5 bg-emerald-50 rounded-2xl border border-emerald-200">
+                <h4 className="font-bold text-emerald-900 text-sm flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-emerald-600" /> Penerapan Nyata & Kasus Seru
+                </h4>
+                {isEditing ? (
+                  <textarea
+                    rows={2}
+                    value={result.realWorldApplication}
+                    onChange={e => setResult({ ...result, realWorldApplication: e.target.value })}
+                    className="w-full p-2.5 mt-2 bg-white border border-emerald-300 rounded-lg text-xs text-emerald-950 font-medium"
+                  />
+                ) : (
+                  <p className="text-emerald-800 text-xs mt-1 leading-relaxed">{result.realWorldApplication}</p>
+                )}
+              </div>
+            )}
+
             {/* Mindmap / Konsep Utama */}
             <div>
               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">

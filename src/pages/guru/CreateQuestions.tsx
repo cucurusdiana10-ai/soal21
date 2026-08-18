@@ -168,7 +168,12 @@ export default function CreateQuestions() {
   const uniqueMaterialTopics: string[] = Array.from(
     new Set(
       materialTopics
-        .filter(m => !form.subject_name || (m.subject_name && m.subject_name.toLowerCase().includes(form.subject_name.toLowerCase())) || m.topic)
+        .filter(m => {
+          if (!form.subject_name) return true;
+          return !m.subject_name || 
+            m.subject_name.toLowerCase().includes(form.subject_name.toLowerCase()) || 
+            form.subject_name.toLowerCase().includes(m.subject_name.toLowerCase());
+        })
         .map(m => String(m.topic || m.title || ''))
         .filter(Boolean)
     )

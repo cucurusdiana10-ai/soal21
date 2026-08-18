@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Sistem Pembelajaran SMAN 21",
+  "description": "Sistem Pembelajaran Digital Interaktif SMAN 21 Garut berbasis AI untuk Guru dan Siswa",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

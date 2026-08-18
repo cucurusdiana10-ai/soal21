@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Search, Eye, X, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Search, Eye, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle } from 'lucide-react';
 
 export default function SiswaMateri() {
   const { user } = useAuth();
@@ -9,6 +9,7 @@ export default function SiswaMateri() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedMaterial, setSelectedMaterial] = useState<any | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
 
   useEffect(() => {
     fetchStudentMaterials();
@@ -47,7 +48,7 @@ export default function SiswaMateri() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Bahan Ajar & Materi Pembelajaran</h1>
-          <p className="text-gray-500">Pelajari materi interaktif dan latihan soal dari guru Anda.</p>
+          <p className="text-gray-500">Pelajari materi interaktif, fun fact, dan kuis pemantik seru dari guru Anda.</p>
         </div>
 
         <div className="relative w-full sm:w-72">
@@ -89,7 +90,10 @@ export default function SiswaMateri() {
               </div>
 
               <button
-                onClick={() => setSelectedMaterial(mat)}
+                onClick={() => {
+                  setQuizAnswers({});
+                  setSelectedMaterial(mat);
+                }}
                 className="w-full py-2.5 bg-blue-50 text-blue-700 font-semibold text-sm rounded-xl hover:bg-blue-100 transition flex items-center justify-center"
               >
                 <BookOpen className="w-4 h-4 mr-2" /> Buka & Pelajari Materi
@@ -114,6 +118,46 @@ export default function SiswaMateri() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {/* Supporting Image if available */}
+              {selectedMaterial.content_json?.imageUrl && (
+                <div className="rounded-2xl overflow-hidden max-h-64 border border-gray-200 shadow-sm">
+                  <img
+                    src={selectedMaterial.content_json.imageUrl}
+                    alt={selectedMaterial.title}
+                    className="w-full h-64 object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Fun Fact / Tahukah Kamu */}
+              {selectedMaterial.content_json?.funFact && (
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 flex items-start gap-3">
+                  <Lightbulb className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h5 className="font-bold text-amber-900 text-sm">Tahukah Kamu? (Fun Fact)</h5>
+                    <p className="text-amber-800 text-xs mt-1 leading-relaxed">
+                      {selectedMaterial.content_json.funFact}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Real World Application */}
+              {selectedMaterial.content_json?.realWorldApplication && (
+                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 flex items-start gap-3">
+                  <Compass className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h5 className="font-bold text-emerald-900 text-sm">Aplikasi di Dunia Nyata & Kasus Seru</h5>
+                    <p className="text-emerald-800 text-xs mt-1 leading-relaxed">
+                      {selectedMaterial.content_json.realWorldApplication}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Mind Map */}
               {selectedMaterial.content_json?.mindMap && (
                 <div>
@@ -133,7 +177,7 @@ export default function SiswaMateri() {
               {/* Material Detail */}
               {selectedMaterial.content_json?.materials && (
                 <div className="space-y-4">
-                  <h4 className="font-bold text-gray-900 border-b pb-2 text-sm">Penjelasan Ringkas</h4>
+                  <h4 className="font-bold text-gray-900 border-b pb-2 text-sm">Pembahasan Materi</h4>
                   {selectedMaterial.content_json.materials.map((m: any, idx: number) => (
                     <div key={idx} className="bg-gray-50 p-5 rounded-xl border border-gray-200">
                       <h5 className="font-bold text-gray-900 mb-2">{m.title}</h5>
@@ -143,22 +187,65 @@ export default function SiswaMateri() {
                 </div>
               )}
 
-              {/* Interactive Questions Practice */}
-              {selectedMaterial.content_json?.interactiveQuestions && (
+              {/* Interactive Questions Practice with Instant Check */}
+              {selectedMaterial.content_json?.interactiveQuestions && selectedMaterial.content_json.interactiveQuestions.length > 0 && (
                 <div className="space-y-4">
-                  <h4 className="font-bold text-gray-900 border-b pb-2 text-sm">Pertanyaan Pemantik & Latihan</h4>
-                  {selectedMaterial.content_json.interactiveQuestions.map((q: any, idx: number) => (
-                    <div key={idx} className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 space-y-3">
-                      <p className="font-semibold text-gray-900 text-sm">{idx + 1}. {q.question}</p>
-                      <div className="grid sm:grid-cols-2 gap-2">
-                        {q.options?.map((opt: string, oIdx: number) => (
-                          <div key={oIdx} className="p-3 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700">
-                            {String.fromCharCode(65 + oIdx)}. {opt}
+                  <h4 className="font-bold text-gray-900 border-b pb-2 text-sm flex items-center gap-1.5">
+                    <HelpCircle className="w-4 h-4 text-indigo-600" /> Kuis & Pertanyaan Pemantik (Cek Langsung Pemahamanmu)
+                  </h4>
+                  {selectedMaterial.content_json.interactiveQuestions.map((q: any, idx: number) => {
+                    const answered = quizAnswers[idx];
+                    const isCorrect = answered && (answered === q.answer || answered === q.answer?.[0]);
+                    return (
+                      <div key={idx} className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 space-y-3">
+                        <p className="font-semibold text-gray-900 text-sm">{idx + 1}. {q.question}</p>
+                        <div className="grid sm:grid-cols-2 gap-2">
+                          {q.options?.map((opt: string, oIdx: number) => {
+                            const letter = String.fromCharCode(65 + oIdx);
+                            const isSelected = answered === letter || answered === opt;
+                            const isOptionCorrect = letter === q.answer || opt === q.answer;
+                            
+                            let btnStyle = 'bg-white border-gray-200 text-gray-700 hover:bg-blue-50';
+                            if (answered) {
+                              if (isSelected && isOptionCorrect) {
+                                btnStyle = 'bg-green-100 border-green-400 text-green-900 font-bold';
+                              } else if (isSelected && !isOptionCorrect) {
+                                btnStyle = 'bg-red-100 border-red-400 text-red-900 font-bold';
+                              } else if (isOptionCorrect) {
+                                btnStyle = 'bg-green-50 border-green-300 text-green-800 font-semibold';
+                              }
+                            }
+
+                            return (
+                              <button
+                                key={oIdx}
+                                type="button"
+                                onClick={() => setQuizAnswers(prev => ({ ...prev, [idx]: letter }))}
+                                className={`p-3 border rounded-xl text-xs font-medium text-left transition flex items-center justify-between ${btnStyle}`}
+                              >
+                                <span>
+                                  <span className="font-bold mr-1.5">{letter}.</span> {opt}
+                                </span>
+                                {answered && isOptionCorrect && (
+                                  <Check className="w-4 h-4 text-green-600 shrink-0 ml-1" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {answered && (
+                          <div className={`p-3 rounded-lg text-xs flex items-start gap-2 ${isCorrect ? 'bg-green-50 text-green-900 border border-green-200' : 'bg-amber-50 text-amber-900 border border-amber-200'}`}>
+                            {isCorrect ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />}
+                            <div>
+                              <p className="font-bold">{isCorrect ? '🎉 Jawaban Tepat!' : `Kunci yang benar adalah pilihan (${q.answer}).`}</p>
+                              {q.explanation && <p className="mt-1 text-gray-700">{q.explanation}</p>}
+                            </div>
                           </div>
-                        ))}
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
