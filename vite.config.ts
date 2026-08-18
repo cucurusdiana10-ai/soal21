@@ -1,7 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig, Plugin } from 'vite';
+import { defineConfig, loadEnv, Plugin } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 
 function parseJsonSafely(text: string) {
@@ -14,39 +14,29 @@ function parseJsonSafely(text: string) {
   return JSON.parse(cleaned);
 }
 
-function readBody(req: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk: any) => { body += chunk; });
-    req.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch {
-        resolve({});
-      }
-    });
-    req.on('error', reject);
-  });
-}
-
-function apiDevPlugin(): Plugin {
+function apiDevPlugin(geminiApiKey: string): Plugin {
   return {
     name: 'api-gemini-server',
     configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        const url = req.url?.split('?')[0];
-
-        if (req.method === 'POST' && url === '/api/generate-material') {
+      // 1. Generate Material endpoint
+      server.middlewares.use('/api/generate-material', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          return res.end('Method Not Allowed');
+        }
+        let body = '';
+        req.on('data', (chunk) => { body += chunk; });
+        req.on('end', async () => {
           res.setHeader('Content-Type', 'application/json');
           try {
-            const apiKey = process.env.GEMINI_API_KEY;
+            const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
             if (!apiKey) {
               res.statusCode = 500;
               return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
             }
 
-            const body = await readBody(req);
-            const { subject, grade, topic, description } = body;
+            const data = body ? JSON.parse(body) : {};
+            const { subject, grade, topic, description } = data;
             if (!subject || !grade || !topic) {
               res.statusCode = 400;
               return res.end(JSON.stringify({ error: 'Data subject, grade, dan topic wajib diisi.' }));
@@ -119,19 +109,28 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
             res.statusCode = 500;
             return res.end(JSON.stringify({ error: err.message || 'Gagal meracik bahan ajar AI.' }));
           }
-        }
+        });
+      });
 
-        if (req.method === 'POST' && url === '/api/generate-questions') {
+      // 2. Generate Questions endpoint
+      server.middlewares.use('/api/generate-questions', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          return res.end('Method Not Allowed');
+        }
+        let body = '';
+        req.on('data', (chunk) => { body += chunk; });
+        req.on('end', async () => {
           res.setHeader('Content-Type', 'application/json');
           try {
-            const apiKey = process.env.GEMINI_API_KEY;
+            const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
             if (!apiKey) {
               res.statusCode = 500;
               return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
             }
 
-            const body = await readBody(req);
-            const { topic, type, count } = body;
+            const data = body ? JSON.parse(body) : {};
+            const { topic, type, count } = data;
             if (!topic || !type || !count) {
               res.statusCode = 400;
               return res.end(JSON.stringify({ error: 'Missing required fields: topic, type, count' }));
@@ -176,19 +175,28 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
             res.statusCode = 500;
             return res.end(JSON.stringify({ error: err.message || 'Gagal meracik soal dari AI.' }));
           }
-        }
+        });
+      });
 
-        if (req.method === 'POST' && url === '/api/grade-essay') {
+      // 3. Grade Essay endpoint
+      server.middlewares.use('/api/grade-essay', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          return res.end('Method Not Allowed');
+        }
+        let body = '';
+        req.on('data', (chunk) => { body += chunk; });
+        req.on('end', async () => {
           res.setHeader('Content-Type', 'application/json');
           try {
-            const apiKey = process.env.GEMINI_API_KEY;
+            const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
             if (!apiKey) {
               res.statusCode = 500;
               return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
             }
 
-            const body = await readBody(req);
-            const { question, answerKey, studentAnswer } = body;
+            const data = body ? JSON.parse(body) : {};
+            const { question, answerKey, studentAnswer } = data;
 
             const ai = new GoogleGenAI({
               apiKey,
@@ -220,27 +228,25 @@ Berikan penilaian dalam format JSON dengan struktur:
             res.statusCode = 500;
             return res.end(JSON.stringify({ error: err.message || 'Failed to grade essay' }));
           }
-        }
-
-        next();
+        });
       });
     }
   };
 }
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+
   return {
-    plugins: [react(), tailwindcss(), apiDevPlugin()],
+    plugins: [react(), tailwindcss(), apiDevPlugin(apiKey)],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâ€”file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };
