@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download } from 'lucide-react';
+import { gradeEssayApi } from '../../lib/aiService';
 
 export default function GradeReports() {
   const { user } = useAuth();
@@ -98,22 +99,21 @@ export default function GradeReports() {
           }
         } else if (q.type === 'essay') {
           // Call AI Grading for Essay
-          const res = await fetch('/api/grade-essay', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          try {
+            const data = await gradeEssayApi({
               question: q.question,
               answerKey: q.answerKey || q.answer || '',
               studentAnswer: studentAns
-            })
-          });
+            });
 
-          const data = await res.json();
-          if (res.ok && data.score !== undefined) {
-            const essayScaledScore = (data.score / 100) * pointsPerQuestion;
-            calculatedScore += essayScaledScore;
-            feedbacks.push(`Soal #${i + 1} (Esai): ${data.score}/100 - ${data.feedback || ''}`);
-          } else {
+            if (data && data.score !== undefined) {
+              const essayScaledScore = (data.score / 100) * pointsPerQuestion;
+              calculatedScore += essayScaledScore;
+              feedbacks.push(`Soal #${i + 1} (Esai): ${data.score}/100 - ${data.feedback || ''}`);
+            } else {
+              feedbacks.push(`Soal #${i + 1} (Esai): Perlu pemeriksaan manual`);
+            }
+          } catch {
             feedbacks.push(`Soal #${i + 1} (Esai): Perlu pemeriksaan manual`);
           }
         }

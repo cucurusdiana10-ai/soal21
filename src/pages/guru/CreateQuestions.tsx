@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { FileText, Sparkles, Loader2, Send, Trash2, Eye, X, CheckCircle2 } from 'lucide-react';
+import { generateQuestionsApi } from '../../lib/aiService';
 
 export default function CreateQuestions() {
   const { user } = useAuth();
@@ -93,22 +94,15 @@ export default function CreateQuestions() {
     setGeneratedQuestions(null);
 
     try {
-      const res = await fetch('/api/generate-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: `${form.subject_name} - ${form.title}`,
-          type: form.type,
-          count: form.count
-        })
+      const data = await generateQuestionsApi({
+        topic: `${form.subject_name} - ${form.title}`,
+        type: form.type,
+        count: form.count
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal meracik soal dari AI');
 
       setGeneratedQuestions(data);
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Gagal meracik soal dari AI');
     } finally {
       setLoading(false);
     }

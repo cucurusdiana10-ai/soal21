@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check } from 'lucide-react';
+import { generateMaterialApi } from '../../lib/aiService';
 import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
 
@@ -82,18 +83,12 @@ function MaterialGenerator() {
     setLoading(true);
     setIsEditing(false);
     try {
-      const res = await fetch('/api/generate-material', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: form.subject,
-          grade: form.grade,
-          topic: form.topic,
-          description: form.description
-        })
+      const data = await generateMaterialApi({
+        subject: form.subject,
+        grade: form.grade,
+        topic: form.topic,
+        description: form.description
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal meracik bahan ajar AI');
       
       // Ensure image fallback if missing
       if (!data.imageUrl) {
@@ -101,7 +96,7 @@ function MaterialGenerator() {
       }
       setResult(data);
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Gagal meracik bahan ajar');
     } finally {
       setLoading(false);
     }
