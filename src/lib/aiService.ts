@@ -48,7 +48,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ]
 }`;
 
-  for (const model of ['gemini-3.6-flash', 'gemini-3.7-flash']) {
+  for (const model of ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']) {
     try {
       const response = await ai.models.generateContent({
         model,
@@ -91,7 +91,7 @@ async function clientFallbackGenerateQuestions(topic: string, type: string, coun
   prompt += `  }\n`;
   prompt += `]`;
 
-  for (const model of ['gemini-3.6-flash', 'gemini-3.7-flash']) {
+  for (const model of ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']) {
     try {
       const response = await ai.models.generateContent({
         model,

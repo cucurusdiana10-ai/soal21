@@ -16,7 +16,7 @@ function parseJsonSafely(text: string) {
 
 function apiDevPlugin(geminiApiKey: string): Plugin {
   const executeWithFallback = async (ai: GoogleGenAI, prompt: string) => {
-    const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
+    const models = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
     let lastErr = null;
     for (const model of models) {
       try {
@@ -28,46 +28,63 @@ function apiDevPlugin(geminiApiKey: string): Plugin {
         const text = response.text;
         if (text) return parseJsonSafely(text);
       } catch (e: any) {
+        console.warn(`Vite dev plugin model ${model} failed, trying next fallback:`, e.message);
         lastErr = e;
       }
     }
     throw lastErr || new Error('Gagal menghubungi model Gemini');
   };
 
+  const handleCors = (res: any) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  };
+
   return {
     name: 'api-gemini-server',
     configureServer(server) {
-      // 1. Generate Material endpoint
-      server.middlewares.use('/api/generate-material', (req, res) => {
-        if (req.method !== 'POST') {
-          res.statusCode = 405;
-          return res.end('Method Not Allowed');
+      // Middleware for CORS and routes
+      server.middlewares.use((req, res, next) => {
+        handleCors(res);
+        if (req.method === 'OPTIONS') {
+          res.statusCode = 200;
+          return res.end();
         }
-        let body = '';
-        req.on('data', (chunk) => { body += chunk; });
-        req.on('end', async () => {
-          res.setHeader('Content-Type', 'application/json');
-          try {
-            const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
-            if (!apiKey) {
-              res.statusCode = 500;
-              return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
-            }
 
-            const data = body ? JSON.parse(body) : {};
-            const { subject, grade, topic, description } = data;
-            if (!subject || !grade || !topic) {
-              res.statusCode = 400;
-              return res.end(JSON.stringify({ error: 'Data subject, grade, dan topic wajib diisi.' }));
-            }
+        const url = req.url?.split('?')[0] || '';
 
-            const ai = new GoogleGenAI({
-              apiKey,
-              httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-            });
-            const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
+        // 1. Generate Material endpoint
+        if (url === '/api/generate-material' || url === '/api/ai/material') {
+          if (req.method !== 'POST') {
+            res.statusCode = 200;
+            return res.end(JSON.stringify({ status: 'ready' }));
+          }
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', async () => {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+              const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
+              if (!apiKey) {
+                res.statusCode = 500;
+                return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
+              }
 
-            const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif dan menyenangkan untuk siswa SMA di SMAN 21 Garut, buatkan bahan ajar interaktif, seru, dan mudah dipahami untuk:
+              const data = body ? JSON.parse(body) : {};
+              const { subject, grade, topic, description } = data;
+              if (!subject || !grade || !topic) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ error: 'Data subject, grade, dan topic wajib diisi.' }));
+              }
+
+              const ai = new GoogleGenAI({
+                apiKey,
+                httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+              });
+              const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
+
+              const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif dan menyenangkan untuk siswa SMA di SMAN 21 Garut, buatkan bahan ajar interaktif, seru, dan mudah dipahami untuk:
 Mata Pelajaran: ${subject}
 Kelas/Tingkat: ${grade}
 Capaian Pembelajaran / Topik: "${fullTopic}"
@@ -116,100 +133,102 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ]
 }`;
 
-            const parsed = await executeWithFallback(ai, prompt);
-            return res.end(JSON.stringify(parsed));
-          } catch (err: any) {
-            console.error('Error in /api/generate-material:', err);
-            res.statusCode = 500;
-            return res.end(JSON.stringify({ error: err.message || 'Gagal meracik bahan ajar AI.' }));
-          }
-        });
-      });
-
-      // 2. Generate Questions endpoint
-      server.middlewares.use('/api/generate-questions', (req, res) => {
-        if (req.method !== 'POST') {
-          res.statusCode = 405;
-          return res.end('Method Not Allowed');
-        }
-        let body = '';
-        req.on('data', (chunk) => { body += chunk; });
-        req.on('end', async () => {
-          res.setHeader('Content-Type', 'application/json');
-          try {
-            const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
-            if (!apiKey) {
+              const parsed = await executeWithFallback(ai, prompt);
+              return res.end(JSON.stringify(parsed));
+            } catch (err: any) {
+              console.error('Error in /api/generate-material:', err);
               res.statusCode = 500;
-              return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
+              return res.end(JSON.stringify({ error: err.message || 'Gagal meracik bahan ajar AI.' }));
             }
-
-            const data = body ? JSON.parse(body) : {};
-            const { topic, type, count } = data;
-            if (!topic || !type || !count) {
-              res.statusCode = 400;
-              return res.end(JSON.stringify({ error: 'Missing required fields: topic, type, count' }));
-            }
-
-            const ai = new GoogleGenAI({
-              apiKey,
-              httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-            });
-
-            let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
-            prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
-            prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
-            prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
-            prompt += `[\n`;
-            prompt += `  {\n`;
-            prompt += `    "type": "pg",\n`;
-            prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
-            prompt += `    "options": ["Teks pilihan A", "Teks pilihan B", "Teks pilihan C", "Teks pilihan D"],\n`;
-            prompt += `    "answer": "A",\n`;
-            prompt += `    "explanation": "Penjelasan singkat jawaban yang tepat."\n`;
-            prompt += `  },\n`;
-            prompt += `  {\n`;
-            prompt += `    "type": "essay",\n`;
-            prompt += `    "question": "Kalimat pertanyaan esai pemahaman konsep?",\n`;
-            prompt += `    "answerKey": "Kunci jawaban dan poin kriteria penilaian guru."\n`;
-            prompt += `  }\n`;
-            prompt += `]`;
-
-            const parsed = await executeWithFallback(ai, prompt);
-            return res.end(JSON.stringify(parsed));
-          } catch (err: any) {
-            console.error('Error in /api/generate-questions:', err);
-            res.statusCode = 500;
-            return res.end(JSON.stringify({ error: err.message || 'Gagal meracik soal dari AI.' }));
-          }
-        });
-      });
-
-      // 3. Grade Essay endpoint
-      server.middlewares.use('/api/grade-essay', (req, res) => {
-        if (req.method !== 'POST') {
-          res.statusCode = 405;
-          return res.end('Method Not Allowed');
+          });
+          return;
         }
-        let body = '';
-        req.on('data', (chunk) => { body += chunk; });
-        req.on('end', async () => {
-          res.setHeader('Content-Type', 'application/json');
-          try {
-            const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
-            if (!apiKey) {
+
+        // 2. Generate Questions endpoint
+        if (url === '/api/generate-questions' || url === '/api/ai/questions') {
+          if (req.method !== 'POST') {
+            res.statusCode = 200;
+            return res.end(JSON.stringify({ status: 'ready' }));
+          }
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', async () => {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+              const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
+              if (!apiKey) {
+                res.statusCode = 500;
+                return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
+              }
+
+              const data = body ? JSON.parse(body) : {};
+              const { topic, type, count } = data;
+              if (!topic || !type || !count) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ error: 'Missing required fields: topic, type, count' }));
+              }
+
+              const ai = new GoogleGenAI({
+                apiKey,
+                httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+              });
+
+              let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
+              prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
+              prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
+              prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
+              prompt += `[\n`;
+              prompt += `  {\n`;
+              prompt += `    "type": "pg",\n`;
+              prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
+              prompt += `    "options": ["Teks pilihan A", "Teks pilihan B", "Teks pilihan C", "Teks pilihan D"],\n`;
+              prompt += `    "answer": "A",\n`;
+              prompt += `    "explanation": "Penjelasan singkat jawaban yang tepat."\n`;
+              prompt += `  },\n`;
+              prompt += `  {\n`;
+              prompt += `    "type": "essay",\n`;
+              prompt += `    "question": "Kalimat pertanyaan esai pemahaman konsep?",\n`;
+              prompt += `    "answerKey": "Kunci jawaban dan poin kriteria penilaian guru."\n`;
+              prompt += `  }\n`;
+              prompt += `]`;
+
+              const parsed = await executeWithFallback(ai, prompt);
+              return res.end(JSON.stringify(parsed));
+            } catch (err: any) {
+              console.error('Error in /api/generate-questions:', err);
               res.statusCode = 500;
-              return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
+              return res.end(JSON.stringify({ error: err.message || 'Gagal meracik soal dari AI.' }));
             }
+          });
+          return;
+        }
 
-            const data = body ? JSON.parse(body) : {};
-            const { question, answerKey, studentAnswer } = data;
+        // 3. Grade Essay endpoint
+        if (url === '/api/grade-essay' || url === '/api/ai/grade-essay') {
+          if (req.method !== 'POST') {
+            res.statusCode = 200;
+            return res.end(JSON.stringify({ status: 'ready' }));
+          }
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', async () => {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+              const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
+              if (!apiKey) {
+                res.statusCode = 500;
+                return res.end(JSON.stringify({ error: 'GEMINI_API_KEY belum disetel di server environment.' }));
+              }
 
-            const ai = new GoogleGenAI({
-              apiKey,
-              httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-            });
+              const data = body ? JSON.parse(body) : {};
+              const { question, answerKey, studentAnswer } = data;
 
-            const prompt = `Sebagai guru SMAN 21 Garut yang bijak dan teliti, tolong koreksi jawaban esai siswa berikut.
+              const ai = new GoogleGenAI({
+                apiKey,
+                httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+              });
+
+              const prompt = `Sebagai guru SMAN 21 Garut yang bijak dan teliti, tolong koreksi jawaban esai siswa berikut.
 Pertanyaan: ${question}
 Kunci Jawaban yang Diharapkan: ${answerKey}
 Jawaban Siswa: ${studentAnswer}
@@ -220,21 +239,18 @@ Berikan penilaian dalam format JSON dengan struktur:
   "feedback": "<komentar_pendek_memotivasi_mengapa_nilainya_demikian>"
 }`;
 
-            const response = await ai.models.generateContent({
-              model: 'gemini-3.6-flash',
-              contents: prompt,
-              config: { responseMimeType: 'application/json' }
-            });
+              const parsed = await executeWithFallback(ai, prompt);
+              return res.end(JSON.stringify(parsed));
+            } catch (err: any) {
+              console.error('Error in /api/grade-essay:', err);
+              res.statusCode = 500;
+              return res.end(JSON.stringify({ error: err.message || 'Failed to grade essay' }));
+            }
+          });
+          return;
+        }
 
-            const text = response.text;
-            if (!text) throw new Error('Empty response from AI');
-            return res.end(JSON.stringify(parseJsonSafely(text)));
-          } catch (err: any) {
-            console.error('Error in /api/grade-essay:', err);
-            res.statusCode = 500;
-            return res.end(JSON.stringify({ error: err.message || 'Failed to grade essay' }));
-          }
-        });
+        next();
       });
     }
   };

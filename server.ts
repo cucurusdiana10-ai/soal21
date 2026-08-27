@@ -16,7 +16,7 @@ function parseJsonSafely(text: string) {
 
 // Resilient Gemini Generation with Model Fallback
 async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
-  const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
+  const models = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -46,10 +46,26 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // CORS and preflight headers
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json({ limit: '20mb' }));
 
-  // API Route for Gemini AI Material Generation
-  app.post('/api/generate-material', async (req, res) => {
+  // Health check endpoint
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
+  // Handler for Material Generation
+  const handleMaterialGen = async (req: express.Request, res: express.Response) => {
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
@@ -126,10 +142,13 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
       console.error('Error generating material:', error);
       res.status(500).json({ error: error.message || 'Gagal meracik bahan ajar AI' });
     }
-  });
+  };
 
-  // API Route for Gemini AI Question Generation
-  app.post('/api/generate-questions', async (req, res) => {
+  app.post('/api/generate-material', handleMaterialGen);
+  app.post('/api/ai/material', handleMaterialGen);
+
+  // Handler for Question Generation
+  const handleQuestionsGen = async (req: express.Request, res: express.Response) => {
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
@@ -175,10 +194,13 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
       console.error('Error generating questions:', error);
       res.status(500).json({ error: error.message || 'Gagal meracik soal dari AI' });
     }
-  });
+  };
 
-  // API Route for Gemini AI Essay Grading
-  app.post('/api/grade-essay', async (req, res) => {
+  app.post('/api/generate-questions', handleQuestionsGen);
+  app.post('/api/ai/questions', handleQuestionsGen);
+
+  // Handler for Essay Grading
+  const handleGradeEssay = async (req: express.Request, res: express.Response) => {
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
@@ -213,7 +235,10 @@ Berikan penilaian dalam format JSON dengan struktur:
       console.error('Error grading essay:', error);
       res.status(500).json({ error: error.message || 'Failed to grade essay' });
     }
-  });
+  };
+
+  app.post('/api/grade-essay', handleGradeEssay);
+  app.post('/api/ai/grade-essay', handleGradeEssay);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
