@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -13,11 +14,39 @@ function parseJsonSafely(text: string) {
   return JSON.parse(cleaned);
 }
 
+// Resilient Gemini Generation with Model Fallback
+async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
+  const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
+  let lastError: any = null;
+
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+        }
+      });
+
+      const text = response.text;
+      if (text) {
+        return parseJsonSafely(text);
+      }
+    } catch (err: any) {
+      console.warn(`Model ${model} failed, trying next fallback:`, err.message);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Gagal memproses permintaan ke AI Gemini.');
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '20mb' }));
 
   // API Route for Gemini AI Material Generation
   app.post('/api/generate-material', async (req, res) => {
@@ -47,9 +76,12 @@ Mata Pelajaran: ${subject}
 Kelas/Tingkat: ${grade}
 Capaian Pembelajaran / Topik: "${fullTopic}"
 
+Bahan ajar harus memuat elemen visual/media (Gambar dan/atau Rekomendasi Video Pembelajaran YouTube yang relevan).
 Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
   "imageUrl": "URL foto Unsplash berkualitas tinggi dan relevan dengan topik, contoh: https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
+  "videoUrl": "URL video pembelajaran YouTube yang relevan dengan topik (contoh: https://www.youtube.com/watch?v=dQw4w9WgXcQ atau https://youtu.be/xxx atau link embed edukasi sains/matematika/sosial relevan)",
+  "mediaType": "both",
   "mindMap": [
     "Konsep Inti 1",
     "Konsep Inti 2",
@@ -88,20 +120,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ]
 }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        }
-      });
-
-      const text = response.text;
-      if (!text) {
-        throw new Error('Tidak ada respon teks dari AI Gemini');
-      }
-
-      const parsedData = parseJsonSafely(text);
+      const parsedData = await generateContentWithFallback(ai, prompt);
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating material:', error);
@@ -150,20 +169,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
       prompt += `  }\n`;
       prompt += `]`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        }
-      });
-
-      const text = response.text;
-      if (!text) {
-        throw new Error('Tidak ada respon dari AI');
-      }
-
-      const parsedData = parseJsonSafely(text);
+      const parsedData = await generateContentWithFallback(ai, prompt);
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating questions:', error);
@@ -201,17 +207,8 @@ Berikan penilaian dalam format JSON dengan struktur:
   "feedback": "<komentar_pendek_memotivasi_mengapa_nilainya_demikian>"
 }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        }
-      });
-
-      const text = response.text;
-      if (!text) throw new Error('Empty response from AI');
-      res.json(parseJsonSafely(text));
+      const parsedData = await generateContentWithFallback(ai, prompt);
+      res.json(parsedData);
     } catch (error: any) {
       console.error('Error grading essay:', error);
       res.status(500).json({ error: error.message || 'Failed to grade essay' });

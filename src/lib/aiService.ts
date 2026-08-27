@@ -14,7 +14,7 @@ function parseJsonSafely(text: string) {
 async function clientFallbackGenerateMaterial(subject: string, grade: string, topic: string, description?: string) {
   const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('Server backend tidak dapat dihubungi. Pastikan server aktif atau GEMINI_API_KEY tersedia.');
+    throw new Error('Server backend mengalami kendala atau GEMINI_API_KEY belum terpasang.');
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -28,6 +28,8 @@ Capaian Pembelajaran / Topik: "${fullTopic}"
 Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
   "imageUrl": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
+  "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "mediaType": "both",
   "mindMap": ["Konsep Inti 1", "Konsep Inti 2", "Konsep Inti 3", "Aplikasi Nyata"],
   "funFact": "1 fakta mengejutkan / unik tentang topik ini.",
   "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari.",
@@ -46,24 +48,27 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ]
 }`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.6-flash',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
+  for (const model of ['gemini-3.6-flash', 'gemini-3.7-flash']) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+      });
+      const text = response.text;
+      if (text) return parseJsonSafely(text);
+    } catch {
+      // try next
     }
-  });
-
-  const text = response.text;
-  if (!text) throw new Error('Respon kosong dari AI Gemini.');
-  return parseJsonSafely(text);
+  }
+  throw new Error('Gagal meracik bahan ajar dari AI.');
 }
 
 // Client-side fallback for generating questions
 async function clientFallbackGenerateQuestions(topic: string, type: string, count: number) {
   const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('Server backend tidak dapat dihubungi. Pastikan server aktif atau GEMINI_API_KEY tersedia.');
+    throw new Error('Server backend mengalami kendala atau GEMINI_API_KEY belum terpasang.');
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -86,17 +91,20 @@ async function clientFallbackGenerateQuestions(topic: string, type: string, coun
   prompt += `  }\n`;
   prompt += `]`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.6-flash',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
+  for (const model of ['gemini-3.6-flash', 'gemini-3.7-flash']) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+      });
+      const text = response.text;
+      if (text) return parseJsonSafely(text);
+    } catch {
+      // try next
     }
-  });
-
-  const text = response.text;
-  if (!text) throw new Error('Respon kosong dari AI Gemini.');
-  return parseJsonSafely(text);
+  }
+  throw new Error('Gagal meracik soal dari AI.');
 }
 
 export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
@@ -111,15 +119,20 @@ export async function generateMaterialApi(payload: { subject: string; grade: str
     const rawText = await res.text();
 
     if (!res.ok) {
+      let errorMsg = `Server error (${res.status})`;
       if (contentType.includes('application/json')) {
         try {
           const errJson = JSON.parse(rawText);
-          throw new Error(errJson.error || `Server error: ${res.status}`);
-        } catch (e: any) {
-          if (e.message && !e.message.startsWith('Unexpected token')) throw e;
+          if (errJson.error) errorMsg = errJson.error;
+        } catch {
+          // ignore
         }
       }
-      return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
+      try {
+        return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
+      } catch {
+        throw new Error(errorMsg);
+      }
     }
 
     if (contentType.includes('application/json')) {
@@ -128,6 +141,9 @@ export async function generateMaterialApi(payload: { subject: string; grade: str
       return parseJsonSafely(rawText);
     }
   } catch (err: any) {
+    if (err.message && !err.message.includes('fetch')) {
+      throw err;
+    }
     try {
       return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
     } catch {
@@ -148,15 +164,20 @@ export async function generateQuestionsApi(payload: { topic: string; type: strin
     const rawText = await res.text();
 
     if (!res.ok) {
+      let errorMsg = `Server error (${res.status})`;
       if (contentType.includes('application/json')) {
         try {
           const errJson = JSON.parse(rawText);
-          throw new Error(errJson.error || `Server error: ${res.status}`);
-        } catch (e: any) {
-          if (e.message && !e.message.startsWith('Unexpected token')) throw e;
+          if (errJson.error) errorMsg = errJson.error;
+        } catch {
+          // ignore
         }
       }
-      return await clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count);
+      try {
+        return await clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count);
+      } catch {
+        throw new Error(errorMsg);
+      }
     }
 
     if (contentType.includes('application/json')) {
@@ -165,6 +186,9 @@ export async function generateQuestionsApi(payload: { topic: string; type: strin
       return parseJsonSafely(rawText);
     }
   } catch (err: any) {
+    if (err.message && !err.message.includes('fetch')) {
+      throw err;
+    }
     try {
       return await clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count);
     } catch {

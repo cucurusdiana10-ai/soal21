@@ -3,7 +3,8 @@ import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { 
   FileText, Sparkles, Loader2, Send, Trash2, Eye, X, CheckCircle2, 
-  PlusCircle, Edit2, AlertCircle, Save, Check
+  PlusCircle, Edit2, AlertCircle, Save, Check, ArrowUp, ArrowDown, 
+  Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle
 } from 'lucide-react';
 import { generateQuestionsApi } from '../../lib/aiService';
 
@@ -27,9 +28,24 @@ export default function CreateQuestions() {
     count: 5
   });
 
+  // Draft questions state - NOT saved to database until user publishes
   const [generatedQuestions, setGeneratedQuestions] = useState<any[] | null>(null);
-  const [selectedTask, setSelectedTask] = useState<any | null>(null);
+  const [draftMetadata, setDraftMetadata] = useState<{
+    class_id: string;
+    subject_name: string;
+    title: string;
+    type: string;
+  }>({
+    class_id: '',
+    subject_name: '',
+    title: '',
+    type: 'pg'
+  });
+
   const [editingQuestionIdx, setEditingQuestionIdx] = useState<number | null>(null);
+  const [selectedTask, setSelectedTask] = useState<any | null>(null);
+  const [editingExistingTask, setEditingExistingTask] = useState<any | null>(null);
+  const [savingEditTask, setSavingEditTask] = useState(false);
 
   useEffect(() => {
     fetchClasses();
@@ -87,7 +103,6 @@ export default function CreateQuestions() {
         .order('created_at', { ascending: false });
       
       if (error || !data || data.length === 0) {
-        // Fallback: fetch all tasks in case guru_id is not tagged
         const { data: allData } = await supabase
           .from('tasks')
           .select('*')
@@ -125,31 +140,63 @@ export default function CreateQuestions() {
         throw new Error('AI tidak mengembalikan butir soal yang valid.');
       }
 
-      setGeneratedQuestions(data);
+      // Normalise questions structure
+      const formatted = data.map((q: any) => ({
+        type: q.type || form.type || 'pg',
+        question: q.question || 'Pertanyaan...',
+        options: Array.isArray(q.options) && q.options.length > 0 ? q.options : ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'],
+        answer: q.answer || 'A',
+        answerKey: q.answerKey || q.answer || '',
+        explanation: q.explanation || ''
+      }));
 
-      // If autoPublish is checked, automatically publish
+      setGeneratedQuestions(formatted);
+      setDraftMetadata({
+        class_id: form.class_id,
+        subject_name: form.subject_name,
+        title: form.title,
+        type: form.type
+      });
+
+      // If autoPublish is explicitly checked by user, publish directly
       if (autoPublish) {
-        await publishQuestionsDirectly(data);
+        await publishQuestionsDirectly(formatted, {
+          class_id: form.class_id,
+          subject_name: form.subject_name,
+          title: form.title,
+          type: form.type
+        });
       }
     } catch (err: any) {
-      alert(err.message || 'Gagal meracik soal dari AI');
+      alert(err.message || 'Gagal meracik soal dari AI. Pastikan server aktif dan koneksi stabil.');
     } finally {
       setLoading(false);
     }
   };
 
-  const publishQuestionsDirectly = async (questionsToPublish: any[]) => {
-    if (!questionsToPublish || !user) return;
+  const publishQuestionsDirectly = async (
+    questionsToPublish: any[],
+    meta = draftMetadata
+  ) => {
+    if (!questionsToPublish || questionsToPublish.length === 0 || !user) {
+      alert('Tidak ada butir soal untuk diterbitkan.');
+      return;
+    }
+
+    if (!meta.class_id || !meta.subject_name || !meta.title) {
+      alert('Mohon lengkapi Target Kelas, Mata Pelajaran, dan Judul Soal sebelum menerbitkan.');
+      return;
+    }
 
     setSaving(true);
     try {
-      if (form.class_id === 'ALL_GRADE') {
+      if (meta.class_id === 'ALL_GRADE') {
         const inserts = classes.map(c => ({
           guru_id: user.id,
           class_id: c.id,
-          subject_name: form.subject_name,
-          title: form.title,
-          type: form.type,
+          subject_name: meta.subject_name,
+          title: meta.title,
+          type: meta.type,
           content: questionsToPublish
         }));
 
@@ -160,17 +207,18 @@ export default function CreateQuestions() {
       } else {
         const { error } = await supabase.from('tasks').insert([{
           guru_id: user.id,
-          class_id: form.class_id,
-          subject_name: form.subject_name,
-          title: form.title,
-          type: form.type,
+          class_id: meta.class_id,
+          subject_name: meta.subject_name,
+          title: meta.title,
+          type: meta.type,
           content: questionsToPublish
         }]);
 
         if (error) throw error;
-        alert(`✅ Sukses! ${questionsToPublish.length} butir soal berhasil diterbitkan dan siap dikerjakan siswa.`);
+        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil diterbitkan dan siap dikerjakan siswa.`);
       }
 
+      // Clear draft after publish
       setGeneratedQuestions(null);
       setEditingQuestionIdx(null);
       setForm({ class_id: '', subject_name: teacherSubjects[0] || '', title: '', type: 'pg', count: 5 });
@@ -185,20 +233,47 @@ export default function CreateQuestions() {
 
   const handlePublishTask = async () => {
     if (!generatedQuestions) return;
-    await publishQuestionsDirectly(generatedQuestions);
+    await publishQuestionsDirectly(generatedQuestions, draftMetadata);
   };
 
   const handleDeleteTask = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus tugas/soal ini?')) return;
+    if (!confirm('Apakah Anda yakin ingin menghapus paket soal/tugas ini? Data nilai siswa untuk tugas ini juga akan terhapus.')) return;
     const { error } = await supabase.from('tasks').delete().eq('id', id);
     if (!error) fetchTasks();
   };
 
   const removeQuestion = (idx: number) => {
     if (!generatedQuestions) return;
+    if (generatedQuestions.length <= 1) {
+      if (!confirm('Ini adalah butir soal terakhir. Yakin ingin menghapusnya?')) return;
+    }
     const updated = generatedQuestions.filter((_, i) => i !== idx);
     setGeneratedQuestions(updated);
     if (editingQuestionIdx === idx) setEditingQuestionIdx(null);
+  };
+
+  const duplicateQuestion = (idx: number) => {
+    if (!generatedQuestions) return;
+    const target = generatedQuestions[idx];
+    const clone = JSON.parse(JSON.stringify(target));
+    clone.question = `${clone.question} (Salinan)`;
+    const updated = [...generatedQuestions];
+    updated.splice(idx + 1, 0, clone);
+    setGeneratedQuestions(updated);
+    setEditingQuestionIdx(idx + 1);
+  };
+
+  const moveQuestion = (idx: number, direction: 'up' | 'down') => {
+    if (!generatedQuestions) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= generatedQuestions.length) return;
+    
+    const updated = [...generatedQuestions];
+    const temp = updated[idx];
+    updated[idx] = updated[targetIdx];
+    updated[targetIdx] = temp;
+    setGeneratedQuestions(updated);
+    setEditingQuestionIdx(targetIdx);
   };
 
   const addManualQuestion = () => {
@@ -207,6 +282,7 @@ export default function CreateQuestions() {
       question: 'Tulis pertanyaan baru di sini...',
       options: ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'],
       answer: 'A',
+      answerKey: '',
       explanation: 'Penjelasan jawaban'
     };
     if (generatedQuestions) {
@@ -214,7 +290,42 @@ export default function CreateQuestions() {
       setEditingQuestionIdx(generatedQuestions.length);
     } else {
       setGeneratedQuestions([newQ]);
+      setDraftMetadata({
+        class_id: form.class_id || (classes[0]?.id || ''),
+        subject_name: form.subject_name || (teacherSubjects[0] || 'Mata Pelajaran'),
+        title: form.title || 'Paket Soal Baru',
+        type: form.type || 'pg'
+      });
       setEditingQuestionIdx(0);
+    }
+  };
+
+  // Save changes to existing task
+  const handleSaveEditedTask = async () => {
+    if (!editingExistingTask) return;
+    setSavingEditTask(true);
+
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          title: editingExistingTask.title,
+          subject_name: editingExistingTask.subject_name,
+          class_id: editingExistingTask.class_id,
+          type: editingExistingTask.type,
+          content: editingExistingTask.content
+        })
+        .eq('id', editingExistingTask.id);
+
+      if (error) throw error;
+
+      alert('✅ Sukses! Perubahan paket soal berhasil disimpan.');
+      setEditingExistingTask(null);
+      fetchTasks();
+    } catch (err: any) {
+      alert('Gagal menyimpan perubahan: ' + err.message);
+    } finally {
+      setSavingEditTask(false);
     }
   };
 
@@ -253,11 +364,22 @@ export default function CreateQuestions() {
     <div className="space-y-8 max-w-5xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Buat Soal & Ujian (AI)</h1>
-        <p className="text-gray-500">Buat soal Pilihan Ganda, Esai, atau Campuran secara otomatis dengan AI dan terbitkan langsung ke siswa.</p>
+        <p className="text-gray-500">
+          Buat soal Pilihan Ganda, Esai, atau Campuran secara otomatis dengan AI, edit butir soal sebelum terbit, lalu bagikan ke siswa.
+        </p>
       </div>
 
       {/* Generator Form */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+        <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
+          <h2 className="font-bold text-gray-900 flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-blue-600" /> Form Racik Soal AI
+          </h2>
+          <span className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-full border border-blue-100">
+            Draf & Review Mode
+          </span>
+        </div>
+
         <form onSubmit={handleGenerateQuestions} className="space-y-6">
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div>
@@ -310,7 +432,7 @@ export default function CreateQuestions() {
             <div className="md:col-span-2 lg:col-span-1">
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  Judul / Topik Soal (Dapat Pilih Multi-Topik)
+                  Judul / Topik Soal
                 </label>
                 {uniqueMaterialTopics.length > 0 && (
                   <button
@@ -330,7 +452,7 @@ export default function CreateQuestions() {
                 <div className="space-y-2">
                   <div className="p-3 bg-gray-50 border border-gray-300 rounded-xl max-h-40 overflow-y-auto space-y-2">
                     <div className="text-xs text-gray-500 font-medium border-b border-gray-200 pb-1 mb-1 flex justify-between">
-                      <span>Centang 1 atau Lebih Topik:</span>
+                      <span>Centang Topik:</span>
                       <span className="font-bold text-blue-600">{selectedTopics.length} Terpilih</span>
                     </div>
                     {uniqueMaterialTopics.map((topName, idx) => {
@@ -411,7 +533,7 @@ export default function CreateQuestions() {
                   onChange={e => setAutoPublish(e.target.checked)}
                   className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
                 />
-                <span>⚡ Langsung terbitkan ke siswa setelah AI selesai</span>
+                <span>⚡ Langsung terbitkan ke siswa (tanpa review draf)</span>
               </label>
             </div>
           </div>
@@ -420,7 +542,7 @@ export default function CreateQuestions() {
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 transition flex items-center justify-center disabled:opacity-70 shadow-sm"
+              className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition flex items-center justify-center disabled:opacity-70 shadow-sm"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Sparkles className="w-5 h-5 mr-2" />}
               {loading ? 'AI Sedang Meracik Soal...' : 'Buatkan Soal dengan AI'}
@@ -429,7 +551,7 @@ export default function CreateQuestions() {
             <button
               type="button"
               onClick={addManualQuestion}
-              className="px-4 py-3 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition flex items-center text-sm"
+              className="px-4 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition flex items-center text-sm"
             >
               <PlusCircle className="w-4 h-4 mr-2 text-gray-600" /> + Tambah Soal Manual
             </button>
@@ -437,66 +559,153 @@ export default function CreateQuestions() {
         </form>
       </div>
 
-      {/* Generated Preview & Publish Section */}
+      {/* Generated Preview & Interactive Question Editor */}
       {generatedQuestions && (
         <div className="bg-white rounded-2xl shadow-lg border-2 border-blue-300 overflow-hidden animate-fadeIn">
           {/* Action Header Banner */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-5 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 p-5 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-6 h-6 text-green-300" />
-                <h2 className="text-xl font-bold">Hasil Soal AI ({generatedQuestions.length} Butir Soal)</h2>
+                <span className="px-2.5 py-0.5 bg-amber-400 text-amber-950 text-xs font-extrabold rounded-full uppercase tracking-wider">
+                  Draf Belum Terbit
+                </span>
+                <h2 className="text-xl font-bold">Hasil Soal ({generatedQuestions.length} Butir Soal)</h2>
               </div>
               <p className="text-xs text-blue-100 mt-1">
-                ⚠️ Klik tombol <strong>"Terbitkan ke Siswa Sekarang"</strong> di samping agar soal masuk ke daftar soal & dapat dikerjakan siswa.
+                ℹ️ Soal ini masih berupa draf. Silakan review, edit isi pertanyaan/jawaban di bawah, lalu klik <strong>"Terbitkan ke Siswa Sekarang"</strong>.
               </p>
             </div>
 
-            <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="flex items-center gap-2.5 w-full md:w-auto flex-wrap">
               <button
                 type="button"
                 onClick={addManualQuestion}
-                className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold backdrop-blur-sm transition flex items-center"
+                className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold backdrop-blur-sm transition flex items-center"
               >
                 <PlusCircle className="w-4 h-4 mr-1" /> + Tambah Butir
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Yakin ingin membuang draf soal ini?')) {
+                    setGeneratedQuestions(null);
+                    setEditingQuestionIdx(null);
+                  }
+                }}
+                className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-400/30 rounded-xl text-xs font-bold transition flex items-center"
+              >
+                <Trash2 className="w-4 h-4 mr-1" /> Buang Draf
+              </button>
+
               <button
                 onClick={handlePublishTask}
                 disabled={saving}
-                className="flex-1 md:flex-none px-6 py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 shadow-md transition flex items-center justify-center disabled:opacity-50 text-sm"
+                className="flex-1 md:flex-none px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold rounded-xl shadow-md transition flex items-center justify-center disabled:opacity-50 text-sm"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Send className="w-5 h-5 mr-2" />}
-                {saving ? 'Sedang Menerbitkan...' : '🚀 Terbitkan ke Siswa Sekarang'}
+                {saving ? 'Menerbitkan...' : '🚀 Terbitkan ke Siswa Sekarang'}
               </button>
             </div>
           </div>
 
+          {/* Draft Metadata Customizer */}
+          <div className="p-4 bg-blue-50/60 border-b border-blue-200 grid sm:grid-cols-3 gap-3 text-xs">
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Judul Paket Soal</label>
+              <input
+                type="text"
+                value={draftMetadata.title}
+                onChange={e => setDraftMetadata({ ...draftMetadata, title: e.target.value })}
+                className="w-full p-2 bg-white border border-gray-300 rounded-lg font-bold text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Mata Pelajaran</label>
+              <input
+                type="text"
+                value={draftMetadata.subject_name}
+                onChange={e => setDraftMetadata({ ...draftMetadata, subject_name: e.target.value })}
+                className="w-full p-2 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Target Kelas</label>
+              <select
+                value={draftMetadata.class_id}
+                onChange={e => setDraftMetadata({ ...draftMetadata, class_id: e.target.value })}
+                className="w-full p-2 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900"
+              >
+                <option value="ALL_GRADE">✨ Semua Kelas</option>
+                {classes.map(c => (
+                  <option key={c.id} value={c.id}>Kelas {c.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Questions Items List */}
           <div className="p-6 space-y-6">
             {generatedQuestions.map((q: any, idx: number) => {
               const isEditingThis = editingQuestionIdx === idx;
 
               return (
-                <div key={idx} className={`p-5 rounded-xl border transition ${isEditingThis ? 'bg-blue-50/50 border-blue-400' : 'bg-gray-50 border-gray-200'}`}>
+                <div 
+                  key={idx} 
+                  className={`p-5 rounded-2xl border transition-all ${
+                    isEditingThis 
+                      ? 'bg-blue-50/70 border-blue-400 shadow-md ring-2 ring-blue-200' 
+                      : 'bg-gray-50/80 border-gray-200 hover:border-gray-300'
+                  }`}
+                >
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2">
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${q.type === 'pg' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                        q.type === 'pg' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                      }`}>
                         {q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'}
                       </span>
-                      <span className="font-bold text-gray-900">Soal #{idx + 1}</span>
+                      <span className="font-bold text-gray-900 text-sm">Butir Soal #{idx + 1}</span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => moveQuestion(idx, 'up')}
+                        disabled={idx === 0}
+                        className="p-1.5 text-gray-500 hover:bg-gray-200 rounded-lg disabled:opacity-30"
+                        title="Geser ke Atas"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveQuestion(idx, 'down')}
+                        disabled={idx === generatedQuestions.length - 1}
+                        className="p-1.5 text-gray-500 hover:bg-gray-200 rounded-lg disabled:opacity-30"
+                        title="Geser ke Bawah"
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => duplicateQuestion(idx)}
+                        className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg"
+                        title="Duplikasi Soal"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => setEditingQuestionIdx(isEditingThis ? null : idx)}
-                        className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-100 rounded-lg font-semibold flex items-center gap-1 transition"
+                        className="px-2.5 py-1 text-xs text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg font-bold flex items-center gap-1 transition"
                       >
-                        <Edit2 className="w-3.5 h-3.5" /> {isEditingThis ? 'Selesai Edit' : 'Edit'}
+                        <Edit2 className="w-3.5 h-3.5" /> {isEditingThis ? 'Selesai Edit' : 'Edit Soal'}
                       </button>
                       <button
                         type="button"
                         onClick={() => removeQuestion(idx)}
-                        className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition"
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
                         title="Hapus Butir Soal"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -507,23 +716,61 @@ export default function CreateQuestions() {
                   {isEditingThis ? (
                     /* Inline Editing Mode */
                     <div className="space-y-4 pt-2">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">Teks Pertanyaan</label>
-                        <textarea
-                          rows={3}
-                          value={q.question}
-                          onChange={e => {
-                            const updated = [...generatedQuestions];
-                            updated[idx].question = e.target.value;
-                            setGeneratedQuestions(updated);
-                          }}
-                          className="w-full p-2.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 font-medium"
-                        />
+                      <div className="grid sm:grid-cols-4 gap-3">
+                        <div className="sm:col-span-3">
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Teks Pertanyaan</label>
+                          <textarea
+                            rows={3}
+                            value={q.question}
+                            onChange={e => {
+                              const updated = [...generatedQuestions];
+                              updated[idx].question = e.target.value;
+                              setGeneratedQuestions(updated);
+                            }}
+                            className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 font-medium"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Tipe Soal</label>
+                          <select
+                            value={q.type}
+                            onChange={e => {
+                              const updated = [...generatedQuestions];
+                              updated[idx].type = e.target.value;
+                              if (e.target.value === 'pg' && (!updated[idx].options || updated[idx].options.length === 0)) {
+                                updated[idx].options = ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'];
+                                updated[idx].answer = 'A';
+                              }
+                              setGeneratedQuestions(updated);
+                            }}
+                            className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold"
+                          >
+                            <option value="pg">Pilihan Ganda (PG)</option>
+                            <option value="essay">Esai</option>
+                          </select>
+                        </div>
                       </div>
 
                       {q.type === 'pg' && (
-                        <div className="space-y-2">
-                          <label className="block text-xs font-bold text-gray-700">Pilihan Jawaban & Kunci</label>
+                        <div className="space-y-2.5 bg-white p-3.5 rounded-xl border border-gray-200">
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="block text-xs font-bold text-gray-700">
+                              Pilihan Jawaban & Kunci (Klik huruf untuk menetapkan Kunci Jawaban)
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...generatedQuestions];
+                                const currentOpts = updated[idx].options || [];
+                                updated[idx].options = [...currentOpts, `Pilihan ${String.fromCharCode(65 + currentOpts.length)}`];
+                                setGeneratedQuestions(updated);
+                              }}
+                              className="text-xs font-bold text-blue-600 hover:text-blue-800"
+                            >
+                              + Tambah Opsi
+                            </button>
+                          </div>
+
                           {q.options?.map((opt: string, oIdx: number) => {
                             const letter = String.fromCharCode(65 + oIdx);
                             const isCorrect = q.answer === letter;
@@ -537,8 +784,8 @@ export default function CreateQuestions() {
                                     updated[idx].answer = letter;
                                     setGeneratedQuestions(updated);
                                   }}
-                                  className={`w-8 h-8 rounded-lg font-bold text-xs flex items-center justify-center transition ${
-                                    isCorrect ? 'bg-green-600 text-white shadow-sm' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                  className={`w-8 h-8 rounded-lg font-bold text-xs flex items-center justify-center transition shrink-0 ${
+                                    isCorrect ? 'bg-green-600 text-white shadow-sm ring-2 ring-green-300' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                   }`}
                                   title={`Jadikan ${letter} sebagai Kunci Jawaban`}
                                 >
@@ -552,13 +799,27 @@ export default function CreateQuestions() {
                                     updated[idx].options[oIdx] = e.target.value;
                                     setGeneratedQuestions(updated);
                                   }}
-                                  className="flex-1 p-2 bg-white border border-gray-300 rounded-lg text-sm"
+                                  className="flex-1 p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm"
                                   placeholder={`Pilihan ${letter}`}
                                 />
                                 {isCorrect && (
-                                  <span className="text-xs font-bold text-green-700 flex items-center">
+                                  <span className="text-xs font-bold text-green-700 flex items-center shrink-0">
                                     <Check className="w-3.5 h-3.5 mr-1" /> Kunci
                                   </span>
+                                )}
+                                {q.options.length > 2 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = [...generatedQuestions];
+                                      updated[idx].options = updated[idx].options.filter((_: any, oi: number) => oi !== oIdx);
+                                      setGeneratedQuestions(updated);
+                                    }}
+                                    className="p-1 text-gray-400 hover:text-red-500 rounded"
+                                    title="Hapus opsi ini"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
                                 )}
                               </div>
                             );
@@ -575,27 +836,49 @@ export default function CreateQuestions() {
                             onChange={e => {
                               const updated = [...generatedQuestions];
                               updated[idx].answerKey = e.target.value;
+                              updated[idx].answer = e.target.value;
                               setGeneratedQuestions(updated);
                             }}
                             className="w-full p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs"
+                            placeholder="Tuliskan kunci/rubrik penilaian esai..."
                           />
                         </div>
                       )}
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">Pembahasan / Penjelasan Singkat (Opsional)</label>
+                        <input
+                          type="text"
+                          value={q.explanation || ''}
+                          onChange={e => {
+                            const updated = [...generatedQuestions];
+                            updated[idx].explanation = e.target.value;
+                            setGeneratedQuestions(updated);
+                          }}
+                          className="w-full p-2 bg-white border border-gray-300 rounded-lg text-xs"
+                          placeholder="Penjelasan kenapa jawaban tersebut benar..."
+                        />
+                      </div>
                     </div>
                   ) : (
                     /* Read-Only Preview Mode */
                     <div>
-                      <p className="text-gray-900 font-medium mb-3">{q.question}</p>
+                      <p className="text-gray-900 font-medium mb-3 text-sm">{q.question}</p>
 
                       {q.type === 'pg' && q.options && (
-                        <div className="grid sm:grid-cols-2 gap-3 mb-2">
+                        <div className="grid sm:grid-cols-2 gap-2.5 mb-2">
                           {q.options.map((opt: string, oIdx: number) => {
                             const letter = String.fromCharCode(65 + oIdx);
                             const isCorrect = q.answer === letter || q.answer === opt;
                             return (
-                              <div key={oIdx} className={`p-3 rounded-lg border text-sm font-medium ${isCorrect ? 'bg-green-100 border-green-300 text-green-900 font-bold' : 'bg-white border-gray-200 text-gray-700'}`}>
-                                <span className="mr-2">{letter}.</span> {opt}
-                                {isCorrect && <span className="ml-2 text-xs text-green-700">✓ (Kunci)</span>}
+                              <div 
+                                key={oIdx} 
+                                className={`p-2.5 rounded-xl border text-xs font-medium flex items-center justify-between ${
+                                  isCorrect ? 'bg-green-100 border-green-300 text-green-950 font-bold' : 'bg-white border-gray-200 text-gray-700'
+                                }`}
+                              >
+                                <span><strong className="mr-1.5">{letter}.</strong> {opt}</span>
+                                {isCorrect && <span className="text-xs text-green-700 font-extrabold">✓ (Kunci)</span>}
                               </div>
                             );
                           })}
@@ -603,9 +886,15 @@ export default function CreateQuestions() {
                       )}
 
                       {q.type === 'essay' && (
-                        <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-xs text-amber-900">
+                        <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-xs text-amber-900">
                           <span className="font-bold">Kunci Jawaban Esai:</span> {q.answerKey || q.answer || '-'}
                         </div>
+                      )}
+
+                      {q.explanation && (
+                        <p className="text-[11px] text-gray-500 mt-2 bg-gray-100/70 p-2 rounded-lg">
+                          💡 <strong>Pembahasan:</strong> {q.explanation}
+                        </p>
                       )}
                     </div>
                   )}
@@ -615,16 +904,27 @@ export default function CreateQuestions() {
           </div>
 
           {/* Sticky Bottom Publish Button */}
-          <div className="bg-gray-100 p-4 border-t border-gray-200 flex justify-between items-center">
-            <span className="text-sm font-semibold text-gray-700">Total {generatedQuestions.length} Butir Soal Terbentuk</span>
-            <button
-              onClick={handlePublishTask}
-              disabled={saving}
-              className="px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md transition flex items-center disabled:opacity-50 text-sm"
-            >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Send className="w-5 h-5 mr-2" />}
-              {saving ? 'Sedang Menerbitkan...' : '🚀 Terbitkan ke Siswa Sekarang'}
-            </button>
+          <div className="bg-gray-100 p-4 border-t border-gray-200 flex justify-between items-center flex-wrap gap-3">
+            <span className="text-sm font-semibold text-gray-700">
+              Total {generatedQuestions.length} Butir Soal Terbentuk (Draf)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={addManualQuestion}
+                className="px-4 py-2.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-xl font-bold text-xs transition"
+              >
+                + Tambah Butir
+              </button>
+              <button
+                onClick={handlePublishTask}
+                disabled={saving}
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md transition flex items-center disabled:opacity-50 text-sm"
+              >
+                {saving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Send className="w-5 h-5 mr-2" />}
+                {saving ? 'Sedang Menerbitkan...' : '🚀 Terbitkan ke Siswa Sekarang'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -684,6 +984,13 @@ export default function CreateQuestions() {
                       <Eye className="w-3.5 h-3.5" /> Lihat
                     </button>
                     <button 
+                      onClick={() => setEditingExistingTask(JSON.parse(JSON.stringify(task)))}
+                      className="px-3 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                      title="Edit Paket Soal"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Edit
+                    </button>
+                    <button 
                       onClick={() => handleDeleteTask(task.id)}
                       className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
                       title="Hapus Tugas"
@@ -702,10 +1009,10 @@ export default function CreateQuestions() {
       {selectedTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-blue-50">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">{selectedTask.title}</h3>
-                <p className="text-xs text-gray-500">Kelas {selectedTask.className || getClassName(selectedTask.class_id)} • {selectedTask.subject_name}</p>
+                <h3 className="text-lg font-bold text-blue-950">{selectedTask.title}</h3>
+                <p className="text-xs text-blue-700">Kelas {selectedTask.className || getClassName(selectedTask.class_id)} • {selectedTask.subject_name}</p>
               </div>
               <button 
                 onClick={() => setSelectedTask(null)}
@@ -737,8 +1044,202 @@ export default function CreateQuestions() {
                       <span className="font-bold">Kunci Jawaban:</span> {q.answerKey || q.answer}
                     </p>
                   )}
+                  {q.explanation && (
+                    <p className="text-xs text-gray-500 mt-2 bg-gray-100 p-2 rounded">
+                      💡 <strong>Pembahasan:</strong> {q.explanation}
+                    </p>
+                  )}
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Published Task Modal */}
+      {editingExistingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-amber-50">
+              <div>
+                <h3 className="text-lg font-bold text-amber-950 flex items-center gap-2">
+                  <Edit2 className="w-5 h-5 text-amber-600" /> Edit Paket Soal Terbit
+                </h3>
+                <p className="text-xs text-amber-700">Perbarui judul, mata pelajaran, target kelas, atau perbaiki butir soal yang telah terbit.</p>
+              </div>
+              <button 
+                onClick={() => setEditingExistingTask(null)}
+                className="text-gray-400 hover:text-gray-600 p-2"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              <div className="grid md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Judul Paket Soal</label>
+                  <input
+                    type="text"
+                    value={editingExistingTask.title || ''}
+                    onChange={e => setEditingExistingTask({ ...editingExistingTask, title: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-sm font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Mata Pelajaran</label>
+                  <input
+                    type="text"
+                    value={editingExistingTask.subject_name || ''}
+                    onChange={e => setEditingExistingTask({ ...editingExistingTask, subject_name: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Target Kelas</label>
+                  <select
+                    value={editingExistingTask.class_id || ''}
+                    onChange={e => setEditingExistingTask({ ...editingExistingTask, class_id: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-sm font-semibold"
+                  >
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>Kelas {c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Questions Editor Inside Edit Modal */}
+              <div className="space-y-4 pt-2 border-t border-gray-200">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-bold text-gray-900 text-sm">Daftar Butir Pertanyaan ({editingExistingTask.content?.length || 0})</h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newQ = {
+                        type: 'pg',
+                        question: 'Tulis pertanyaan baru...',
+                        options: ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'],
+                        answer: 'A'
+                      };
+                      setEditingExistingTask({
+                        ...editingExistingTask,
+                        content: [...(editingExistingTask.content || []), newQ]
+                      });
+                    }}
+                    className="text-xs font-bold text-amber-700 hover:text-amber-900 bg-amber-100 px-3 py-1.5 rounded-lg flex items-center gap-1"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" /> Tambah Butir Soal
+                  </button>
+                </div>
+
+                {Array.isArray(editingExistingTask.content) && editingExistingTask.content.map((q: any, qIdx: number) => (
+                  <div key={qIdx} className="bg-amber-50/40 p-4 rounded-xl border border-amber-200/70 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-xs text-gray-700">Soal #{qIdx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = editingExistingTask.content.filter((_: any, i: number) => i !== qIdx);
+                          setEditingExistingTask({ ...editingExistingTask, content: updated });
+                        }}
+                        className="text-red-500 hover:text-red-700 p-1"
+                        title="Hapus butir soal"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Pertanyaan</label>
+                      <textarea
+                        rows={2}
+                        value={q.question}
+                        onChange={e => {
+                          const updated = [...editingExistingTask.content];
+                          updated[qIdx].question = e.target.value;
+                          setEditingExistingTask({ ...editingExistingTask, content: updated });
+                        }}
+                        className="w-full p-2 bg-white border border-gray-300 rounded-lg text-sm font-medium"
+                      />
+                    </div>
+
+                    {q.type === 'pg' && q.options && (
+                      <div className="space-y-2 bg-white p-3 rounded-lg border border-gray-200">
+                        <label className="block text-xs font-bold text-gray-700">Pilihan Jawaban (Klik huruf untuk kunci):</label>
+                        {q.options.map((opt: string, oIdx: number) => {
+                          const letter = String.fromCharCode(65 + oIdx);
+                          const isCorrect = q.answer === letter;
+
+                          return (
+                            <div key={oIdx} className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = [...editingExistingTask.content];
+                                  updated[qIdx].answer = letter;
+                                  setEditingExistingTask({ ...editingExistingTask, content: updated });
+                                }}
+                                className={`w-7 h-7 rounded text-xs font-bold shrink-0 ${
+                                  isCorrect ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
+                                }`}
+                              >
+                                {letter}
+                              </button>
+                              <input
+                                type="text"
+                                value={opt}
+                                onChange={e => {
+                                  const updated = [...editingExistingTask.content];
+                                  updated[qIdx].options[oIdx] = e.target.value;
+                                  setEditingExistingTask({ ...editingExistingTask, content: updated });
+                                }}
+                                className="flex-1 p-1.5 text-xs bg-gray-50 border border-gray-300 rounded"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {q.type === 'essay' && (
+                      <div>
+                        <label className="block text-xs font-bold text-amber-800 mb-1">Kunci Jawaban Esai:</label>
+                        <textarea
+                          rows={2}
+                          value={q.answerKey || q.answer || ''}
+                          onChange={e => {
+                            const updated = [...editingExistingTask.content];
+                            updated[qIdx].answerKey = e.target.value;
+                            updated[qIdx].answer = e.target.value;
+                            setEditingExistingTask({ ...editingExistingTask, content: updated });
+                          }}
+                          className="w-full p-2 bg-white border border-amber-200 rounded-lg text-xs"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setEditingExistingTask(null)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-100 transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={savingEditTask}
+                onClick={handleSaveEditedTask}
+                className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 disabled:opacity-70 shadow-sm"
+              >
+                {savingEditTask ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {savingEditTask ? 'Menyimpan...' : 'Simpan Perubahan Paket Soal'}
+              </button>
             </div>
           </div>
         </div>

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check } from 'lucide-react';
+import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink } from 'lucide-react';
 import { generateMaterialApi } from '../../lib/aiService';
+import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
 
@@ -28,7 +29,8 @@ function MaterialGenerator() {
     grade: '',
     class_id: '',
     topic: '',
-    description: ''
+    description: '',
+    mediaPreference: 'both' // 'both', 'video', 'image'
   });
 
   useEffect(() => {
@@ -94,6 +96,7 @@ function MaterialGenerator() {
       if (!data.imageUrl) {
         data.imageUrl = `https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=1200&q=80`;
       }
+      data.mediaType = form.mediaPreference || 'both';
       setResult(data);
     } catch (err: any) {
       alert(err.message || 'Gagal meracik bahan ajar');
@@ -151,7 +154,7 @@ function MaterialGenerator() {
 
       setResult(null);
       setIsEditing(false);
-      setForm({ subject: teacherSubjects[0] || '', grade: '', class_id: '', topic: '', description: '' });
+      setForm({ subject: teacherSubjects[0] || '', grade: '', class_id: '', topic: '', description: '', mediaPreference: 'both' });
       fetchSavedMaterials();
     } catch (err: any) {
       alert('Gagal menyimpan bahan ajar: ' + (err.message || 'Terjadi kesalahan saat menyimpan'));
@@ -202,7 +205,7 @@ function MaterialGenerator() {
     <div className="space-y-8 max-w-5xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Bahan Ajar Cerdas (AI)</h1>
-        <p className="text-gray-500">Buat materi pembelajaran interaktif lengkap dengan Peta Konsep, Gambar Pendukung, dan Mode Presentasi Fullscreen.</p>
+        <p className="text-gray-500">Buat materi pembelajaran interaktif lengkap dengan Gambar/Video Pembelajaran, Peta Konsep, dan Mode Presentasi Fullscreen.</p>
       </div>
 
       {/* Generator Form */}
@@ -276,17 +279,35 @@ function MaterialGenerator() {
           </div>
         </div>
 
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Deskripsi Materi / Instruksi Khusus (Opsional - Agar AI Lebih Presisi)
-          </label>
-          <textarea
-            rows={2}
-            value={form.description}
-            onChange={e => setForm({...form, description: e.target.value})}
-            placeholder="Contoh: Fokuskan pada penjelasan organ lambung & usus halus, enzim yang bekerja, serta penyakit pencernaan seperti maag dan diare."
-            className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-          />
+        <div className="grid md:grid-cols-3 gap-4 mb-6">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Deskripsi Materi / Instruksi Khusus (Opsional - Agar AI Lebih Presisi)
+            </label>
+            <textarea
+              rows={2}
+              value={form.description}
+              onChange={e => setForm({...form, description: e.target.value})}
+              placeholder="Contoh: Fokuskan pada penjelasan organ lambung & usus halus, enzim yang bekerja, serta penyakit pencernaan seperti maag dan diare."
+              className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Format Media yang Diinginkan
+            </label>
+            <select
+              value={form.mediaPreference}
+              onChange={e => setForm({...form, mediaPreference: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-gray-800 bg-gray-50"
+            >
+              <option value="both">🖼️ & 🎥 Gambar + Video YouTube</option>
+              <option value="video">🎥 Video Pembelajaran YouTube</option>
+              <option value="image">🖼️ Gambar Ilustrasi Saja</option>
+            </select>
+            <p className="text-[11px] text-gray-500 mt-1">Anda juga dapat mengganti atau mengunggah gambar/video sendiri setelah AI selesai.</p>
+          </div>
         </div>
 
         <button 
@@ -295,7 +316,7 @@ function MaterialGenerator() {
           className="w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition flex items-center justify-center disabled:opacity-70 shadow-sm"
         >
           {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Sparkles className="w-5 h-5 mr-2" />}
-          {loading ? 'AI Sedang Meracik Materi...' : 'Generate Bahan Ajar Interaktif'}
+          {loading ? 'AI Sedang Meracik Materi & Media...' : 'Generate Bahan Ajar Interaktif'}
         </button>
       </div>
 
@@ -320,7 +341,7 @@ function MaterialGenerator() {
                 }`}
               >
                 <Edit3 className="w-4 h-4 mr-1.5" />
-                {isEditing ? 'Selesai Edit' : 'Perbaiki Materi'}
+                {isEditing ? 'Selesai Edit' : 'Perbaiki Materi & Media'}
               </button>
 
               <button
@@ -356,38 +377,17 @@ function MaterialGenerator() {
           </div>
           
           <div className="p-8 space-y-8">
-            {/* Supporting Image */}
-            <div className="relative rounded-2xl overflow-hidden border border-gray-200 bg-gray-900 group max-h-80">
-              <img 
-                src={result.imageUrl || "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=1200&q=80"} 
-                alt="Gambar Pendukung Materi" 
-                className="w-full h-80 object-cover opacity-90 group-hover:scale-105 transition duration-500"
-                onError={(e) => {
-                  (e.target as HTMLElement).setAttribute('src', 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80');
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-gray-950/80 via-transparent to-black/20 p-6 flex flex-col justify-end">
-                <div className="flex items-center gap-2">
-                  <span className="px-3 py-1 bg-indigo-600/90 text-white text-xs font-bold rounded-full backdrop-blur-sm flex items-center">
-                    <Image className="w-3.5 h-3.5 mr-1" /> Gambar Pendukung Pembelajaran
-                  </span>
-                </div>
-                <h3 className="text-xl font-bold text-white mt-1">{form.topic || 'Materi Visual'}</h3>
-              </div>
-            </div>
-
-            {isEditing && (
-              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-xs space-y-2">
-                <label className="font-bold text-amber-900 block">URL Gambar Pendukung Custom:</label>
-                <input 
-                  type="text"
-                  value={result.imageUrl || ''}
-                  onChange={e => setResult({ ...result, imageUrl: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full p-2.5 bg-white border border-amber-300 rounded-lg text-xs"
-                />
-              </div>
-            )}
+            {/* Supporting Media: Video / Image */}
+            <MediaViewer
+              imageUrl={result.imageUrl}
+              videoUrl={result.videoUrl}
+              mediaType={result.mediaType || 'both'}
+              title={form.topic || 'Bahan Ajar Visual'}
+              isEditing={isEditing}
+              onImageUrlChange={url => setResult({ ...result, imageUrl: url })}
+              onVideoUrlChange={url => setResult({ ...result, videoUrl: url })}
+              onMediaTypeChange={type => setResult({ ...result, mediaType: type })}
+            />
 
             {/* Fun Fact & Real World Application */}
             {result.funFact && (
@@ -436,7 +436,7 @@ function MaterialGenerator() {
                   <span key={idx} className="px-4 py-2 bg-indigo-50 text-indigo-800 rounded-full text-sm font-semibold border border-indigo-100 flex items-center gap-1">
                     {isEditing ? (
                       <input 
-                        type="text"
+                        type="text" 
                         value={item}
                         onChange={e => {
                           const updated = [...result.mindMap];
@@ -536,6 +536,7 @@ function MaterialGenerator() {
                 <tr>
                   <th className="px-4 py-3">No</th>
                   <th className="px-4 py-3">Judul & Topik</th>
+                  <th className="px-4 py-3">Media</th>
                   <th className="px-4 py-3">Mata Pelajaran</th>
                   <th className="px-4 py-3">Target Kelas</th>
                   <th className="px-4 py-3">Tanggal Terbit</th>
@@ -549,6 +550,23 @@ function MaterialGenerator() {
                     <td className="px-4 py-3">
                       <div className="font-bold text-gray-900">{mat.title || mat.topic}</div>
                       <div className="text-xs text-indigo-600">{mat.topic}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        {mat.content_json?.videoUrl && (
+                          <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-md text-[11px] font-bold border border-red-100 flex items-center gap-1" title="Terdapat Video">
+                            <Film className="w-3 h-3" /> Video
+                          </span>
+                        )}
+                        {mat.content_json?.imageUrl && (
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[11px] font-bold border border-blue-100 flex items-center gap-1" title="Terdapat Gambar">
+                            <Image className="w-3 h-3" /> Gambar
+                          </span>
+                        )}
+                        {!mat.content_json?.videoUrl && !mat.content_json?.imageUrl && (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="font-semibold text-gray-800">{mat.subject_name || '-'}</span>
@@ -590,7 +608,7 @@ function MaterialGenerator() {
                           className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
                           title="Hapus"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -628,14 +646,21 @@ function MaterialGenerator() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* Image */}
-              {selectedMaterial.content_json?.imageUrl && (
-                <div className="rounded-xl overflow-hidden border border-gray-200">
-                  <img 
-                    src={selectedMaterial.content_json.imageUrl} 
-                    alt="Visual Bahan Ajar" 
-                    className="w-full h-64 object-cover"
-                  />
+              {/* Media Viewer in Modal */}
+              <MediaViewer
+                imageUrl={selectedMaterial.content_json?.imageUrl}
+                videoUrl={selectedMaterial.content_json?.videoUrl}
+                mediaType={selectedMaterial.content_json?.mediaType || 'both'}
+                title={selectedMaterial.title}
+              />
+
+              {/* Fun Fact */}
+              {selectedMaterial.content_json?.funFact && (
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200">
+                  <h4 className="font-bold text-amber-900 text-xs flex items-center gap-1.5 mb-1">
+                    <Sparkles className="w-4 h-4 text-amber-600" /> Tahukah Kamu? (Fun Fact)
+                  </h4>
+                  <p className="text-amber-800 text-xs leading-relaxed">{selectedMaterial.content_json.funFact}</p>
                 </div>
               )}
 
@@ -691,16 +716,14 @@ function MaterialGenerator() {
           </div>
 
           <div className="max-w-6xl mx-auto w-full space-y-12 flex-1 pb-16">
-            {/* Supporting Image in Fullscreen */}
-            {fullscreenMaterial.content_json?.imageUrl && (
-              <div className="rounded-3xl overflow-hidden border border-gray-800 bg-gray-900 max-h-[450px]">
-                <img 
-                  src={fullscreenMaterial.content_json.imageUrl} 
-                  alt="Slide Image" 
-                  className="w-full h-[450px] object-cover"
-                />
-              </div>
-            )}
+            {/* Supporting Media in Fullscreen */}
+            <MediaViewer
+              imageUrl={fullscreenMaterial.content_json?.imageUrl}
+              videoUrl={fullscreenMaterial.content_json?.videoUrl}
+              mediaType={fullscreenMaterial.content_json?.mediaType || 'both'}
+              title={fullscreenMaterial.title}
+              className="max-w-5xl mx-auto"
+            />
 
             {/* Mindmap Fullscreen */}
             {fullscreenMaterial.content_json?.mindMap && (
@@ -742,7 +765,7 @@ function MaterialGenerator() {
                 <h3 className="text-lg font-bold text-amber-950 flex items-center gap-2">
                   <Edit3 className="w-5 h-5 text-amber-600" /> Edit Bahan Ajar
                 </h3>
-                <p className="text-xs text-amber-700">Perbarui judul, topik, target kelas, atau isi materi yang tersimpan.</p>
+                <p className="text-xs text-amber-700">Perbarui judul, topik, target kelas, media video/gambar, atau isi materi yang tersimpan.</p>
               </div>
               <button 
                 onClick={() => setEditingSavedMaterial(null)} 
@@ -796,6 +819,41 @@ function MaterialGenerator() {
                       <option key={c.id} value={c.id}>Kelas {c.name}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              {/* Media Settings in Edit Modal */}
+              <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-3">
+                <h4 className="font-bold text-amber-950 text-xs flex items-center gap-1.5">
+                  <Film className="w-4 h-4 text-red-600" /> Media Gambar & Video
+                </h4>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">URL Video (YouTube / MP4)</label>
+                    <input
+                      type="text"
+                      value={editingSavedMaterial.content_json?.videoUrl || ''}
+                      onChange={e => {
+                        const updated = { ...editingSavedMaterial.content_json, videoUrl: e.target.value };
+                        setEditingSavedMaterial({ ...editingSavedMaterial, content_json: updated });
+                      }}
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      className="w-full p-2 border border-gray-300 rounded-lg text-xs bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">URL Gambar Ilustrasi</label>
+                    <input
+                      type="text"
+                      value={editingSavedMaterial.content_json?.imageUrl || ''}
+                      onChange={e => {
+                        const updated = { ...editingSavedMaterial.content_json, imageUrl: e.target.value };
+                        setEditingSavedMaterial({ ...editingSavedMaterial, content_json: updated });
+                      }}
+                      placeholder="https://images.unsplash.com/..."
+                      className="w-full p-2 border border-gray-300 rounded-lg text-xs bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 

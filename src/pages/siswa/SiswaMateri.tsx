@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Search, Eye, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle } from 'lucide-react';
+import { BookOpen, Search, Eye, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle, Film, Image } from 'lucide-react';
+import MediaViewer from '../../components/MediaViewer';
 
 export default function SiswaMateri() {
   const { user } = useAuth();
@@ -75,9 +76,21 @@ export default function SiswaMateri() {
             <div key={mat.id} className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm hover:border-blue-300 transition flex flex-col justify-between">
               <div>
                 <div className="flex justify-between items-start mb-3">
-                  <span className="px-3 py-1 bg-blue-50 text-blue-700 font-bold text-xs rounded-full border border-blue-100">
-                    {mat.subject_name || 'Mata Pelajaran'}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="px-3 py-1 bg-blue-50 text-blue-700 font-bold text-xs rounded-full border border-blue-100">
+                      {mat.subject_name || 'Mata Pelajaran'}
+                    </span>
+                    {mat.content_json?.videoUrl && (
+                      <span className="px-2 py-0.5 bg-red-50 text-red-700 font-bold text-[11px] rounded-md border border-red-100 flex items-center gap-1">
+                        <Film className="w-3 h-3" /> Video
+                      </span>
+                    )}
+                    {mat.content_json?.imageUrl && (
+                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-bold text-[11px] rounded-md border border-indigo-100 flex items-center gap-1">
+                        <Image className="w-3 h-3" /> Gambar
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs text-gray-400">
                     {new Date(mat.created_at).toLocaleDateString('id-ID')}
                   </span>
@@ -118,19 +131,13 @@ export default function SiswaMateri() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* Supporting Image if available */}
-              {selectedMaterial.content_json?.imageUrl && (
-                <div className="rounded-2xl overflow-hidden max-h-64 border border-gray-200 shadow-sm">
-                  <img
-                    src={selectedMaterial.content_json.imageUrl}
-                    alt={selectedMaterial.title}
-                    className="w-full h-64 object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                </div>
-              )}
+              {/* Media Player / Image Viewer */}
+              <MediaViewer
+                imageUrl={selectedMaterial.content_json?.imageUrl}
+                videoUrl={selectedMaterial.content_json?.videoUrl}
+                mediaType={selectedMaterial.content_json?.mediaType || 'both'}
+                title={selectedMaterial.title}
+              />
 
               {/* Fun Fact / Tahukah Kamu */}
               {selectedMaterial.content_json?.funFact && (

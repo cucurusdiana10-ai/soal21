@@ -15,6 +15,25 @@ function parseJsonSafely(text: string) {
 }
 
 function apiDevPlugin(geminiApiKey: string): Plugin {
+  const executeWithFallback = async (ai: GoogleGenAI, prompt: string) => {
+    const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
+    let lastErr = null;
+    for (const model of models) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: { responseMimeType: 'application/json' }
+        });
+        const text = response.text;
+        if (text) return parseJsonSafely(text);
+      } catch (e: any) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error('Gagal menghubungi model Gemini');
+  };
+
   return {
     name: 'api-gemini-server',
     configureServer(server) {
@@ -53,9 +72,12 @@ Mata Pelajaran: ${subject}
 Kelas/Tingkat: ${grade}
 Capaian Pembelajaran / Topik: "${fullTopic}"
 
+Bahan ajar harus memuat elemen visual/media (Gambar dan/atau Rekomendasi Video Pembelajaran YouTube yang relevan).
 Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
   "imageUrl": "URL foto Unsplash berkualitas tinggi dan relevan dengan topik, contoh: https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
+  "videoUrl": "URL video pembelajaran YouTube yang relevan dengan topik (contoh: https://www.youtube.com/watch?v=dQw4w9WgXcQ atau https://youtu.be/xxx atau link embed edukasi relevan)",
+  "mediaType": "both",
   "mindMap": [
     "Konsep Inti 1",
     "Konsep Inti 2",
@@ -94,15 +116,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ]
 }`;
 
-            const response = await ai.models.generateContent({
-              model: 'gemini-3.6-flash',
-              contents: prompt,
-              config: { responseMimeType: 'application/json' }
-            });
-
-            const text = response.text;
-            if (!text) throw new Error('Tidak ada respon teks dari AI Gemini.');
-            const parsed = parseJsonSafely(text);
+            const parsed = await executeWithFallback(ai, prompt);
             return res.end(JSON.stringify(parsed));
           } catch (err: any) {
             console.error('Error in /api/generate-material:', err);
@@ -160,15 +174,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
             prompt += `  }\n`;
             prompt += `]`;
 
-            const response = await ai.models.generateContent({
-              model: 'gemini-3.6-flash',
-              contents: prompt,
-              config: { responseMimeType: 'application/json' }
-            });
-
-            const text = response.text;
-            if (!text) throw new Error('Tidak ada respon dari AI');
-            const parsed = parseJsonSafely(text);
+            const parsed = await executeWithFallback(ai, prompt);
             return res.end(JSON.stringify(parsed));
           } catch (err: any) {
             console.error('Error in /api/generate-questions:', err);
