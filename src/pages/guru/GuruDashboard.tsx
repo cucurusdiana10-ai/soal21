@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink } from 'lucide-react';
@@ -7,6 +7,7 @@ import { generateMaterialApi } from '../../lib/aiService';
 import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
+import CreateModulAjar from './CreateModulAjar';
 
 function MaterialGenerator() {
   const { user } = useAuth();
@@ -203,9 +204,18 @@ function MaterialGenerator() {
 
   return (
     <div className="space-y-8 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Bahan Ajar Cerdas (AI)</h1>
-        <p className="text-gray-500">Buat materi pembelajaran interaktif lengkap dengan Gambar/Video Pembelajaran, Peta Konsep, dan Mode Presentasi Fullscreen.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Bahan Ajar Cerdas (AI)</h1>
+          <p className="text-gray-500">Buat materi pembelajaran interaktif lengkap dengan Gambar/Video Pembelajaran, Peta Konsep, dan Mode Presentasi Fullscreen.</p>
+        </div>
+        <Link
+          to="/dashboard/modul"
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white font-bold text-sm rounded-xl shadow-sm transition"
+        >
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          Buat Modul Ajar Otomatis →
+        </Link>
       </div>
 
       {/* Generator Form */}
@@ -929,6 +939,9 @@ function MaterialGenerator() {
 export default function GuruDashboard() {
   const location = useLocation();
 
+  if (location.pathname.startsWith('/dashboard/modul')) {
+    return <CreateModulAjar />;
+  }
   if (location.pathname.startsWith('/dashboard/soal')) {
     return <CreateQuestions />;
   }

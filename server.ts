@@ -240,6 +240,298 @@ Berikan penilaian dalam format JSON dengan struktur:
   app.post('/api/grade-essay', handleGradeEssay);
   app.post('/api/ai/grade-essay', handleGradeEssay);
 
+  // Handler for Modul Ajar Pembelajaran Mendalam Generation
+  const handleModulGen = async (req: express.Request, res: express.Response) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
+      }
+
+      const {
+        subject,
+        cp,
+        grade,
+        metode,
+        pertemuanCount,
+        alokasiWaktu,
+        namaGuru,
+        nipGuru,
+        namaSekolah,
+        npsn,
+        alamatSekolah,
+        tahunPelajaran,
+        semester,
+        namaKepsek
+      } = req.body;
+
+      if (!subject || !cp) {
+        return res.status(400).json({ error: 'Mata pelajaran dan Capaian Pembelajaran wajib diisi.' });
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build'
+          }
+        }
+      });
+
+      const schoolName = namaSekolah || 'SMAN 21 Garut';
+      const schoolNpsn = npsn || '20209194';
+      const schoolAddress = alamatSekolah || 'Jl. Raya Talegong No. 21, Kec. Talegong, Kab. Garut, Jawa Barat 44167';
+      const teacherName = namaGuru || 'Guru Pengampu';
+      const teacherNip = nipGuru || '-';
+      const totalMeetings = Number(pertemuanCount) || 2;
+      const timeAllocation = alokasiWaktu || '2 x 45 Menit';
+      const methodChosen = metode || 'Problem-Based Learning (PBL)';
+      const targetGrade = grade || 'Fase E (Kelas X)';
+      const academicYear = tahunPelajaran || '2026/2027';
+      const currentSemester = semester || 'Ganjil';
+      const headmaster = namaKepsek || 'Agus Supriatna, S.Pd., M.Si.';
+
+      const prompt = `Anda adalah seorang ahli pengembang kurikulum nasional dan pakar Pembelajaran Mendalam (Deep Learning) serta Kurikulum Merdeka untuk jenjang SMA di ${schoolName}.
+Tugas Anda adalah merancang "MODUL AJAR PEMBELAJARAN MENDALAM (DEEP LEARNING)" yang sangat komprehensif, operasional, berbobot tinggi, dan siap pakai.
+
+DATA MASUKAN:
+- Nama Satuan Pendidikan: ${schoolName}
+- NPSN: ${schoolNpsn}
+- Alamat Sekolah: ${schoolAddress}
+- Nama Penyusun (Guru): ${teacherName}
+- NIP/ID Guru: ${teacherNip}
+- Kepala Sekolah: ${headmaster}
+- Tahun Pelajaran: ${academicYear}
+- Semester: ${currentSemester}
+- Mata Pelajaran: ${subject}
+- Fase / Kelas: ${targetGrade}
+- Capaian Pembelajaran (CP): "${cp}"
+- Metode Pembelajaran Terpilih: "${methodChosen}"
+- Jumlah Pertemuan Yang Dibuat: Tepat ${totalMeetings} Pertemuan
+- Alokasi Waktu: ${timeAllocation} per Pertemuan
+
+PRINSIP PEMBELAJARAN MENDALAM (DEEP LEARNING):
+1. Mindful (Berkesadaran): Peserta didik sadar tujuan belajar, fokus, dan aktif merefleksikan proses berpikirnya (metakognisi).
+2. Meaningful (Bermakna): Menghubungkan konsep secara mendalam dengan konteks nyata di lingkungan siswa, studi kasus otentik, dan kebermanfaatan hidup.
+3. Joyful (Menyenangkan): Pengalaman belajar menggugah rasa ingin tahu, kolaboratif, tanpa tekanan intimidatif, dan merayakan pencapaian.
+Serta mengikuti SINTAKS RESMI dari Metode Pembelajaran terpilih ("${methodChosen}") pada Kegiatan Inti di setiap pertemuan secara berurutan.
+
+WAJIB MENGEMBALIKAN RESPONS DALAM FORMAT JSON MURNI YANG VALID (tanpa pembuka markdown atau teks pengantar lain).
+Gunakan struktur JSON berikut:
+{
+  "identitas": {
+    "namaSekolah": "${schoolName}",
+    "npsn": "${schoolNpsn}",
+    "alamatSekolah": "${schoolAddress}",
+    "namaGuru": "${teacherName}",
+    "nipGuru": "${teacherNip}",
+    "mataPelajaran": "${subject}",
+    "fase": "${targetGrade}",
+    "alokasiWaktu": "${timeAllocation} per Pertemuan",
+    "jumlahPertemuan": ${totalMeetings},
+    "tahunPelajaran": "${academicYear}",
+    "semester": "${currentSemester}",
+    "namaKepsek": "${headmaster}"
+  },
+  "capaianPembelajaran": "${cp}",
+  "elemenCp": "Elemen/Domain konten utama CP",
+  "tujuanPembelajaran": [
+    "TP operasional 1 terukur dengan KKO",
+    "TP operasional 2 terukur dengan KKO",
+    "TP operasional 3 terukur dengan KKO"
+  ],
+  "pemahamanBermakna": "Intisari pemahaman bermakna yang bertahan lama dan relevan dengan kehidupan sehari-hari siswa SMA",
+  "pertanyaanPemantik": [
+    "Pertanyaan terbuka menantang 1?",
+    "Pertanyaan terbuka menantang 2?",
+    "Pertanyaan terbuka menantang 3?"
+  ],
+  "dimensiProfilPelajarPancasila": [
+    "Bernalar Kritis: Menemukan dan memecahkan persoalan secara logis",
+    "Gotong Royong: Berkolaborasi aktif dalam kelompok",
+    "Kreatif: Menghasilkan solusi alternatif inovatif",
+    "Mandiri: Mengembangkan regulasi diri dalam belajar"
+  ],
+  "prinsipPembelajaranMendalam": {
+    "mindful": "Penerapan berkesadaran penuh dalam proses belajar topik ini",
+    "meaningful": "Keterkaitan topik dengan realitas dan solusi masalah nyata di lingkungan siswa",
+    "joyful": "Aktivitas eksploratif interaktif yang membangun kegembiraan belajar"
+  },
+  "saranaPrasarana": {
+    "media": ["Media digital, infografis, video interaktif, presentasi"],
+    "alatBahan": ["Laptop, proyektor, smartphone, papan tulis, LKPD"],
+    "sumberBelajar": ["Buku teks Kurikulum Merdeka, modul ajar digital, sumber artikel online terpercaya"]
+  },
+  "targetPesertaDidik": "Peserta didik reguler/tipikal, dengan diferensiasi untuk peserta didik berkemampuan tinggi maupun yang memerlukan bimbingan tambahan",
+  "modelMetode": {
+    "nama": "${methodChosen}",
+    "alasanPemilihan": "Alasan pedagogis mengapa metode ini optimal untuk mencapai CP topik ini",
+    "sintaksUtama": [
+      "Tahap 1 sintaks metode",
+      "Tahap 2 sintaks metode",
+      "Tahap 3 sintaks metode",
+      "Tahap 4 sintaks metode",
+      "Tahap 5 sintaks metode"
+    ]
+  },
+  "pertemuan": [
+    {
+      "nomor": 1,
+      "topik": "Topik spesifik pertemuan 1",
+      "alokasiWaktu": "${timeAllocation}",
+      "tujuanPertemuan": "Tujuan spesifik yang dicapai pada pertemuan 1",
+      "kegiatanPendahuluan": {
+        "durasi": "15 Menit",
+        "langkah": [
+          "Orientasi: Guru membuka pembelajaran dengan salam hangat, berdoa bersama, memeriksa kehadiran dan kenyamanan ruang kelas.",
+          "Apersepsi: Guru mengaitkan materi prasyarat dengan mengajukan fenomena kontekstual terkini.",
+          "Motivasi & Mindful: Guru menyampaikan tujuan pembelajaran, pemahaman bermakna, serta alur kegiatan menyenangkan hari ini."
+        ]
+      },
+      "kegiatanInti": {
+        "durasi": "60 Menit",
+        "sintaks": [
+          {
+            "tahap": "Tahap 1 sesuai sintaks ${methodChosen}",
+            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
+            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
+            "fokusMendalam": "Aspek Deep Learning (Mindful/Meaningful/Joyful/Diferensiasi)"
+          },
+          {
+            "tahap": "Tahap 2 sesuai sintaks ${methodChosen}",
+            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
+            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
+            "fokusMendalam": "Aspek Deep Learning"
+          },
+          {
+            "tahap": "Tahap 3 sesuai sintaks ${methodChosen}",
+            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
+            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
+            "fokusMendalam": "Aspek Deep Learning"
+          },
+          {
+            "tahap": "Tahap 4 sesuai sintaks ${methodChosen}",
+            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
+            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
+            "fokusMendalam": "Aspek Deep Learning"
+          },
+          {
+            "tahap": "Tahap 5 sesuai sintaks ${methodChosen}",
+            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
+            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
+            "fokusMendalam": "Aspek Deep Learning"
+          }
+        ]
+      },
+      "kegiatanPenutup": {
+        "durasi": "15 Menit",
+        "langkah": [
+          "Kesimpulan & Refleksi: Peserta didik bersama guru menyimpulkan inti pembelajaran dan melakukan refleksi terbimbing.",
+          "Umpan Balik: Guru memberikan apresiasi dan umpan balik positif atas kolaborasi peserta didik.",
+          "Tindak Lanjut & Penutup: Guru menginformasikan materi pertemuan berikutnya dan menutup dengan doa bersama."
+        ]
+      }
+    }
+  ],
+  "asesmen": {
+    "diagnostik": {
+      "teknik": "Tes diagnostik non-kognitif (kesiapan belajar) dan kognitif awal",
+      "instrumen": "Daftar pertanyaan apersepsi dan kuis diagnostik cepat"
+    },
+    "formatif": {
+      "teknik": "Observasi proses diskusi, kinerja kelompok, dan penilaian LKPD",
+      "instrumen": "Lembar observasi profil pelajar pancasila dan ceklis ketercapaian tugas",
+      "fokus": "Memberikan umpan balik langsung selama proses penyelidikan dan kolaborasi"
+    },
+    "sumatif": {
+      "teknik": "Penilaian unjuk kerja produk presentasi / tes tertulis berbasis studi kasus",
+      "instrumen": "Rubrik penilaian komprehensif dan soal uraian analisis",
+      "fokus": "Mengukur kedalaman pemahaman konseptual dan kemampuan pemecahan masalah"
+    },
+    "rubrik": [
+      {
+        "aspek": "Penguasaan Konsep & Analisis Masalah",
+        "sangatMahir": "Mampu menjelaskan konsep secara akurat, mendalam, dan menghubungkan dengan solusi nyata tanpa bantuan",
+        "mahir": "Mampu menjelaskan konsep dan menganalisis masalah dengan baik dan tepat",
+        "berkembang": "Menjelaskan konsep secara parsial dan memerlukan sedikit arahan analisis",
+        "perluBimbingan": "Belum mampu menjelaskan konsep dasar dan membutuhkan bimbingan intensif"
+      },
+      {
+        "aspek": "Kolaborasi & Partisipasi Aktif",
+        "sangatMahir": "Memimpin diskusi secara konstruktif, menghargai pendapat rekan, dan sangat proaktif",
+        "mahir": "Berpartisipasi aktif dalam kelompok dan menyelesaikan tanggung jawab dengan baik",
+        "berkembang": "Cukup aktif namun terkadang pasif dalam kerja sama",
+        "perluBimbingan": "Kurang terlibat dalam kelompok dan pasif dalam diskusi"
+      },
+      {
+        "aspek": "Kreativitas & Komunikasi Hasil",
+        "sangatMahir": "Menyajikan solusi yang orisinal, argumentatif, dan komunikatif secara memukau",
+        "mahir": "Menyajikan solusi dengan runtut, jelas, dan percaya diri",
+        "berkembang": "Menyajikan hasil namun belum sistematis",
+        "perluBimbingan": "Penyampaian belum jelas dan membutuhkan panduan penuh"
+      }
+    ]
+  },
+  "pengayaanRemedial": {
+    "pengayaan": "Peserta didik yang telah mencapai ketuntasan diberikan tugas tantangan eksplorasi kasus lanjutan atau peran tutor sebaya.",
+    "remedial": "Bimbingan terfokus pada indikator yang belum tuntas melalui peninjauan konsep kunci dan pendampingan khusus."
+  },
+  "refleksi": {
+    "refleksiSiswa": [
+      "Bagian materi mana yang paling menarik dan bermakna bagi kamu hari ini?",
+      "Tantangan apa yang kamu hadapi dalam proses penyelidikan/diskusi, dan bagaimana kamu mengatasinya?",
+      "Bagaimana konsep ini dapat kamu terapkan dalam kehidupan sehari-harimu?"
+    ],
+    "refleksiGuru": [
+      "Apakah seluruh peserta didik terlibat aktif dan antusias dalam pembelajaran mendalam hari ini?",
+      "Apakah sintaks metode pembelajaran berjalan sesuai alokasi waktu yang direncanakan?",
+      "Langkah apa yang perlu diperbaiki untuk pertemuan berikutnya agar pembelajaran lebih efektif?"
+    ]
+  },
+  "lampiran": {
+    "lkpd": {
+      "judul": "Lembar Kerja Peserta Didik (LKPD) Pembelajaran Mendalam",
+      "petunjuk": "Bacalah setiap instruksi dengan cermat, diskusikan secara kolaboratif dalam kelompok, dan rumuskan solusi terbaik.",
+      "tugasLangkah": [
+        "1. Cermati stimulus/studi kasus kontekstual yang disajikan.",
+        "2. Identifikasi rumusan masalah dan fakta-fakta kunci.",
+        "3. Kumpulkan data dan lakukan analisis mendalam.",
+        "4. Rumuskan solusi inovatif dan susun bahan presentasi kelompok."
+      ],
+      "studiKasusSoal": "Tuliskan studi kasus nyata yang menarik dan relevan dengan topik ini yang menantang nalar kritis siswa SMA."
+    },
+    "bahanBacaan": "Uraian ringkas bahan bacaan guru dan siswa mengenai esensi konsep materi, prinsip dasar, dan keterkaitannya dengan kehidupan.",
+    "glosarium": [
+      {
+        "istilah": "Istilah kunci 1",
+        "definisi": "Definisi istilah kunci 1"
+      },
+      {
+        "istilah": "Istilah kunci 2",
+        "definisi": "Definisi istilah kunci 2"
+      }
+    ],
+    "daftarPustaka": [
+      "Kementerian Pendidikan, Kebudayaan, Riset, dan Teknologi. (2024). Buku Panduan Guru dan Buku Siswa SMA. Jakarta: Pusat Perbukuan.",
+      "Jurnal dan artikel ilmiah pembelajaran terkini yang relevan dengan topik."
+    ]
+  }
+}
+
+PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur runtut dari Pertemuan 1 sampai Pertemuan ${totalMeetings}.`;
+
+      const parsedData = await generateContentWithFallback(ai, prompt);
+      res.json(parsedData);
+    } catch (error: any) {
+      console.error('Error generating modul ajar:', error);
+      res.status(500).json({ error: error.message || 'Gagal meracik Modul Ajar Pembelajaran Mendalam' });
+    }
+  };
+
+  app.post('/api/generate-modul', handleModulGen);
+  app.post('/api/ai/modul', handleModulGen);
+
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

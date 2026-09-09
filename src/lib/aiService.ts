@@ -225,3 +225,55 @@ export async function gradeEssayApi(payload: { question: string; answerKey: stri
     throw new Error(err.message || 'Gagal melakukan koreksi AI.');
   }
 }
+
+export interface ModulAjarPayload {
+  subject: string;
+  cp: string;
+  grade?: string;
+  metode: string;
+  pertemuanCount: number;
+  alokasiWaktu?: string;
+  namaGuru?: string;
+  nipGuru?: string;
+  namaSekolah?: string;
+  npsn?: string;
+  alamatSekolah?: string;
+  tahunPelajaran?: string;
+  semester?: string;
+  namaKepsek?: string;
+}
+
+export async function generateModulAjarApi(payload: ModulAjarPayload) {
+  try {
+    const res = await fetch('/api/generate-modul', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    const rawText = await res.text();
+
+    if (!res.ok) {
+      let errorMsg = `Server error (${res.status})`;
+      if (contentType.includes('application/json')) {
+        try {
+          const errJson = JSON.parse(rawText);
+          if (errJson.error) errorMsg = errJson.error;
+        } catch {
+          // ignore
+        }
+      }
+      throw new Error(errorMsg);
+    }
+
+    if (contentType.includes('application/json')) {
+      return JSON.parse(rawText);
+    } else {
+      return parseJsonSafely(rawText);
+    }
+  } catch (err: any) {
+    throw new Error(err.message || 'Gagal meracik Modul Ajar AI.');
+  }
+}
+
