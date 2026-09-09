@@ -1,13 +1,29 @@
 import { GoogleGenAI } from '@google/genai';
 
 function parseJsonSafely(text: string) {
+  if (!text) throw new Error('Respon kosong');
   let cleaned = text.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```.*$/s, '').trim();
   }
-  return JSON.parse(cleaned);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    const firstBracket = cleaned.indexOf('[');
+    const lastBracket = cleaned.lastIndexOf(']');
+
+    if (firstBrace !== -1 && lastBrace > firstBrace && (firstBracket === -1 || firstBrace < firstBracket)) {
+      const candidate = cleaned.slice(firstBrace, lastBrace + 1);
+      return JSON.parse(candidate);
+    } else if (firstBracket !== -1 && lastBracket > firstBracket) {
+      const candidate = cleaned.slice(firstBracket, lastBracket + 1);
+      return JSON.parse(candidate);
+    }
+    throw new Error('Gagal mengurai format respon.');
+  }
 }
 
 // Client-side fallback if backend API route is unreachable
@@ -48,7 +64,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ]
 }`;
 
-  for (const model of ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']) {
+  for (const model of ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash']) {
     try {
       const response = await ai.models.generateContent({
         model,
@@ -91,7 +107,7 @@ async function clientFallbackGenerateQuestions(topic: string, type: string, coun
   prompt += `  }\n`;
   prompt += `]`;
 
-  for (const model of ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']) {
+  for (const model of ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash']) {
     try {
       const response = await ai.models.generateContent({
         model,
@@ -107,123 +123,89 @@ async function clientFallbackGenerateQuestions(topic: string, type: string, coun
   throw new Error('Gagal meracik soal dari AI.');
 }
 
-export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
-  try {
-    const res = await fetch('/api/generate-material', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+async function postApiWithFallback(endpoints: string[], payload: any, clientFallback?: () => Promise<any>) {
+  let lastErrorMsg = '';
 
-    const contentType = res.headers.get('content-type') || '';
-    const rawText = await res.text();
-
-    if (!res.ok) {
-      let errorMsg = `Server error (${res.status})`;
-      if (contentType.includes('application/json')) {
-        try {
-          const errJson = JSON.parse(rawText);
-          if (errJson.error) errorMsg = errJson.error;
-        } catch {
-          // ignore
-        }
-      }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const url of endpoints) {
       try {
-        return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
-      } catch {
-        throw new Error(errorMsg);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        const rawText = await res.text();
+
+        if (res.ok) {
+          if (contentType.includes('application/json')) {
+            try {
+              return JSON.parse(rawText);
+            } catch {
+              return parseJsonSafely(rawText);
+            }
+          } else {
+            return parseJsonSafely(rawText);
+          }
+        }
+
+        if (res.status === 405) {
+          lastErrorMsg = 'Server sedang proses pemanasan rute (405). Silakan ulangi dalam beberapa detik.';
+        } else if (contentType.includes('application/json')) {
+          try {
+            const errJson = JSON.parse(rawText);
+            if (errJson.error) lastErrorMsg = errJson.error;
+            else lastErrorMsg = `Server error (${res.status})`;
+          } catch {
+            lastErrorMsg = `Server error (${res.status})`;
+          }
+        } else {
+          lastErrorMsg = `Server error (${res.status})`;
+        }
+      } catch (err: any) {
+        lastErrorMsg = err.message || 'Koneksi gagal.';
       }
     }
 
-    if (contentType.includes('application/json')) {
-      return JSON.parse(rawText);
-    } else {
-      return parseJsonSafely(rawText);
-    }
-  } catch (err: any) {
-    if (err.message && !err.message.includes('fetch')) {
-      throw err;
-    }
-    try {
-      return await clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description);
-    } catch {
-      throw new Error(err.message || 'Gagal meracik bahan ajar AI.');
+    // Small delay before retry if 405 or initial failure
+    if (attempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
+
+  if (clientFallback) {
+    try {
+      return await clientFallback();
+    } catch {
+      // ignore
+    }
+  }
+
+  throw new Error(lastErrorMsg || 'Gagal memproses permintaan ke server AI.');
+}
+
+export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
+  return postApiWithFallback(
+    ['/api/generate-material', '/api/ai/material', '/api/material'],
+    payload,
+    () => clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description)
+  );
 }
 
 export async function generateQuestionsApi(payload: { topic: string; type: string; count: number }) {
-  try {
-    const res = await fetch('/api/generate-questions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const contentType = res.headers.get('content-type') || '';
-    const rawText = await res.text();
-
-    if (!res.ok) {
-      let errorMsg = `Server error (${res.status})`;
-      if (contentType.includes('application/json')) {
-        try {
-          const errJson = JSON.parse(rawText);
-          if (errJson.error) errorMsg = errJson.error;
-        } catch {
-          // ignore
-        }
-      }
-      try {
-        return await clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count);
-      } catch {
-        throw new Error(errorMsg);
-      }
-    }
-
-    if (contentType.includes('application/json')) {
-      return JSON.parse(rawText);
-    } else {
-      return parseJsonSafely(rawText);
-    }
-  } catch (err: any) {
-    if (err.message && !err.message.includes('fetch')) {
-      throw err;
-    }
-    try {
-      return await clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count);
-    } catch {
-      throw new Error(err.message || 'Gagal meracik soal dari AI.');
-    }
-  }
+  return postApiWithFallback(
+    ['/api/generate-questions', '/api/ai/questions'],
+    payload,
+    () => clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count)
+  );
 }
 
 export async function gradeEssayApi(payload: { question: string; answerKey: string; studentAnswer: string }) {
-  try {
-    const res = await fetch('/api/grade-essay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const contentType = res.headers.get('content-type') || '';
-    const rawText = await res.text();
-
-    if (!res.ok) {
-      if (contentType.includes('application/json')) {
-        try {
-          const errJson = JSON.parse(rawText);
-          throw new Error(errJson.error || `Server error: ${res.status}`);
-        } catch {
-          // ignore
-        }
-      }
-      throw new Error(`Server error (${res.status}): Gagal koreksi AI.`);
-    }
-
-    return parseJsonSafely(rawText);
-  } catch (err: any) {
-    throw new Error(err.message || 'Gagal melakukan koreksi AI.');
-  }
+  return postApiWithFallback(
+    ['/api/grade-essay', '/api/ai/grade-essay'],
+    payload
+  );
 }
 
 export interface ModulAjarPayload {
@@ -244,36 +226,9 @@ export interface ModulAjarPayload {
 }
 
 export async function generateModulAjarApi(payload: ModulAjarPayload) {
-  try {
-    const res = await fetch('/api/generate-modul', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const contentType = res.headers.get('content-type') || '';
-    const rawText = await res.text();
-
-    if (!res.ok) {
-      let errorMsg = `Server error (${res.status})`;
-      if (contentType.includes('application/json')) {
-        try {
-          const errJson = JSON.parse(rawText);
-          if (errJson.error) errorMsg = errJson.error;
-        } catch {
-          // ignore
-        }
-      }
-      throw new Error(errorMsg);
-    }
-
-    if (contentType.includes('application/json')) {
-      return JSON.parse(rawText);
-    } else {
-      return parseJsonSafely(rawText);
-    }
-  } catch (err: any) {
-    throw new Error(err.message || 'Gagal meracik Modul Ajar AI.');
-  }
+  return postApiWithFallback(
+    ['/api/generate-modul', '/api/ai/modul'],
+    payload
+  );
 }
 

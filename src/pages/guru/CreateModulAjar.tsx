@@ -103,7 +103,8 @@ export default function CreateModulAjar() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'create' | 'saved'>('create');
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [currentSavedId, setCurrentSavedId] = useState<string | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
 
@@ -233,6 +234,42 @@ export default function CreateModulAjar() {
 
       const data = await generateModulAjarApi(payload);
       setResult(data);
+
+      // Auto-save modul ajar to database
+      if (user?.id) {
+        setAutoSaving(true);
+        try {
+          const { data: savedRecord, error: saveErr } = await supabase
+            .from('modul_ajar')
+            .insert([
+              {
+                guru_id: user.id,
+                subject_name: selectedSubjectFinal || data.identitas?.mataPelajaran || 'Mata Pelajaran',
+                grade: formData.grade || data.identitas?.fase || 'Fase E (Kelas X)',
+                cp: formData.cp || data.capaianPembelajaran || '',
+                metode: formData.metode || data.modelMetode?.nama || '',
+                pertemuan_count: Number(formData.pertemuanCount) || 2,
+                alokasi_waktu: formData.alokasiWaktu || '2 x 45 Menit',
+                title: `Modul Ajar: ${selectedSubjectFinal || 'Mapel'} - ${formData.metode}`,
+                content_json: data
+              }
+            ])
+            .select()
+            .single();
+
+          if (!saveErr && savedRecord) {
+            setCurrentSavedId(savedRecord.id);
+            setSavedSuccess(true);
+            fetchSavedModules();
+          } else if (saveErr) {
+            console.error('Error auto-saving modul ajar:', saveErr);
+          }
+        } catch (dbErr) {
+          console.error('Gagal menyimpan modul ajar otomatis ke database:', dbErr);
+        } finally {
+          setAutoSaving(false);
+        }
+      }
     } catch (err: any) {
       alert(err.message || 'Gagal meracik Modul Ajar AI.');
     } finally {
@@ -240,34 +277,27 @@ export default function CreateModulAjar() {
     }
   };
 
-  const handleSaveToDatabase = async () => {
-    if (!result || !user) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase.from('modul_ajar').insert([
-        {
-          guru_id: user.id,
-          subject_name: selectedSubjectFinal || result.identitas?.mataPelajaran || 'Mata Pelajaran',
-          grade: formData.grade || result.identitas?.fase || 'Fase E (Kelas X)',
-          cp: formData.cp || result.capaianPembelajaran || '',
-          metode: formData.metode || result.modelMetode?.nama || '',
-          pertemuan_count: Number(formData.pertemuanCount) || 2,
-          alokasi_waktu: formData.alokasiWaktu || '2 x 45 Menit',
-          title: `Modul Ajar: ${selectedSubjectFinal || 'Mapel'} - ${formData.metode}`,
-          content_json: result
-        }
-      ]);
-
-      if (error) throw error;
-      setSavedSuccess(true);
-      fetchSavedModules();
-      setTimeout(() => setSavedSuccess(false), 4000);
-      alert('Modul Ajar berhasil disimpan ke database!');
-    } catch (err: any) {
-      alert(err.message || 'Gagal menyimpan modul ajar ke database.');
-    } finally {
-      setSaving(false);
+  const handleToggleEdit = async () => {
+    if (isEditing && currentSavedId && result) {
+      // Auto-sync edited changes to database
+      try {
+        setAutoSaving(true);
+        await supabase
+          .from('modul_ajar')
+          .update({
+            content_json: result,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', currentSavedId);
+        fetchSavedModules();
+        setSavedSuccess(true);
+      } catch (err) {
+        console.error('Gagal memperbarui modul ajar ke database:', err);
+      } finally {
+        setAutoSaving(false);
+      }
     }
+    setIsEditing(!isEditing);
   };
 
   const handleDownloadDocx = async (dataToExport = result) => {
@@ -591,14 +621,19 @@ export default function CreateModulAjar() {
             <div className="space-y-4">
               {/* Action Toolbar */}
               <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-sm flex flex-wrap items-center justify-between gap-3 print:hidden">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 bg-emerald-500 rounded-full"></span>
+                <div className="flex items-center gap-2.5">
+                  <span className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></span>
                   <span className="font-bold text-gray-900 text-sm">
-                    Modul Ajar Siap: {result.identitas?.mataPelajaran || selectedSubjectFinal} ({result.pertemuan?.length || formData.pertemuanCount} Pertemuan)
+                    Modul Ajar: {result.identitas?.mataPelajaran || selectedSubjectFinal} ({result.pertemuan?.length || formData.pertemuanCount} Pertemuan)
                   </span>
-                  {savedSuccess && (
-                    <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                      <Check className="w-3 h-3" /> Tersimpan
+                  
+                  {autoSaving ? (
+                    <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 border border-blue-200">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> Menyimpan...
+                    </span>
+                  ) : (
+                    <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 border border-emerald-200">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Otomatis Tersimpan
                     </span>
                   )}
                 </div>
@@ -625,18 +660,12 @@ export default function CreateModulAjar() {
 
                   <button
                     type="button"
-                    onClick={handleSaveToDatabase}
-                    disabled={saving}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-70"
-                  >
-                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    {saving ? 'Menyimpan...' : 'Simpan ke Database'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(!isEditing)}
-                    className="px-3 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-semibold transition flex items-center gap-1"
+                    onClick={handleToggleEdit}
+                    className={`px-3 py-2 border rounded-xl text-xs font-semibold transition flex items-center gap-1 cursor-pointer ${
+                      isEditing
+                        ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                        : 'border-gray-300 hover:bg-gray-50 text-gray-700'
+                    }`}
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                     {isEditing ? 'Selesai Edit' : 'Edit Teks'}
@@ -1082,8 +1111,8 @@ export default function CreateModulAjar() {
             {savedModules.length === 0 ? (
               <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
                 <BookMarked className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-600 font-bold text-sm">Belum ada modul ajar yang disimpan.</p>
-                <p className="text-gray-400 text-xs mt-1">Buat modul ajar baru di tab "Buat Modul Baru", lalu klik tombol Simpan ke Database.</p>
+                <p className="text-gray-600 font-bold text-sm">Belum ada modul ajar yang tersimpan.</p>
+                <p className="text-gray-400 text-xs mt-1">Setiap modul ajar yang Anda buat di tab "Buat Modul Baru" akan tersimpan otomatis ke database dan tampil di sini.</p>
                 <button
                   onClick={() => setActiveTab('create')}
                   className="mt-4 px-4 py-2 bg-blue-700 text-white rounded-xl text-xs font-bold hover:bg-blue-800 transition"
@@ -1120,6 +1149,7 @@ export default function CreateModulAjar() {
                           type="button"
                           onClick={() => {
                             setResult(m.content_json);
+                            setCurrentSavedId(m.id);
                             setActiveTab('create');
                           }}
                           className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold flex items-center gap-1 transition"

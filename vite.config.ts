@@ -5,18 +5,34 @@ import { defineConfig, loadEnv, Plugin } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 
 function parseJsonSafely(text: string) {
+  if (!text) throw new Error('Respon AI kosong');
   let cleaned = text.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```.*$/s, '').trim();
   }
-  return JSON.parse(cleaned);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    const firstBracket = cleaned.indexOf('[');
+    const lastBracket = cleaned.lastIndexOf(']');
+
+    if (firstBrace !== -1 && lastBrace > firstBrace && (firstBracket === -1 || firstBrace < firstBracket)) {
+      const candidate = cleaned.slice(firstBrace, lastBrace + 1);
+      return JSON.parse(candidate);
+    } else if (firstBracket !== -1 && lastBracket > firstBracket) {
+      const candidate = cleaned.slice(firstBracket, lastBracket + 1);
+      return JSON.parse(candidate);
+    }
+    throw new Error('Gagal mengurai respon AI ke format JSON.');
+  }
 }
 
 function apiDevPlugin(geminiApiKey: string): Plugin {
   const executeWithFallback = async (ai: GoogleGenAI, prompt: string) => {
-    const models = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+    const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
     let lastErr = null;
     for (const model of models) {
       try {
@@ -28,7 +44,7 @@ function apiDevPlugin(geminiApiKey: string): Plugin {
         const text = response.text;
         if (text) return parseJsonSafely(text);
       } catch (e: any) {
-        console.warn(`Vite dev plugin model ${model} failed, trying next fallback:`, e.message);
+        console.warn(`Vite dev plugin model ${model} gagal atau sibuk, mencoba model cadangan:`, e.message);
         lastErr = e;
       }
     }

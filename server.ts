@@ -5,18 +5,34 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 
 function parseJsonSafely(text: string) {
+  if (!text) throw new Error('Respon AI kosong');
   let cleaned = text.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```.*$/s, '').trim();
   }
-  return JSON.parse(cleaned);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    const firstBracket = cleaned.indexOf('[');
+    const lastBracket = cleaned.lastIndexOf(']');
+
+    if (firstBrace !== -1 && lastBrace > firstBrace && (firstBracket === -1 || firstBrace < firstBracket)) {
+      const candidate = cleaned.slice(firstBrace, lastBrace + 1);
+      return JSON.parse(candidate);
+    } else if (firstBracket !== -1 && lastBracket > firstBracket) {
+      const candidate = cleaned.slice(firstBracket, lastBracket + 1);
+      return JSON.parse(candidate);
+    }
+    throw new Error('Gagal mengurai respon AI ke format JSON.');
+  }
 }
 
 // Resilient Gemini Generation with Model Fallback
 async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
-  const models = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -34,7 +50,7 @@ async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
         return parseJsonSafely(text);
       }
     } catch (err: any) {
-      console.warn(`Model ${model} failed, trying next fallback:`, err.message);
+      console.warn(`Model ${model} gagal atau sibuk, mencoba model cadangan:`, err.message);
       lastError = err;
     }
   }
@@ -66,13 +82,19 @@ async function startServer() {
 
   // Handler for Material Generation
   const handleMaterialGen = async (req: express.Request, res: express.Response) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return res.json({ status: 'ready', endpoint: req.path });
+    }
+    if (req.method !== 'POST') {
+      return res.status(200).json({ status: 'ready', endpoint: req.path });
+    }
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
         return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
       }
 
-      const { subject, grade, topic, description } = req.body;
+      const { subject, grade, topic, description } = req.body || {};
       if (!subject || !grade || !topic) {
         return res.status(400).json({ error: 'Missing required fields: subject, grade, topic' });
       }
@@ -144,18 +166,25 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
     }
   };
 
-  app.post('/api/generate-material', handleMaterialGen);
-  app.post('/api/ai/material', handleMaterialGen);
+  app.all('/api/generate-material', handleMaterialGen);
+  app.all('/api/ai/material', handleMaterialGen);
+  app.all('/api/material', handleMaterialGen);
 
   // Handler for Question Generation
   const handleQuestionsGen = async (req: express.Request, res: express.Response) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return res.json({ status: 'ready', endpoint: req.path });
+    }
+    if (req.method !== 'POST') {
+      return res.status(200).json({ status: 'ready', endpoint: req.path });
+    }
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
         return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
       }
 
-      const { topic, type, count } = req.body;
+      const { topic, type, count } = req.body || {};
       if (!topic || !type || !count) {
         return res.status(400).json({ error: 'Missing required fields: topic, type, count' });
       }
@@ -196,18 +225,24 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
     }
   };
 
-  app.post('/api/generate-questions', handleQuestionsGen);
-  app.post('/api/ai/questions', handleQuestionsGen);
+  app.all('/api/generate-questions', handleQuestionsGen);
+  app.all('/api/ai/questions', handleQuestionsGen);
 
   // Handler for Essay Grading
   const handleGradeEssay = async (req: express.Request, res: express.Response) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return res.json({ status: 'ready', endpoint: req.path });
+    }
+    if (req.method !== 'POST') {
+      return res.status(200).json({ status: 'ready', endpoint: req.path });
+    }
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
         return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
       }
 
-      const { question, answerKey, studentAnswer } = req.body;
+      const { question, answerKey, studentAnswer } = req.body || {};
       
       const ai = new GoogleGenAI({
         apiKey,
@@ -237,11 +272,17 @@ Berikan penilaian dalam format JSON dengan struktur:
     }
   };
 
-  app.post('/api/grade-essay', handleGradeEssay);
-  app.post('/api/ai/grade-essay', handleGradeEssay);
+  app.all('/api/grade-essay', handleGradeEssay);
+  app.all('/api/ai/grade-essay', handleGradeEssay);
 
   // Handler for Modul Ajar Pembelajaran Mendalam Generation
   const handleModulGen = async (req: express.Request, res: express.Response) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return res.json({ status: 'ready', endpoint: req.path });
+    }
+    if (req.method !== 'POST') {
+      return res.status(200).json({ status: 'ready', endpoint: req.path });
+    }
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
@@ -528,8 +569,8 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
     }
   };
 
-  app.post('/api/generate-modul', handleModulGen);
-  app.post('/api/ai/modul', handleModulGen);
+  app.all('/api/generate-modul', handleModulGen);
+  app.all('/api/ai/modul', handleModulGen);
 
 
   // Vite middleware for development
