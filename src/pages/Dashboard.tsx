@@ -39,8 +39,8 @@ export default function Dashboard() {
       { path: '/dashboard/pengaturan', icon: Settings, label: 'Kelola Aplikasi' },
     ],
     guru: [
-      { path: '/dashboard', icon: BookOpen, label: 'Bahan Ajar AI' },
       { path: '/dashboard/modul', icon: Sparkles, label: 'Modul Ajar Otomatis' },
+      { path: '/dashboard/bahan-ajar', icon: BookOpen, label: 'Bahan Ajar AI' },
       { path: '/dashboard/soal', icon: FileText, label: 'Buat Soal' },
       { path: '/dashboard/laporan', icon: CheckSquare, label: 'Laporan Nilai' },
     ],
@@ -87,7 +87,9 @@ export default function Dashboard() {
           <nav className="space-y-1">
             {navLinks.map((link) => {
               const Icon = link.icon;
-              const isActive = location.pathname === link.path;
+              const isActive = (user.role === 'guru' && link.path === '/dashboard/modul')
+                ? (location.pathname === '/dashboard/modul' || location.pathname === '/dashboard')
+                : location.pathname === link.path;
               return (
                 <Link
                   key={link.path}

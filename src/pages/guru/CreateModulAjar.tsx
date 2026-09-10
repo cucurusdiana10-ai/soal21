@@ -24,6 +24,20 @@ import {
 } from 'lucide-react';
 import { generateModulAjarApi } from '../../lib/aiService';
 import { exportModulAjarToDocx } from '../../lib/modulDocxGenerator';
+import ModulAjarEditor, { DELAPAN_DIMENSI_LULUSAN } from './ModulAjarEditor';
+
+function formatIndoDate(dateStr?: string) {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+    return dateStr;
+  } catch {
+    return dateStr;
+  }
+}
 
 const METODE_OPTIONS = [
   {
@@ -122,6 +136,8 @@ export default function CreateModulAjar() {
   const [savedModules, setSavedModules] = useState<any[]>([]);
   const [selectedSavedModule, setSelectedSavedModule] = useState<any | null>(null);
 
+  const todayStr = new Date().toISOString().split('T')[0];
+
   // Generator form
   const [formData, setFormData] = useState({
     subject: '',
@@ -130,7 +146,9 @@ export default function CreateModulAjar() {
     cp: '',
     metode: 'Problem-Based Learning (PBL)',
     pertemuanCount: 2,
-    alokasiWaktu: '2 x 45 Menit (2 JP)'
+    pertemuanMetode: ['Problem-Based Learning (PBL)', 'Problem-Based Learning (PBL)'],
+    alokasiWaktu: '2 x 45 Menit (2 JP)',
+    tanggalCetak: todayStr
   });
 
   // Generated Module Result
@@ -164,9 +182,11 @@ export default function CreateModulAjar() {
   async function fetchTeacherSubjects() {
     if (!user) return;
     try {
+      const parsed: string[] = [];
+
+      // 1. From subjects table for this guru
       const { data } = await supabase.from('subjects').select('name').eq('guru_id', user.id);
       if (data && data.length > 0) {
-        const parsed: string[] = [];
         data.forEach(s => {
           if (s.name) {
             s.name.split(',').forEach(item => {
@@ -175,10 +195,19 @@ export default function CreateModulAjar() {
             });
           }
         });
-        setTeacherSubjects(parsed);
-        if (parsed.length > 0 && !formData.subject) {
-          setFormData(prev => ({ ...prev, subject: parsed[0] }));
-        }
+      }
+
+      // 2. Also check if user profile has subject field
+      if ((user as any).subject) {
+        String((user as any).subject).split(',').forEach(item => {
+          const trimmed = item.trim();
+          if (trimmed && !parsed.includes(trimmed)) parsed.push(trimmed);
+        });
+      }
+
+      setTeacherSubjects(parsed);
+      if (parsed.length > 0) {
+        setFormData(prev => ({ ...prev, subject: parsed[0] }));
       }
     } catch (err) {
       console.error(err);
@@ -221,7 +250,9 @@ export default function CreateModulAjar() {
         grade: formData.grade,
         metode: formData.metode,
         pertemuanCount: Number(formData.pertemuanCount) || 2,
+        pertemuanMetode: (formData.pertemuanMetode || []).slice(0, Number(formData.pertemuanCount) || 2),
         alokasiWaktu: formData.alokasiWaktu,
+        tanggalCetak: formData.tanggalCetak,
         namaGuru: user?.name || 'Guru Pengampu',
         nipGuru: user?.username || '-',
         namaSekolah: schoolSettings.nama_sekolah,
@@ -233,6 +264,10 @@ export default function CreateModulAjar() {
       };
 
       const data = await generateModulAjarApi(payload);
+      if (!data.tanggalCetak) data.tanggalCetak = formData.tanggalCetak;
+      if (!data.titimangsa) {
+        data.titimangsa = `Garut, ${formatIndoDate(formData.tanggalCetak)}`;
+      }
       setResult(data);
 
       // Auto-save modul ajar to database
@@ -278,26 +313,52 @@ export default function CreateModulAjar() {
   };
 
   const handleToggleEdit = async () => {
-    if (isEditing && currentSavedId && result) {
+    if (isEditing && result) {
       // Auto-sync edited changes to database
-      try {
-        setAutoSaving(true);
-        await supabase
-          .from('modul_ajar')
-          .update({
-            content_json: result,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', currentSavedId);
-        fetchSavedModules();
-        setSavedSuccess(true);
-      } catch (err) {
-        console.error('Gagal memperbarui modul ajar ke database:', err);
-      } finally {
-        setAutoSaving(false);
+      if (user?.id) {
+        try {
+          setAutoSaving(true);
+          if (currentSavedId) {
+            await supabase
+              .from('modul_ajar')
+              .update({
+                content_json: result,
+                title: `Modul Ajar: ${result.identitas?.mataPelajaran || selectedSubjectFinal} - ${result.modelMetode?.nama || formData.metode}`,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', currentSavedId);
+          } else {
+            const { data: savedRecord } = await supabase
+              .from('modul_ajar')
+              .insert([
+                {
+                  guru_id: user.id,
+                  subject_name: result.identitas?.mataPelajaran || selectedSubjectFinal || 'Mata Pelajaran',
+                  grade: result.identitas?.fase || formData.grade || 'Fase E (Kelas X)',
+                  cp: result.capaianPembelajaran || formData.cp || '',
+                  metode: result.modelMetode?.nama || formData.metode || '',
+                  pertemuan_count: Number(result.pertemuan?.length || formData.pertemuanCount) || 2,
+                  alokasi_waktu: result.identitas?.alokasiWaktu || formData.alokasiWaktu || '2 x 45 Menit',
+                  title: `Modul Ajar: ${result.identitas?.mataPelajaran || selectedSubjectFinal} - ${result.modelMetode?.nama || formData.metode}`,
+                  content_json: result
+                }
+              ])
+              .select()
+              .single();
+            if (savedRecord) setCurrentSavedId(savedRecord.id);
+          }
+          fetchSavedModules();
+          setSavedSuccess(true);
+        } catch (err) {
+          console.error('Gagal memperbarui modul ajar ke database:', err);
+        } finally {
+          setAutoSaving(false);
+        }
       }
+      setIsEditing(false);
+    } else {
+      setIsEditing(true);
     }
-    setIsEditing(!isEditing);
   };
 
   const handleDownloadDocx = async (dataToExport = result) => {
@@ -404,7 +465,7 @@ export default function CreateModulAjar() {
           <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm print:hidden">
             <form onSubmit={handleGenerate} className="space-y-6">
               <div className="grid md:grid-cols-3 gap-6">
-                {/* 1. Mata Pelajaran */}
+                {/* 1. Mata Pelajaran yang Diampu */}
                 <div>
                   <label className="block text-sm font-bold text-gray-800 mb-1.5 flex items-center gap-1.5">
                     <BookOpen className="w-4 h-4 text-blue-600" />
@@ -416,35 +477,17 @@ export default function CreateModulAjar() {
                     className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium"
                     required
                   >
-                    <option value="">-- Pilih Mata Pelajaran --</option>
-                    {teacherSubjects.length > 0 && (
-                      <optgroup label="Mata Pelajaran Anda">
+                    <option value="">-- Pilih Mata Pelajaran yang Diampu --</option>
+                    {teacherSubjects.length > 0 ? (
+                      <optgroup label="Mata Pelajaran Anda (Tercatat di Akun)">
                         {teacherSubjects.map(s => (
                           <option key={s} value={s}>{s}</option>
                         ))}
                       </optgroup>
+                    ) : (
+                      <option disabled value="__empty__">Belum ada mapel di akun guru</option>
                     )}
-                    <optgroup label="Daftar Mata Pelajaran SMA">
-                      <option value="Matematika">Matematika</option>
-                      <option value="Bahasa Indonesia">Bahasa Indonesia</option>
-                      <option value="Bahasa Inggris">Bahasa Inggris</option>
-                      <option value="Biologi">Biologi</option>
-                      <option value="Fisika">Fisika</option>
-                      <option value="Kimia">Kimia</option>
-                      <option value="Informatika">Informatika</option>
-                      <option value="Sejarah">Sejarah</option>
-                      <option value="Geografi">Geografi</option>
-                      <option value="Ekonomi">Ekonomi</option>
-                      <option value="Sosiologi">Sosiologi</option>
-                      <option value="Pendidikan Pancasila (PPKn)">Pendidikan Pancasila (PPKn)</option>
-                      <option value="Pendidikan Agama Islam (PAI)">Pendidikan Agama Islam (PAI)</option>
-                      <option value="PJOK">PJOK</option>
-                      <option value="Seni Budaya">Seni Budaya</option>
-                      <option value="Prakarya & Kewirausahaan (PKWU)">Prakarya & Kewirausahaan (PKWU)</option>
-                      <option value="Bahasa Sunda">Bahasa Sunda</option>
-                      <option value="Bimbingan Konseling (BK)">Bimbingan Konseling (BK)</option>
-                    </optgroup>
-                    <option value="OTHER">Lainnya (Ketik Manual)...</option>
+                    <option value="OTHER">+ Ketik Mata Pelajaran Manual...</option>
                   </select>
 
                   {formData.subject === 'OTHER' && (
@@ -485,7 +528,20 @@ export default function CreateModulAjar() {
                     </label>
                     <select
                       value={formData.pertemuanCount}
-                      onChange={e => setFormData({ ...formData, pertemuanCount: Number(e.target.value) })}
+                      onChange={e => {
+                        const count = Number(e.target.value);
+                        setFormData(prev => {
+                          const currentMethods = [...prev.pertemuanMetode];
+                          while (currentMethods.length < count) {
+                            currentMethods.push(prev.metode);
+                          }
+                          return {
+                            ...prev,
+                            pertemuanCount: count,
+                            pertemuanMetode: currentMethods.slice(0, count)
+                          };
+                        });
+                      }}
                       className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium"
                     >
                       <option value={1}>1 Pertemuan</option>
@@ -504,22 +560,38 @@ export default function CreateModulAjar() {
                     </label>
                     <select
                       value={formData.alokasiWaktu}
-                      onChange={e => setFormData({ ...formData, alokasiWaktu: e.target.value })}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setFormData(prev => {
+                          const next = { ...prev, alokasiWaktu: val };
+                          if (val.includes('5 JP') && prev.pertemuanCount < 2) {
+                            next.pertemuanCount = 2;
+                            const arr = [...prev.pertemuanMetode];
+                            while (arr.length < 2) arr.push(prev.metode);
+                            next.pertemuanMetode = arr.slice(0, 2);
+                          }
+                          return next;
+                        });
+                      }}
                       className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium"
                     >
+                      <option value="1 x 45 Menit (1 JP)">1 x 45 Menit (1 JP)</option>
                       <option value="2 x 45 Menit (2 JP)">2 x 45 Menit (2 JP)</option>
                       <option value="3 x 45 Menit (3 JP)">3 x 45 Menit (3 JP)</option>
                       <option value="4 x 45 Menit (4 JP)">4 x 45 Menit (4 JP)</option>
+                      <option value="5 x 45 Menit (5 JP - Pertemuan 1: 2 JP, Pertemuan 2: 3 JP)">
+                        5 x 45 Menit (5 JP - P1: 2 JP, P2: 3 JP)
+                      </option>
                     </select>
                   </div>
                 </div>
               </div>
 
-              {/* 4. Pilihan Metode Pembelajaran */}
+              {/* 4. Pilihan Metode Pembelajaran Utama */}
               <div>
                 <label className="block text-sm font-bold text-gray-800 mb-2 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-indigo-600" />
-                  Metode Pembelajaran (Sistem Akan Menyusun Sintaks Pembelajaran Sesuai Metode Ini)
+                  Model Pembelajaran Induk
                 </label>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   {METODE_OPTIONS.map(m => {
@@ -527,7 +599,13 @@ export default function CreateModulAjar() {
                     return (
                       <div
                         key={m.id}
-                        onClick={() => setFormData({ ...formData, metode: m.id })}
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            metode: m.id,
+                            pertemuanMetode: prev.pertemuanMetode.map(() => m.id)
+                          }));
+                        }}
                         className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
                           isSelected
                             ? 'border-blue-600 bg-blue-50/70 shadow-sm'
@@ -543,6 +621,65 @@ export default function CreateModulAjar() {
                         <p className="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-relaxed">
                           {m.desc}
                         </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 4b. Metode Pembelajaran Tiap Pertemuan (Bisa Berbeda) */}
+              <div className="p-4 bg-blue-50/40 border border-blue-200 rounded-2xl space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-blue-700" />
+                      Metode Pembelajaran Tiap Pertemuan ({formData.pertemuanCount} Pertemuan)
+                    </h4>
+                    <p className="text-[11px] text-gray-600">
+                      Anda dapat memilih metode berbeda di setiap pertemuan sesuai dengan tahapan materi.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        pertemuanMetode: Array(prev.pertemuanCount).fill(prev.metode)
+                      }));
+                    }}
+                    className="px-2.5 py-1 text-xs bg-white text-blue-700 hover:bg-blue-100 font-semibold rounded-lg border border-blue-300 transition"
+                  >
+                    Samakan Semua dengan Model Induk
+                  </button>
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {Array.from({ length: formData.pertemuanCount }).map((_, idx) => {
+                    const currentMethod = formData.pertemuanMetode[idx] || formData.metode;
+                    return (
+                      <div key={idx} className="bg-white p-3 rounded-xl border border-blue-200 space-y-1">
+                        <label className="block text-xs font-bold text-blue-900">
+                          Pertemuan Ke-{idx + 1}:
+                        </label>
+                        <select
+                          value={currentMethod}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFormData(prev => {
+                              const updated = [...prev.pertemuanMetode];
+                              while (updated.length <= idx) updated.push(prev.metode);
+                              updated[idx] = val;
+                              return { ...prev, pertemuanMetode: updated };
+                            });
+                          }}
+                          className="w-full p-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                          {METODE_OPTIONS.map(opt => (
+                            <option key={opt.id} value={opt.id}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     );
                   })}
@@ -583,6 +720,31 @@ export default function CreateModulAjar() {
                   className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed"
                   required
                 />
+              </div>
+
+              {/* 6. Fitur Pilih Tanggal Cetak Modul (Titimangsa Pengesahan) */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-indigo-600" />
+                    Pilih Tanggal Cetak Modul
+                  </label>
+                  <span className="text-xs text-indigo-700 font-semibold bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                    Titimangsa: Garut, {formatIndoDate(formData.tanggalCetak)}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Tanggal ini akan disinkronkan langsung pada titimangsa lembar pengesahan di atas Guru Mata Pelajaran pada akhir modul.
+                </p>
+                <div className="max-w-xs">
+                  <input
+                    type="date"
+                    value={formData.tanggalCetak}
+                    onChange={e => setFormData({ ...formData, tanggalCetak: e.target.value })}
+                    className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-medium text-gray-800"
+                    required
+                  />
+                </div>
               </div>
 
               {/* Submit button */}
@@ -673,11 +835,20 @@ export default function CreateModulAjar() {
                 </div>
               </div>
 
-              {/* Formal Printable Document Preview Container */}
-              <div
-                id="printable-modul"
-                className="bg-white rounded-2xl p-8 md:p-12 border border-gray-200 shadow-sm max-w-5xl mx-auto print:p-0 print:border-none print:shadow-none text-gray-900 font-serif leading-relaxed"
-              >
+              {/* Formal Printable Document Preview Container or Editor */}
+              {isEditing ? (
+                <ModulAjarEditor
+                  result={result}
+                  onChange={setResult}
+                  onSave={handleToggleEdit}
+                  onCancel={() => setIsEditing(false)}
+                  isSaving={autoSaving}
+                />
+              ) : (
+                <div
+                  id="printable-modul"
+                  className="bg-white rounded-2xl p-8 md:p-12 border border-gray-200 shadow-sm max-w-5xl mx-auto print:p-0 print:border-none print:shadow-none text-gray-900 font-serif leading-relaxed"
+                >
                 {/* 1. KOP SURAT FORMAL */}
                 <div className="text-center border-b-4 border-double border-gray-800 pb-4 mb-6">
                   <h3 className="text-sm md:text-base font-bold tracking-wider text-gray-800 uppercase">
@@ -739,13 +910,9 @@ export default function CreateModulAjar() {
                           <td className="p-2.5 bg-gray-50 font-semibold text-gray-700">Alokasi Waktu & Jumlah Pertemuan</td>
                           <td className="p-2.5 font-medium">{result.identitas?.alokasiWaktu || formData.alokasiWaktu} ({result.identitas?.jumlahPertemuan || formData.pertemuanCount} Pertemuan)</td>
                         </tr>
-                        <tr className="border-b border-gray-200">
+                        <tr>
                           <td className="p-2.5 bg-gray-50 font-semibold text-gray-700">Model & Metode Pembelajaran</td>
                           <td className="p-2.5 font-medium text-blue-900 font-bold">{result.modelMetode?.nama || formData.metode}</td>
-                        </tr>
-                        <tr>
-                          <td className="p-2.5 bg-gray-50 font-semibold text-gray-700">Target Peserta Didik</td>
-                          <td className="p-2.5 font-medium">{result.targetPesertaDidik || 'Peserta didik reguler dengan diferensiasi pembelajaran'}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -825,12 +992,22 @@ export default function CreateModulAjar() {
                   </div>
 
                   <div>
-                    <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-1">G. Dimensi Profil Pelajar Pancasila</h4>
-                    <div className="flex flex-wrap gap-1.5 font-sans">
-                      {result.dimensiProfilPelajarPancasila?.map((dim: string, idx: number) => (
-                        <span key={idx} className="text-xs bg-slate-100 text-slate-800 px-2.5 py-1 rounded-full font-medium border border-slate-200">
-                          {dim}
-                        </span>
+                    <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-1.5">
+                      G. Dimensi Profil Lulusan (8 Dimensi Lulusan)
+                    </h4>
+                    <div className="grid sm:grid-cols-2 gap-2 font-sans">
+                      {((result.dimensiProfilLulusan && result.dimensiProfilLulusan.length > 0)
+                        ? result.dimensiProfilLulusan
+                        : (result.dimensiProfilPelajarPancasila && result.dimensiProfilPelajarPancasila.length > 0)
+                        ? result.dimensiProfilPelajarPancasila
+                        : DELAPAN_DIMENSI_LULUSAN
+                      ).map((dim: string, idx: number) => (
+                        <div key={idx} className="text-xs bg-slate-50 text-slate-800 p-2 rounded-lg border border-slate-200 flex items-start gap-2">
+                          <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-[11px] flex-shrink-0 mt-0.5">
+                            {idx + 1}
+                          </span>
+                          <span className="leading-snug">{dim}</span>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -839,7 +1016,7 @@ export default function CreateModulAjar() {
                 {/* 5. III. KEGIATAN PEMBELAJARAN SESUAI SINTAKS PER PERTEMUAN */}
                 <div className="mb-8 space-y-6">
                   <h3 className="text-sm font-bold uppercase tracking-wider bg-gray-100 p-2 border-l-4 border-blue-700 font-sans text-gray-900">
-                    III. Rincian Kegiatan Pembelajaran (Sintaks {result.modelMetode?.nama || formData.metode})
+                    III. Rincian Kegiatan Pembelajaran
                   </h3>
 
                   {result.pertemuan?.map((ptm: any, pIdx: number) => (
@@ -848,14 +1025,14 @@ export default function CreateModulAjar() {
                       <div className="bg-slate-100 p-3 border-b border-gray-300 flex items-center justify-between">
                         <div>
                           <span className="text-xs font-bold uppercase text-blue-800 tracking-wider">
-                            Pertemuan Ke-{ptm.nomor || pIdx + 1}
+                            Pertemuan Ke-{ptm.nomor || pIdx + 1} • {ptm.metode || result.modelMetode?.nama || formData.metode}
                           </span>
                           <h4 className="text-sm md:text-base font-bold text-gray-900 mt-0.5">
                             {ptm.topik || `Materi Pertemuan ${pIdx + 1}`}
                           </h4>
                         </div>
                         <div className="text-right text-xs text-gray-600 font-medium">
-                          <span>{ptm.alokasiWaktu || formData.alokasiWaktu}</span>
+                          <span className="px-2.5 py-1 bg-white rounded-md border border-gray-300 font-semibold">{ptm.alokasiWaktu || formData.alokasiWaktu}</span>
                         </div>
                       </div>
 
@@ -881,7 +1058,7 @@ export default function CreateModulAjar() {
                         <div>
                           <h5 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                             <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-                            2. Kegiatan Inti ({ptm.kegiatanInti?.durasi || '60 Menit'}) — Sintaks {result.modelMetode?.nama || formData.metode}
+                            2. Kegiatan Inti ({ptm.kegiatanInti?.durasi || '60 Menit'}) — Sintaks {ptm.metode || result.modelMetode?.nama || formData.metode}
                           </h5>
 
                           <div className="border border-gray-300 rounded-lg overflow-hidden">
@@ -1076,7 +1253,7 @@ export default function CreateModulAjar() {
 
                     <div>
                       <p>
-                        Garut, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        {result.titimangsa || `Garut, ${formatIndoDate(result.tanggalCetak || formData.tanggalCetak)}`}
                       </p>
                       <p className="font-bold">Guru Mata Pelajaran,</p>
                       <div className="h-24 flex items-center justify-center">
@@ -1092,6 +1269,7 @@ export default function CreateModulAjar() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
           )}
         </div>

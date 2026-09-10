@@ -939,8 +939,8 @@ function MaterialGenerator() {
 export default function GuruDashboard() {
   const location = useLocation();
 
-  if (location.pathname.startsWith('/dashboard/modul')) {
-    return <CreateModulAjar />;
+  if (location.pathname.startsWith('/dashboard/bahan-ajar')) {
+    return <MaterialGenerator />;
   }
   if (location.pathname.startsWith('/dashboard/soal')) {
     return <CreateQuestions />;
@@ -948,6 +948,10 @@ export default function GuruDashboard() {
   if (location.pathname.startsWith('/dashboard/laporan')) {
     return <GradeReports />;
   }
+  if (location.pathname.startsWith('/dashboard/modul')) {
+    return <CreateModulAjar />;
+  }
 
-  return <MaterialGenerator />;
+  // Default: Modul Ajar Otomatis as the primary top menu item
+  return <CreateModulAjar />;
 }

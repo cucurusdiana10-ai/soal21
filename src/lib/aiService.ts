@@ -213,8 +213,10 @@ export interface ModulAjarPayload {
   cp: string;
   grade?: string;
   metode: string;
+  pertemuanMetode?: string[];
   pertemuanCount: number;
   alokasiWaktu?: string;
+  tanggalCetak?: string;
   namaGuru?: string;
   nipGuru?: string;
   namaSekolah?: string;
@@ -223,6 +225,7 @@ export interface ModulAjarPayload {
   tahunPelajaran?: string;
   semester?: string;
   namaKepsek?: string;
+  nipKepsek?: string;
 }
 
 export async function generateModulAjarApi(payload: ModulAjarPayload) {

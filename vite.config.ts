@@ -289,8 +289,10 @@ Berikan penilaian dalam format JSON dengan struktur:
                 cp,
                 grade,
                 metode,
+                pertemuanMetode,
                 pertemuanCount,
                 alokasiWaktu,
+                tanggalCetak,
                 namaGuru,
                 nipGuru,
                 namaSekolah,
@@ -317,12 +319,26 @@ Berikan penilaian dalam format JSON dengan struktur:
               const teacherName = namaGuru || 'Guru Pengampu';
               const teacherNip = nipGuru || '-';
               const totalMeetings = Number(pertemuanCount) || 2;
-              const timeAllocation = alokasiWaktu || '2 x 45 Menit';
+              const timeAllocation = alokasiWaktu || '2 x 45 Menit (2 JP)';
               const methodChosen = metode || 'Problem-Based Learning (PBL)';
               const targetGrade = grade || 'Fase E (Kelas X)';
               const academicYear = tahunPelajaran || '2026/2027';
               const currentSemester = semester || 'Ganjil';
               const headmaster = namaKepsek || 'Agus Supriatna, S.Pd., M.Si.';
+
+              const meetingMethods: string[] = Array.isArray(pertemuanMetode) && pertemuanMetode.length > 0
+                ? pertemuanMetode.slice(0, totalMeetings)
+                : Array(totalMeetings).fill(methodChosen);
+
+              while (meetingMethods.length < totalMeetings) {
+                meetingMethods.push(methodChosen);
+              }
+
+              const meetingMethodsDesc = meetingMethods
+                .map((m, idx) => `Pertemuan ${idx + 1}: ${m}`)
+                .join('; ');
+
+              const is5JP = (timeAllocation || '').includes('5 JP') || (timeAllocation || '').includes('5 jp') || (timeAllocation || '').includes('5 x 45');
 
               const prompt = `Anda adalah seorang ahli pengembang kurikulum nasional dan pakar Pembelajaran Mendalam (Deep Learning) serta Kurikulum Merdeka untuk jenjang SMA di ${schoolName}.
 Tugas Anda adalah merancang "MODUL AJAR PEMBELAJARAN MENDALAM (DEEP LEARNING)" yang sangat komprehensif, operasional, berbobot tinggi, dan siap pakai.
@@ -339,15 +355,35 @@ DATA MASUKAN:
 - Mata Pelajaran: ${subject}
 - Fase / Kelas: ${targetGrade}
 - Capaian Pembelajaran (CP): "${cp}"
-- Metode Pembelajaran Terpilih: "${methodChosen}"
-- Jumlah Pertemuan Yang Dibuat: Tepat ${totalMeetings} Pertemuan
-- Alokasi Waktu: ${timeAllocation} per Pertemuan
+- Jumlah Pertemuan: Tepat ${totalMeetings} Pertemuan
+- Alokasi Waktu: ${timeAllocation}
+- Metode Pembelajaran Tiap Pertemuan (Bisa Berbeda Tiap Pertemuan):
+${meetingMethods.map((m, idx) => `  * Pertemuan ${idx + 1}: ${m}`).join('\n')}
+${tanggalCetak ? `- Tanggal Cetak Modul / Titimangsa: ${tanggalCetak}` : ''}
 
-PRINSIP PEMBELAJARAN MENDALAM (DEEP LEARNING):
-1. Mindful (Berkesadaran): Peserta didik sadar tujuan belajar, fokus, dan aktif merefleksikan proses berpikirnya (metakognisi).
-2. Meaningful (Bermakna): Menghubungkan konsep secara mendalam dengan konteks nyata di lingkungan siswa, studi kasus otentik, dan kebermanfaatan hidup.
-3. Joyful (Menyenangkan): Pengalaman belajar menggugah rasa ingin tahu, kolaboratif, tanpa tekanan intimidatif, dan merayakan pencapaian.
-Serta mengikuti SINTAKS RESMI dari Metode Pembelajaran terpilih ("${methodChosen}") pada Kegiatan Inti di setiap pertemuan secara berurutan.
+ATURAN KHUSUS ALOKASI WAKTU:
+${is5JP ? `CATATAN KHUSUS ALOKASI 5 JP (5 x 45 Menit):
+Pada RINCIAN KEGIATAN PEMBELAJARAN:
+- Pertemuan 1: alokasiWaktu adalah '2 JP (2 x 45 Menit = 90 Menit)' (Kegiatan Pendahuluan 15 Menit, Kegiatan Inti 60 Menit, Kegiatan Penutup 15 Menit).
+- Pertemuan 2: alokasiWaktu adalah '3 JP (3 x 45 Menit = 135 Menit)' (Kegiatan Pendahuluan 15 Menit, Kegiatan Inti 105 Menit, Kegiatan Penutup 15 Menit).
+(Jika ada pertemuan berikutnya, distribusikan secara proporsional).` : `Setiap pertemuan memiliki alokasi waktu ${timeAllocation}.`}
+
+ATURAN KHUSUS METODE PEMBELAJARAN & SINTAKS PER PERTEMUAN:
+Setiap pertemuan di array "pertemuan" HARUS memiliki metode tersendiri sesuai pilihan guru di atas:
+${meetingMethods.map((m, idx) => `- Pertemuan ${idx + 1}: Wajib menerapkan sintaks resmi dari metode "${m}" pada Kegiatan Inti.`).join('\n')}
+
+ATURAN DIMENSI PROFIL LULUSAN (8 DIMENSI LULUSAN):
+Ganti dan hilangkan istilah "Dimensi Profil Pelajar Pancasila". Gunakan "Dimensi Profil Lulusan" yang wajib memuat 8 Dimensi Lulusan berikut secara lengkap dan kontekstual:
+1. Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa
+2. Kewargaan
+3. Penalaran Kritis
+4. Kreativitas
+5. Kolaborasi
+6. Kemandirian
+7. Kesehatan
+8. Komunikasi
+
+CATATAN: Hapus dan jangan tampilkan atribut "targetPesertaDidik".
 
 WAJIB MENGEMBALIKAN RESPONS DALAM FORMAT JSON MURNI YANG VALID (tanpa pembuka markdown atau teks pengantar lain).
 Gunakan struktur JSON berikut:
@@ -360,11 +396,13 @@ Gunakan struktur JSON berikut:
     "nipGuru": "${teacherNip}",
     "mataPelajaran": "${subject}",
     "fase": "${targetGrade}",
-    "alokasiWaktu": "${timeAllocation} per Pertemuan",
+    "alokasiWaktu": "${timeAllocation}",
     "jumlahPertemuan": ${totalMeetings},
     "tahunPelajaran": "${academicYear}",
     "semester": "${currentSemester}",
-    "namaKepsek": "${headmaster}"
+    "namaKepsek": "${headmaster}",
+    "metodeGabungan": "${meetingMethodsDesc}",
+    "tanggalCetak": "${tanggalCetak || ''}"
   },
   "capaianPembelajaran": "${cp}",
   "elemenCp": "Elemen/Domain konten utama CP",
@@ -379,11 +417,15 @@ Gunakan struktur JSON berikut:
     "Pertanyaan terbuka menantang 2?",
     "Pertanyaan terbuka menantang 3?"
   ],
-  "dimensiProfilPelajarPancasila": [
-    "Bernalar Kritis: Menemukan dan memecahkan persoalan secara logis",
-    "Gotong Royong: Berkolaborasi aktif dalam kelompok",
-    "Kreatif: Menghasilkan solusi alternatif inovatif",
-    "Mandiri: Mengembangkan regulasi diri dalam belajar"
+  "dimensiProfilLulusan": [
+    "Keimanan dan Ketakwaan terhadap Tuhan YME: Uraian kontekstual spiritual dan etika pada materi ini",
+    "Kewargaan: Uraian kontekstual kepedulian sosial, kebangsaan, dan lingkungan",
+    "Penalaran Kritis: Uraian analisis logis, pengolahan data, dan evaluasi solusi",
+    "Kreativitas: Uraian pengembangan ide inovatif dan solusi orisinal",
+    "Kolaborasi: Uraian kerja tim sinergis, gotong royong, dan komunikasi",
+    "Kemandirian: Uraian regulasi diri, ketekunan, dan inisiatif belajar",
+    "Kesehatan: Uraian kesejahteraan fisik-mental (well-being) dalam proses belajar",
+    "Komunikasi: Uraian artikulasi gagasan, dialog santun, dan presentasi"
   ],
   "prinsipPembelajaranMendalam": {
     "mindful": "Penerapan berkesadaran penuh dalam proses belajar topik ini",
@@ -395,23 +437,21 @@ Gunakan struktur JSON berikut:
     "alatBahan": ["Laptop, proyektor, smartphone, papan tulis, LKPD"],
     "sumberBelajar": ["Buku teks Kurikulum Merdeka, modul ajar digital, sumber artikel online terpercaya"]
   },
-  "targetPesertaDidik": "Peserta didik reguler/tipikal, dengan diferensiasi untuk peserta didik berkemampuan tinggi maupun yang memerlukan bimbingan tambahan",
   "modelMetode": {
-    "nama": "${methodChosen}",
-    "alasanPemilihan": "Alasan pedagogis mengapa metode ini optimal untuk mencapai CP topik ini",
+    "nama": "${meetingMethodsDesc}",
+    "alasanPemilihan": "Alasan pedagogis mengapa metode-metode ini optimal untuk mencapai CP topik ini",
     "sintaksUtama": [
-      "Tahap 1 sintaks metode",
-      "Tahap 2 sintaks metode",
-      "Tahap 3 sintaks metode",
-      "Tahap 4 sintaks metode",
-      "Tahap 5 sintaks metode"
+      "Tahap 1 sintaks metode pertemuan 1",
+      "Tahap 2 sintaks metode pertemuan 1",
+      "Tahap lanjutan"
     ]
   },
   "pertemuan": [
     {
       "nomor": 1,
       "topik": "Topik spesifik pertemuan 1",
-      "alokasiWaktu": "${timeAllocation}",
+      "metode": "${meetingMethods[0] || methodChosen}",
+      "alokasiWaktu": "${is5JP ? '2 x 45 Menit (2 JP)' : timeAllocation}",
       "tujuanPertemuan": "Tujuan spesifik yang dicapai pada pertemuan 1",
       "kegiatanPendahuluan": {
         "durasi": "15 Menit",
@@ -422,34 +462,35 @@ Gunakan struktur JSON berikut:
         ]
       },
       "kegiatanInti": {
-        "durasi": "60 Menit",
+        "durasi": "${is5JP ? '60 Menit' : '60 Menit'}",
+        "metode": "${meetingMethods[0] || methodChosen}",
         "sintaks": [
           {
-            "tahap": "Tahap 1 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 1 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning (Mindful/Meaningful/Joyful/Diferensiasi)"
           },
           {
-            "tahap": "Tahap 2 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 2 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"
           },
           {
-            "tahap": "Tahap 3 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 3 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"
           },
           {
-            "tahap": "Tahap 4 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 4 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"
           },
           {
-            "tahap": "Tahap 5 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 5 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"

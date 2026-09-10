@@ -294,8 +294,10 @@ Berikan penilaian dalam format JSON dengan struktur:
         cp,
         grade,
         metode,
+        pertemuanMetode,
         pertemuanCount,
         alokasiWaktu,
+        tanggalCetak,
         namaGuru,
         nipGuru,
         namaSekolah,
@@ -303,7 +305,8 @@ Berikan penilaian dalam format JSON dengan struktur:
         alamatSekolah,
         tahunPelajaran,
         semester,
-        namaKepsek
+        namaKepsek,
+        nipKepsek
       } = req.body;
 
       if (!subject || !cp) {
@@ -325,12 +328,27 @@ Berikan penilaian dalam format JSON dengan struktur:
       const teacherName = namaGuru || 'Guru Pengampu';
       const teacherNip = nipGuru || '-';
       const totalMeetings = Number(pertemuanCount) || 2;
-      const timeAllocation = alokasiWaktu || '2 x 45 Menit';
+      const timeAllocation = alokasiWaktu || '2 x 45 Menit (2 JP)';
       const methodChosen = metode || 'Problem-Based Learning (PBL)';
       const targetGrade = grade || 'Fase E (Kelas X)';
       const academicYear = tahunPelajaran || '2026/2027';
       const currentSemester = semester || 'Ganjil';
       const headmaster = namaKepsek || 'Agus Supriatna, S.Pd., M.Si.';
+      const headmasterNip = nipKepsek || '';
+
+      const meetingMethods: string[] = Array.isArray(pertemuanMetode) && pertemuanMetode.length > 0
+        ? pertemuanMetode.slice(0, totalMeetings)
+        : Array(totalMeetings).fill(methodChosen);
+
+      while (meetingMethods.length < totalMeetings) {
+        meetingMethods.push(methodChosen);
+      }
+
+      const meetingMethodsDesc = meetingMethods
+        .map((m, idx) => `Pertemuan ${idx + 1}: ${m}`)
+        .join('; ');
+
+      const is5JP = (timeAllocation || '').includes('5 JP') || (timeAllocation || '').includes('5 jp') || (timeAllocation || '').includes('5 x 45');
 
       const prompt = `Anda adalah seorang ahli pengembang kurikulum nasional dan pakar Pembelajaran Mendalam (Deep Learning) serta Kurikulum Merdeka untuk jenjang SMA di ${schoolName}.
 Tugas Anda adalah merancang "MODUL AJAR PEMBELAJARAN MENDALAM (DEEP LEARNING)" yang sangat komprehensif, operasional, berbobot tinggi, dan siap pakai.
@@ -341,21 +359,62 @@ DATA MASUKAN:
 - Alamat Sekolah: ${schoolAddress}
 - Nama Penyusun (Guru): ${teacherName}
 - NIP/ID Guru: ${teacherNip}
-- Kepala Sekolah: ${headmaster}
+- Kepala Sekolah: ${headmaster} ${headmasterNip ? `(NIP. ${headmasterNip})` : ''}
 - Tahun Pelajaran: ${academicYear}
 - Semester: ${currentSemester}
 - Mata Pelajaran: ${subject}
 - Fase / Kelas: ${targetGrade}
 - Capaian Pembelajaran (CP): "${cp}"
-- Metode Pembelajaran Terpilih: "${methodChosen}"
-- Jumlah Pertemuan Yang Dibuat: Tepat ${totalMeetings} Pertemuan
-- Alokasi Waktu: ${timeAllocation} per Pertemuan
+- Jumlah Pertemuan: Tepat ${totalMeetings} Pertemuan
+- Alokasi Waktu: ${timeAllocation}
+- Metode Pembelajaran Tiap Pertemuan (Bisa Berbeda Tiap Pertemuan):
+${meetingMethods.map((m, idx) => `  * Pertemuan ${idx + 1}: ${m}`).join('\n')}
+${tanggalCetak ? `- Tanggal Cetak Modul / Titimangsa: ${tanggalCetak}` : ''}
 
-PRINSIP PEMBELAJARAN MENDALAM (DEEP LEARNING):
-1. Mindful (Berkesadaran): Peserta didik sadar tujuan belajar, fokus, dan aktif merefleksikan proses berpikirnya (metakognisi).
-2. Meaningful (Bermakna): Menghubungkan konsep secara mendalam dengan konteks nyata di lingkungan siswa, studi kasus otentik, dan kebermanfaatan hidup.
-3. Joyful (Menyenangkan): Pengalaman belajar menggugah rasa ingin tahu, kolaboratif, tanpa tekanan intimidatif, dan merayakan pencapaian.
-Serta mengikuti SINTAKS RESMI dari Metode Pembelajaran terpilih ("${methodChosen}") pada Kegiatan Inti di setiap pertemuan secara berurutan.
+ATURAN KHUSUS ALOKASI WAKTU:
+${is5JP ? `CATATAN KHUSUS ALOKASI 5 JP (5 x 45 Menit):
+Pada RINCIAN KEGIATAN PEMBELAJARAN:
+- Pertemuan 1: alokasiWaktu adalah '2 JP (2 x 45 Menit = 90 Menit)' (Kegiatan Pendahuluan 15 Menit, Kegiatan Inti 60 Menit, Kegiatan Penutup 15 Menit).
+- Pertemuan 2: alokasiWaktu adalah '3 JP (3 x 45 Menit = 135 Menit)' (Kegiatan Pendahuluan 15 Menit, Kegiatan Inti 105 Menit, Kegiatan Penutup 15 Menit).
+(Jika ada pertemuan berikutnya, distribusikan secara proporsional).` : `Setiap pertemuan memiliki alokasi waktu ${timeAllocation}.`}
+
+ATURAN KHUSUS METODE PEMBELAJARAN & SINTAKS PER PERTEMUAN:
+Setiap pertemuan di array "pertemuan" HARUS memiliki metode tersendiri sesuai pilihan guru di atas:
+${meetingMethods.map((m, idx) => `- Pertemuan ${idx + 1}: Wajib menerapkan sintaks resmi dari metode "${m}" pada Kegiatan Inti.`).join('\n')}
+
+ATURAN RINCIAN KEGIATAN PENDAHULUAN DAN PENUTUP (WAJIB DIJABARKAN LENGKAP PADA SETIAP PERTEMUAN):
+Kegiatan pendahuluan dan penutup pada setiap pertemuan HARUS dijabarkan secara rinci dan operasional, dengan langkah-langkah konkret:
+- Pada "kegiatanPendahuluan" (durasi: 15 Menit):
+  Wajib memuat minimal 6 langkah konkret yang operasional pada setiap pertemuan:
+  1. Orientasi & Penumbuhan Budi Pekerti: Guru membuka pembelajaran dengan salam hangat, sapaan ramah, memimpin doa bersama siswa sesuai keyakinan, serta memeriksa kebersihan dan kerapian ruang kelas.
+  2. Presensi & Kesiapan Belajar: Guru memeriksa kehadiran siswa dan mengecek kesiapan fisik serta psikologis peserta didik untuk belajar.
+  3. Mindfulness / Ice Breaking (Joyful Learning): Guru memandu latihan kesadaran penuh (Mindfulness / Teknik STOP) atau ice breaking singkat yang menggembirakan untuk menumbuhkan fokus dan suasana belajar positif.
+  4. Apersepsi Kontekstual: Guru mengaitkan materi prasyarat atau pengalaman belajar pertemuan sebelumnya dengan topik yang akan dipelajari hari ini.
+  5. Pertanyaan Pemantik & Motivasi (Meaningful): Guru mengajukan pertanyaan pemantik kontekstual yang merangsang daya nalar kritis dan rasa ingin tahu siswa serta memaparkan manfaat nyata materi dalam kehidupan sehari-hari.
+  6. Penyampaian Tujuan Pembelajaran & Alur Asesmen: Guru menyampaikan Capaian Pembelajaran (CP), Tujuan Pembelajaran (TP) spesifik pertemuan ini, garis besar skenario aktivitas belajar, dan kriteria penilaian.
+  7. Pembagian Kelompok & Kontrak Belajar: Guru mengondisikan pembagian kelompok belajar heterogen (diferensiasi proses) dan menyepakati kontrak/kesepakatan kelas yang saling menghargai.
+
+- Pada "kegiatanPenutup" (durasi: 15 Menit):
+  Wajib memuat minimal 5-6 langkah konkret yang operasional pada setiap pertemuan:
+  1. Simpulan Bersama: Peserta didik bersama guru merangkum dan menyimpulkan poin-poin kunci serta konsep esensial yang telah dipelajari hari ini.
+  2. Refleksi Terbimbing Peserta Didik (Metakognisi): Peserta didik melakukan refleksi terbimbing (apa yang telah dipahami, tantangan yang dihadapi, serta perasaan dan pengalaman bermakna selama pembelajaran).
+  3. Asesmen Formatif Cepat (Check for Understanding / Exit Ticket): Guru memberikan evaluasi pemahaman mandiri singkat (1-2 soal kuis cepat atau lembar exit ticket) untuk memantau capaian belajar seluruh siswa.
+  4. Apresiasi & Penguatan Positif Guru: Guru memberikan apresiasi dan umpan balik konstruktif atas usaha, kreativitas, dan kerja sama aktif seluruh peserta didik.
+  5. Tindak Lanjut & Informasi Pertemuan Berikutnya: Guru memberikan arahan tindak lanjut (remedial/pengayaan) serta menginformasikan persiapan materi/tugas untuk pertemuan berikutnya.
+  6. Doa Penutup & Salam: Pembelajaran ditutup dengan doa bersama penuh syukur dan salam penutup yang santun.
+
+ATURAN DIMENSI PROFIL LULUSAN (8 DIMENSI LULUSAN):
+Ganti dan hilangkan istilah "Dimensi Profil Pelajar Pancasila". Gunakan "Dimensi Profil Lulusan" yang wajib memuat 8 Dimensi Lulusan berikut secara lengkap dan kontekstual:
+1. Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa
+2. Kewargaan
+3. Penalaran Kritis
+4. Kreativitas
+5. Kolaborasi
+6. Kemandirian
+7. Kesehatan
+8. Komunikasi
+
+CATATAN: Hapus dan jangan tampilkan atribut "targetPesertaDidik".
 
 WAJIB MENGEMBALIKAN RESPONS DALAM FORMAT JSON MURNI YANG VALID (tanpa pembuka markdown atau teks pengantar lain).
 Gunakan struktur JSON berikut:
@@ -368,11 +427,14 @@ Gunakan struktur JSON berikut:
     "nipGuru": "${teacherNip}",
     "mataPelajaran": "${subject}",
     "fase": "${targetGrade}",
-    "alokasiWaktu": "${timeAllocation} per Pertemuan",
+    "alokasiWaktu": "${timeAllocation}",
     "jumlahPertemuan": ${totalMeetings},
     "tahunPelajaran": "${academicYear}",
     "semester": "${currentSemester}",
-    "namaKepsek": "${headmaster}"
+    "namaKepsek": "${headmaster}",
+    "nipKepsek": "${headmasterNip}",
+    "metodeGabungan": "${meetingMethodsDesc}",
+    "tanggalCetak": "${tanggalCetak || ''}"
   },
   "capaianPembelajaran": "${cp}",
   "elemenCp": "Elemen/Domain konten utama CP",
@@ -387,11 +449,15 @@ Gunakan struktur JSON berikut:
     "Pertanyaan terbuka menantang 2?",
     "Pertanyaan terbuka menantang 3?"
   ],
-  "dimensiProfilPelajarPancasila": [
-    "Bernalar Kritis: Menemukan dan memecahkan persoalan secara logis",
-    "Gotong Royong: Berkolaborasi aktif dalam kelompok",
-    "Kreatif: Menghasilkan solusi alternatif inovatif",
-    "Mandiri: Mengembangkan regulasi diri dalam belajar"
+  "dimensiProfilLulusan": [
+    "Keimanan dan Ketakwaan terhadap Tuhan YME: Uraian kontekstual spiritual dan etika pada materi ini",
+    "Kewargaan: Uraian kontekstual kepedulian sosial, kebangsaan, dan lingkungan",
+    "Penalaran Kritis: Uraian analisis logis, pengolahan data, dan evaluasi solusi",
+    "Kreativitas: Uraian pengembangan ide inovatif dan solusi orisinal",
+    "Kolaborasi: Uraian kerja tim sinergis, gotong royong, dan komunikasi",
+    "Kemandirian: Uraian regulasi diri, ketekunan, dan inisiatif belajar",
+    "Kesehatan: Uraian kesejahteraan fisik-mental (well-being) dalam proses belajar",
+    "Komunikasi: Uraian artikulasi gagasan, dialog santun, dan presentasi"
   ],
   "prinsipPembelajaranMendalam": {
     "mindful": "Penerapan berkesadaran penuh dalam proses belajar topik ini",
@@ -403,61 +469,64 @@ Gunakan struktur JSON berikut:
     "alatBahan": ["Laptop, proyektor, smartphone, papan tulis, LKPD"],
     "sumberBelajar": ["Buku teks Kurikulum Merdeka, modul ajar digital, sumber artikel online terpercaya"]
   },
-  "targetPesertaDidik": "Peserta didik reguler/tipikal, dengan diferensiasi untuk peserta didik berkemampuan tinggi maupun yang memerlukan bimbingan tambahan",
   "modelMetode": {
-    "nama": "${methodChosen}",
-    "alasanPemilihan": "Alasan pedagogis mengapa metode ini optimal untuk mencapai CP topik ini",
+    "nama": "${meetingMethodsDesc}",
+    "alasanPemilihan": "Alasan pedagogis mengapa metode-metode ini optimal untuk mencapai CP topik ini",
     "sintaksUtama": [
-      "Tahap 1 sintaks metode",
-      "Tahap 2 sintaks metode",
-      "Tahap 3 sintaks metode",
-      "Tahap 4 sintaks metode",
-      "Tahap 5 sintaks metode"
+      "Tahap 1 sintaks metode pertemuan 1",
+      "Tahap 2 sintaks metode pertemuan 1",
+      "Tahap lanjutan"
     ]
   },
   "pertemuan": [
     {
       "nomor": 1,
       "topik": "Topik spesifik pertemuan 1",
-      "alokasiWaktu": "${timeAllocation}",
+      "metode": "${meetingMethods[0] || methodChosen}",
+      "alokasiWaktu": "${is5JP ? '2 x 45 Menit (2 JP)' : timeAllocation}",
       "tujuanPertemuan": "Tujuan spesifik yang dicapai pada pertemuan 1",
       "kegiatanPendahuluan": {
         "durasi": "15 Menit",
         "langkah": [
-          "Orientasi: Guru membuka pembelajaran dengan salam hangat, berdoa bersama, memeriksa kehadiran dan kenyamanan ruang kelas.",
-          "Apersepsi: Guru mengaitkan materi prasyarat dengan mengajukan fenomena kontekstual terkini.",
-          "Motivasi & Mindful: Guru menyampaikan tujuan pembelajaran, pemahaman bermakna, serta alur kegiatan menyenangkan hari ini."
+          "Orientasi & Penumbuhan Budi Pekerti: Guru membuka pembelajaran dengan salam pembuka, menyapa peserta didik dengan hangat, dan mengajak salah satu peserta didik memimpin doa bersama sesuai keyakinan masing-masing.",
+          "Presensi & Kesiapan Ruang: Guru memeriksa kebersihan, kerapian meja kursi, serta sirkulasi ruang kelas, dilanjutkan memeriksa presensi kehadiran dan kesiapan fisik-mental peserta didik.",
+          "Mindfulness & Ice Breaking: Guru memandu latihan kesadaran penuh (Mindfulness / Teknik STOP: Stop, Take a breath, Observe, Proceed) atau ice breaking singkat yang menggembirakan untuk memusatkan fokus belajar peserta didik.",
+          "Apersepsi Kontekstual: Guru mengaitkan materi prasyarat atau pengalaman belajar sebelumnya dengan konsep materi yang akan dipelajari pada pertemuan ini melalui analogi konkret.",
+          "Pertanyaan Pemantik & Motivasi: Guru melontarkan pertanyaan pemantik yang merangsang daya nalar kritis peserta didik dan menyampaikan manfaat praktis mempelajari materi ini dalam kehidupan sehari-hari.",
+          "Penyampaian Tujuan & Asesmen: Guru menyampaikan Capaian Pembelajaran, Tujuan Pembelajaran (TP) spesifik hari ini, garis besar alur aktivitas, serta kriteria dan teknik penilaian yang akan diterapkan.",
+          "Kontrak Belajar & Pembagian Kelompok: Guru mengondisikan pembagian kelompok belajar heterogen berdasarkan tingkat kesiapan belajar (diferensiasi) dan menegaskan kembali kesepakatan/kontrak kelas."
         ]
       },
       "kegiatanInti": {
-        "durasi": "60 Menit",
+        "durasi": "${is5JP ? '60 Menit' : '60 Menit'}",
+        "metode": "${meetingMethods[0] || methodChosen}",
         "sintaks": [
           {
-            "tahap": "Tahap 1 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 1 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning (Mindful/Meaningful/Joyful/Diferensiasi)"
           },
           {
-            "tahap": "Tahap 2 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 2 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"
           },
           {
-            "tahap": "Tahap 3 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 3 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"
           },
           {
-            "tahap": "Tahap 4 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 4 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"
           },
           {
-            "tahap": "Tahap 5 sesuai sintaks ${methodChosen}",
+            "tahap": "Tahap 5 sesuai sintaks ${meetingMethods[0] || methodChosen}",
             "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
             "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
             "fokusMendalam": "Aspek Deep Learning"
@@ -467,9 +536,12 @@ Gunakan struktur JSON berikut:
       "kegiatanPenutup": {
         "durasi": "15 Menit",
         "langkah": [
-          "Kesimpulan & Refleksi: Peserta didik bersama guru menyimpulkan inti pembelajaran dan melakukan refleksi terbimbing.",
-          "Umpan Balik: Guru memberikan apresiasi dan umpan balik positif atas kolaborasi peserta didik.",
-          "Tindak Lanjut & Penutup: Guru menginformasikan materi pertemuan berikutnya dan menutup dengan doa bersama."
+          "Rangkuman & Simpulan Bersama: Peserta didik difasilitasi guru untuk merangkum dan menyimpulkan poin-poin kunci serta konsep esensial yang telah dipelajari.",
+          "Refleksi Terbimbing Peserta Didik: Peserta didik melakukan refleksi metakognitif menjawab pertanyaan pemandu (apa hal paling bermakna yang dipelajari, tantangan diskusi kelompok, dan perasaan belajar hari ini).",
+          "Asesmen Formatif Cepat (Exit Ticket): Guru memberikan lembar evaluasi pemahaman mandiri singkat (1-2 soal kuis cepat atau exit ticket) untuk mengecek ketuntasan konsep.",
+          "Apresiasi & Penguatan Positif: Guru memberikan apresiasi dan umpan balik yang konstruktif atas kreativitas, keaktifan, dan kolaborasi seluruh peserta didik dan kelompok.",
+          "Tindak Lanjut & Info Pertemuan Berikutnya: Guru memberikan arahan tindak lanjut (pengayaan/pendampingan remedial) serta menginformasikan topik materi dan persiapan untuk pertemuan berikutnya.",
+          "Doa Penutup & Salam: Pembelajaran ditutup dengan rasa syukur dan doa bersama yang dipimpin perwakilan siswa serta salam penutup hangat dari guru."
         ]
       }
     }

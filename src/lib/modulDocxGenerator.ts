@@ -11,6 +11,7 @@ import {
   HeadingLevel,
   BorderStyle
 } from 'docx';
+import { parseKepsek } from './schoolSettings';
 
 export async function exportModulAjarToDocx(data: any, fileName?: string) {
   const identitas = data.identitas || {};
@@ -19,7 +20,9 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
   const schoolAddress = identitas.alamatSekolah || 'Jl. Raya Talegong No. 21, Kec. Talegong, Kab. Garut, Jawa Barat 44167';
   const teacherName = identitas.namaGuru || 'Guru Pengampu';
   const teacherNip = identitas.nipGuru || '-';
-  const headmasterName = identitas.namaKepsek || 'Agus Supriatna, S.Pd., M.Si.';
+  const parsedKepsek = parseKepsek(identitas.namaKepsek);
+  const headmasterName = parsedKepsek.nama || 'Agus Supriatna, S.Pd., M.Si.';
+  const headmasterNip = identitas.nipKepsek || parsedKepsek.nip || '';
   const subjectName = identitas.mataPelajaran || data.subject_name || 'Mata Pelajaran';
   const grade = identitas.fase || data.grade || 'Fase E (Kelas X)';
   const totalMeetings = identitas.jumlahPertemuan || (data.pertemuan ? data.pertemuan.length : 2);
@@ -184,8 +187,7 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
     ['Jenjang / Fase / Kelas', grade],
     ['Alokasi Waktu', timeAlloc],
     ['Jumlah Pertemuan', `${totalMeetings} Pertemuan`],
-    ['Model & Metode Pembelajaran', methodName],
-    ['Target Peserta Didik', data.targetPesertaDidik || 'Peserta Didik Reguler / Berdiferensiasi'],
+    ['Model & Metode Pembelajaran', data.identitas?.metodeGabungan || methodName],
   ];
 
   children.push(
@@ -319,24 +321,37 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
   children.push(
     new Paragraph({
       children: [
-        new TextRun({ text: 'G. Dimensi Profil Pelajar Pancasila:', bold: true, size: 20, font: 'Calibri' })
+        new TextRun({ text: 'G. Dimensi Profil Lulusan (8 Dimensi Lulusan):', bold: true, size: 20, font: 'Calibri' })
       ],
       spacing: { before: 140 }
     })
   );
 
-  if (data.dimensiProfilPelajarPancasila && Array.isArray(data.dimensiProfilPelajarPancasila)) {
-    data.dimensiProfilPelajarPancasila.forEach((dim: string) => {
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({ text: `• ${dim}`, size: 20, font: 'Calibri' })
-          ],
-          indent: { left: 360 }
-        })
-      );
-    });
-  }
+  const dimensiList: string[] = (data.dimensiProfilLulusan && Array.isArray(data.dimensiProfilLulusan) && data.dimensiProfilLulusan.length > 0)
+    ? data.dimensiProfilLulusan
+    : (data.dimensiProfilPelajarPancasila && Array.isArray(data.dimensiProfilPelajarPancasila) && data.dimensiProfilPelajarPancasila.length > 0)
+    ? data.dimensiProfilPelajarPancasila
+    : [
+        'Keimanan dan Ketakwaan terhadap Tuhan YME: Mengamalkan nilai spiritual dan integritas dalam proses belajar',
+        'Kewargaan: Memiliki kepedulian sosial, kebangsaan, dan kelestarian lingkungan',
+        'Penalaran Kritis: Memproses informasi secara logis, analitis, dan memecahkan persoalan nyata',
+        'Kreativitas: Menghasilkan gagasan inovatif dan solusi orisinal',
+        'Kolaborasi: Bekerja sama secara sinergis, gotong royong, dan berbagi peran',
+        'Kemandirian: Bertanggung jawab atas proses dan hasil belajar secara mandiri',
+        'Kesehatan: Menjaga kebugaran jasmani dan kesejahteraan mental (well-being)',
+        'Komunikasi: Mengartikulasikan pemikiran secara santun, terstruktur, dan dialogis'
+      ];
+
+  dimensiList.forEach((dim: string, dIdx: number) => {
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: `${dIdx + 1}. ${dim}`, size: 20, font: 'Calibri' })
+        ],
+        indent: { left: 360 }
+      })
+    );
+  });
 
   // 5. III. KEGIATAN PEMBELAJARAN SESUAI SINTAKS PER PERTEMUAN
   children.push(
@@ -344,7 +359,7 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
       heading: HeadingLevel.HEADING_1,
       children: [
         new TextRun({
-          text: `III. RINCIAN KEGIATAN PEMBELAJARAN (SINTAKS ${methodName.toUpperCase()})`,
+          text: 'III. RINCIAN KEGIATAN PEMBELAJARAN',
           bold: true,
           size: 22,
           color: '1E3A8A',
@@ -399,10 +414,11 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
       }
 
       // Kegiatan Inti (Sintaks Table)
+      const currentMeetingMethod = ptm.metode || methodName;
       children.push(
         new Paragraph({
           children: [
-            new TextRun({ text: `2. Kegiatan Inti (${ptm.kegiatanInti?.durasi || '60 Menit'}) - Sintaks ${methodName}`, bold: true, size: 20, font: 'Calibri' })
+            new TextRun({ text: `2. Kegiatan Inti (${ptm.kegiatanInti?.durasi || '60 Menit'}) - Sintaks ${currentMeetingMethod}`, bold: true, size: 20, font: 'Calibri' })
           ],
           spacing: { before: 100, after: 80 }
         })
@@ -685,11 +701,29 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
   }
 
   // 10. LEMBAR PENGESAHAN
-  const currentDate = new Date().toLocaleDateString('id-ID', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
+  let titimangsaText = data.titimangsa || '';
+  if (!titimangsaText) {
+    const rawDate = data.tanggalCetak || (identitas && identitas.tanggalCetak);
+    if (rawDate) {
+      try {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) {
+          titimangsaText = `Garut, ${d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+        } else {
+          titimangsaText = rawDate.startsWith('Garut') ? rawDate : `Garut, ${rawDate}`;
+        }
+      } catch {
+        titimangsaText = `Garut, ${rawDate}`;
+      }
+    } else {
+      const todayFormatted = new Date().toLocaleDateString('id-ID', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+      titimangsaText = `Garut, ${todayFormatted}`;
+    }
+  }
 
   children.push(
     new Paragraph({ spacing: { before: 400, after: 100 } }),
@@ -716,7 +750,7 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
                 }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: 'NIP. ........................................', size: 19, font: 'Calibri' })]
+                  children: [new TextRun({ text: headmasterNip ? `NIP. ${headmasterNip}` : 'NIP. ........................................', size: 19, font: 'Calibri' })]
                 })
               ],
               borders: {
@@ -731,7 +765,7 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: `Garut, ${currentDate}`, size: 20, font: 'Calibri' })]
+                  children: [new TextRun({ text: titimangsaText, size: 20, font: 'Calibri' })]
                 }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,

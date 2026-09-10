@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Save, Loader2, Image as ImageIcon } from 'lucide-react';
+import { parseKepsek, formatKepsekDbString } from '../../lib/schoolSettings';
 
 export default function AppSettings() {
   const [loading, setLoading] = useState(true);
@@ -15,6 +16,7 @@ export default function AppSettings() {
     tahun_pelajaran: '',
     semester: 'Ganjil',
     nama_kepsek: '',
+    nip_kepsek: '',
     ttd_kepsek: ''
   });
 
@@ -33,7 +35,12 @@ export default function AppSettings() {
       if (error && error.code !== 'PGRST116') {
         console.error(error);
       } else if (data) {
-        setSettings(data);
+        const kepsek = parseKepsek(data.nama_kepsek);
+        setSettings({
+          ...data,
+          nama_kepsek: kepsek.nama,
+          nip_kepsek: kepsek.nip
+        });
       }
     } catch (err) {
       console.error(err);
@@ -63,6 +70,8 @@ export default function AppSettings() {
     setMessage({ type: '', text: '' });
 
     try {
+      const combinedNamaKepsek = formatKepsekDbString(settings.nama_kepsek, settings.nip_kepsek);
+
       const { error } = await supabase
         .from('app_settings')
         .update({
@@ -71,14 +80,14 @@ export default function AppSettings() {
           nama_sekolah: settings.nama_sekolah,
           tahun_pelajaran: settings.tahun_pelajaran,
           semester: settings.semester,
-          nama_kepsek: settings.nama_kepsek,
+          nama_kepsek: combinedNamaKepsek,
           ttd_kepsek: settings.ttd_kepsek,
           updated_at: new Date().toISOString()
         })
         .eq('id', settings.id);
 
       if (error) throw error;
-      setMessage({ type: 'success', text: 'Pengaturan berhasil disimpan!' });
+      setMessage({ type: 'success', text: 'Pengaturan dan NIP Kepala Sekolah berhasil disimpan!' });
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Gagal menyimpan pengaturan.' });
     } finally {
@@ -145,6 +154,21 @@ export default function AppSettings() {
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Nama Kepala Sekolah</label>
                 <input type="text" name="nama_kepsek" value={settings.nama_kepsek} onChange={handleChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none" required />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">NIP Kepala Sekolah</label>
+                <input
+                  type="text"
+                  name="nip_kepsek"
+                  value={settings.nip_kepsek}
+                  onChange={handleChange}
+                  placeholder="Contoh: 19700101 199501 1 001"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none font-mono text-sm"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  NIP ini akan otomatis tercantum pada setiap lembar pengesahan dan tanda tangan Kepala Sekolah di modul ajar maupun dokumen lainnya.
+                </p>
               </div>
 
               <div>
