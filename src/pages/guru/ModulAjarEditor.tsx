@@ -13,6 +13,7 @@ import {
   FileText,
   RotateCcw
 } from 'lucide-react';
+import { getDetailedPendahuluan, getDetailedPenutup } from '../../lib/schoolSettings';
 
 export const DELAPAN_DIMENSI_LULUSAN = [
   'Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa: Mengamalkan nilai spiritual dan integritas dalam proses belajar',
@@ -532,7 +533,7 @@ export default function ModulAjarEditor({
                     <Plus className="w-3.5 h-3.5" /> Tambah Langkah
                   </button>
                 </div>
-                {(ptm.kegiatanPendahuluan?.langkah || []).map((step: string, sIdx: number) => (
+                {getDetailedPendahuluan(ptm.kegiatanPendahuluan?.langkah).map((step: string, sIdx: number) => (
                   <div key={sIdx} className="flex items-center gap-2">
                     <span className="text-xs text-amber-700 font-bold">•</span>
                     <input
@@ -646,7 +647,7 @@ export default function ModulAjarEditor({
                     <Plus className="w-3.5 h-3.5" /> Tambah Langkah
                   </button>
                 </div>
-                {(ptm.kegiatanPenutup?.langkah || []).map((step: string, sIdx: number) => (
+                {getDetailedPenutup(ptm.kegiatanPenutup?.langkah).map((step: string, sIdx: number) => (
                   <div key={sIdx} className="flex items-center gap-2">
                     <span className="text-xs text-emerald-700 font-bold">•</span>
                     <input
@@ -879,6 +880,16 @@ export default function ModulAjarEditor({
                 value={result.identitas?.namaKepsek || ''}
                 onChange={e => updateField(['identitas', 'namaKepsek'], e.target.value)}
                 className="w-full p-2.5 bg-white border border-gray-300 rounded-xl font-bold"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-gray-800 mb-1">NIP Kepala Sekolah</label>
+              <input
+                type="text"
+                value={result.identitas?.nipKepsek || ''}
+                onChange={e => updateField(['identitas', 'nipKepsek'], e.target.value)}
+                placeholder="Contoh: 19700101 199501 1 001"
+                className="w-full p-2.5 bg-white border border-gray-300 rounded-xl font-mono text-sm"
               />
             </div>
           </div>

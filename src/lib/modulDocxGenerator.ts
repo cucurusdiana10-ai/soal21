@@ -11,7 +11,7 @@ import {
   HeadingLevel,
   BorderStyle
 } from 'docx';
-import { parseKepsek } from './schoolSettings';
+import { parseKepsek, getDetailedPendahuluan, getDetailedPenutup } from './schoolSettings';
 
 export async function exportModulAjarToDocx(data: any, fileName?: string) {
   const identitas = data.identitas || {};
@@ -402,16 +402,15 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
           ]
         })
       );
-      if (ptm.kegiatanPendahuluan?.langkah && Array.isArray(ptm.kegiatanPendahuluan.langkah)) {
-        ptm.kegiatanPendahuluan.langkah.forEach((step: string) => {
-          children.push(
-            new Paragraph({
-              children: [new TextRun({ text: `• ${step}`, size: 20, font: 'Calibri' })],
-              indent: { left: 360 }
-            })
-          );
-        });
-      }
+      const pendahuluanSteps = getDetailedPendahuluan(ptm.kegiatanPendahuluan?.langkah);
+      pendahuluanSteps.forEach((step: string) => {
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: `• ${step}`, size: 20, font: 'Calibri' })],
+            indent: { left: 360 }
+          })
+        );
+      });
 
       // Kegiatan Inti (Sintaks Table)
       const currentMeetingMethod = ptm.metode || methodName;
@@ -458,16 +457,15 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
           ]
         })
       );
-      if (ptm.kegiatanPenutup?.langkah && Array.isArray(ptm.kegiatanPenutup.langkah)) {
-        ptm.kegiatanPenutup.langkah.forEach((step: string) => {
-          children.push(
-            new Paragraph({
-              children: [new TextRun({ text: `• ${step}`, size: 20, font: 'Calibri' })],
-              indent: { left: 360 }
-            })
-          );
-        });
-      }
+      const penutupSteps = getDetailedPenutup(ptm.kegiatanPenutup?.langkah);
+      penutupSteps.forEach((step: string) => {
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: `• ${step}`, size: 20, font: 'Calibri' })],
+            indent: { left: 360 }
+          })
+        );
+      });
 
       children.push(new Paragraph({ spacing: { after: 180 } }));
     });

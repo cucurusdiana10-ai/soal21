@@ -25,6 +25,7 @@ import {
 import { generateModulAjarApi } from '../../lib/aiService';
 import { exportModulAjarToDocx } from '../../lib/modulDocxGenerator';
 import ModulAjarEditor, { DELAPAN_DIMENSI_LULUSAN } from './ModulAjarEditor';
+import { parseKepsek, getDetailedPendahuluan, getDetailedPenutup } from '../../lib/schoolSettings';
 
 function formatIndoDate(dateStr?: string) {
   if (!dateStr) return '';
@@ -129,7 +130,8 @@ export default function CreateModulAjar() {
     alamat_sekolah: 'Jl. Raya Talegong No. 21, Kec. Talegong, Kab. Garut, Jawa Barat 44167',
     tahun_pelajaran: '2026/2027',
     semester: 'Ganjil',
-    nama_kepsek: 'Agus Supriatna, S.Pd., M.Si.'
+    nama_kepsek: 'Agus Supriatna, S.Pd., M.Si.',
+    nip_kepsek: ''
   });
 
   const [teacherSubjects, setTeacherSubjects] = useState<string[]>([]);
@@ -165,13 +167,15 @@ export default function CreateModulAjar() {
     try {
       const { data } = await supabase.from('app_settings').select('*').limit(1).single();
       if (data) {
+        const kepsek = parseKepsek(data.nama_kepsek);
         setSchoolSettings({
           nama_sekolah: data.nama_sekolah || 'SMAN 21 Garut',
           npsn: data.npsn || '20209194',
           alamat_sekolah: data.alamat_sekolah || 'Jl. Raya Talegong No. 21, Kec. Talegong, Kab. Garut, Jawa Barat 44167',
           tahun_pelajaran: data.tahun_pelajaran || '2026/2027',
           semester: data.semester || 'Ganjil',
-          nama_kepsek: data.nama_kepsek || 'Agus Supriatna, S.Pd., M.Si.'
+          nama_kepsek: kepsek.nama,
+          nip_kepsek: kepsek.nip
         });
       }
     } catch (err) {
@@ -260,7 +264,8 @@ export default function CreateModulAjar() {
         alamatSekolah: schoolSettings.alamat_sekolah,
         tahunPelajaran: schoolSettings.tahun_pelajaran,
         semester: schoolSettings.semester,
-        namaKepsek: schoolSettings.nama_kepsek
+        namaKepsek: schoolSettings.nama_kepsek,
+        nipKepsek: schoolSettings.nip_kepsek
       };
 
       const data = await generateModulAjarApi(payload);
@@ -587,92 +592,49 @@ export default function CreateModulAjar() {
                 </div>
               </div>
 
-              {/* 4. Pilihan Metode Pembelajaran Utama */}
-              <div>
-                <label className="block text-sm font-bold text-gray-800 mb-2 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
-                  Model Pembelajaran Induk
-                </label>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {METODE_OPTIONS.map(m => {
-                    const isSelected = formData.metode === m.id;
-                    return (
-                      <div
-                        key={m.id}
-                        onClick={() => {
-                          setFormData(prev => ({
-                            ...prev,
-                            metode: m.id,
-                            pertemuanMetode: prev.pertemuanMetode.map(() => m.id)
-                          }));
-                        }}
-                        className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-                          isSelected
-                            ? 'border-blue-600 bg-blue-50/70 shadow-sm'
-                            : 'border-gray-200 hover:border-gray-300 bg-white'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className={`font-bold text-xs ${isSelected ? 'text-blue-900' : 'text-gray-800'}`}>
-                            {m.label}
-                          </p>
-                          {isSelected && <CheckCircle2 className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />}
-                        </div>
-                        <p className="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-relaxed">
-                          {m.desc}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 4b. Metode Pembelajaran Tiap Pertemuan (Bisa Berbeda) */}
-              <div className="p-4 bg-blue-50/40 border border-blue-200 rounded-2xl space-y-3">
+              {/* 4. Model / Metode Pembelajaran Tiap Pertemuan */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-blue-700" />
-                      Metode Pembelajaran Tiap Pertemuan ({formData.pertemuanCount} Pertemuan)
-                    </h4>
-                    <p className="text-[11px] text-gray-600">
-                      Anda dapat memilih metode berbeda di setiap pertemuan sesuai dengan tahapan materi.
+                    <label className="block text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-blue-600" />
+                      Model / Metode Pembelajaran Tiap Pertemuan ({formData.pertemuanCount} Pertemuan)
+                    </label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Tentukan model pembelajaran yang sesuai dengan karakteristik materi pada masing-masing pertemuan.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData(prev => ({
-                        ...prev,
-                        pertemuanMetode: Array(prev.pertemuanCount).fill(prev.metode)
-                      }));
-                    }}
-                    className="px-2.5 py-1 text-xs bg-white text-blue-700 hover:bg-blue-100 font-semibold rounded-lg border border-blue-300 transition"
-                  >
-                    Samakan Semua dengan Model Induk
-                  </button>
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-3">
                   {Array.from({ length: formData.pertemuanCount }).map((_, idx) => {
-                    const currentMethod = formData.pertemuanMetode[idx] || formData.metode;
+                    const currentMethodId = formData.pertemuanMetode[idx] || formData.metode;
+                    const currentOpt = METODE_OPTIONS.find(m => m.id === currentMethodId) || METODE_OPTIONS[0];
+
                     return (
-                      <div key={idx} className="bg-white p-3 rounded-xl border border-blue-200 space-y-1">
-                        <label className="block text-xs font-bold text-blue-900">
-                          Pertemuan Ke-{idx + 1}:
-                        </label>
+                      <div key={idx} className="bg-white p-3.5 rounded-xl border border-slate-300 shadow-sm space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded-md">
+                            Pertemuan Ke-{idx + 1}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-medium">Sintaks Resmi Kemendikbud</span>
+                        </div>
                         <select
-                          value={currentMethod}
+                          value={currentMethodId}
                           onChange={e => {
                             const val = e.target.value;
                             setFormData(prev => {
                               const updated = [...prev.pertemuanMetode];
-                              while (updated.length <= idx) updated.push(prev.metode);
+                              while (updated.length <= idx) updated.push(prev.metode || METODE_OPTIONS[0].id);
                               updated[idx] = val;
-                              return { ...prev, pertemuanMetode: updated };
+                              return {
+                                ...prev,
+                                metode: updated[0] || val,
+                                pertemuanMetode: updated
+                              };
                             });
                           }}
-                          className="w-full p-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                          className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-600 outline-none"
                         >
                           {METODE_OPTIONS.map(opt => (
                             <option key={opt.id} value={opt.id}>
@@ -680,6 +642,9 @@ export default function CreateModulAjar() {
                             </option>
                           ))}
                         </select>
+                        <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed bg-slate-50 p-2 rounded-lg border border-slate-100">
+                          {currentOpt.desc}
+                        </p>
                       </div>
                     );
                   })}
@@ -1048,7 +1013,7 @@ export default function CreateModulAjar() {
                             1. Kegiatan Pendahuluan ({ptm.kegiatanPendahuluan?.durasi || '15 Menit'})
                           </h5>
                           <ul className="list-disc pl-5 space-y-1 text-xs text-gray-700">
-                            {ptm.kegiatanPendahuluan?.langkah?.map((step: string, sIdx: number) => (
+                            {getDetailedPendahuluan(ptm.kegiatanPendahuluan?.langkah).map((step: string, sIdx: number) => (
                               <li key={sIdx}>{step}</li>
                             ))}
                           </ul>
@@ -1101,7 +1066,7 @@ export default function CreateModulAjar() {
                             3. Kegiatan Penutup ({ptm.kegiatanPenutup?.durasi || '15 Menit'})
                           </h5>
                           <ul className="list-disc pl-5 space-y-1 text-xs text-gray-700">
-                            {ptm.kegiatanPenutup?.langkah?.map((step: string, sIdx: number) => (
+                            {getDetailedPenutup(ptm.kegiatanPenutup?.langkah).map((step: string, sIdx: number) => (
                               <li key={sIdx}>{step}</li>
                             ))}
                           </ul>
@@ -1248,7 +1213,9 @@ export default function CreateModulAjar() {
                       <p className="font-bold underline text-gray-900">
                         {result.identitas?.namaKepsek || schoolSettings.nama_kepsek}
                       </p>
-                      <p className="text-xs text-gray-500">NIP. ........................................</p>
+                      <p className="text-xs text-gray-600 font-mono">
+                        NIP. {result.identitas?.nipKepsek || schoolSettings.nip_kepsek || '........................................'}
+                      </p>
                     </div>
 
                     <div>
