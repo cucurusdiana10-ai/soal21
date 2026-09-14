@@ -123,66 +123,73 @@ async function clientFallbackGenerateQuestions(topic: string, type: string, coun
   throw new Error('Gagal meracik soal dari AI.');
 }
 
-async function postApiWithFallback(endpoints: string[], payload: any, clientFallback?: () => Promise<any>) {
+async function postApiWithFallback(
+  endpoints: string[],
+  payload: any,
+  clientFallback?: () => Promise<any>
+) {
   let lastErrorMsg = '';
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+  for (const url of endpoints) {
+    try {
+      console.log('[AI API] POST:', url);
 
-        const contentType = res.headers.get('content-type') || '';
-        const rawText = await res.text();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
 
-        if (res.ok) {
-          if (contentType.includes('application/json')) {
-            try {
-              return JSON.parse(rawText);
-            } catch {
-              return parseJsonSafely(rawText);
-            }
-          } else {
-            return parseJsonSafely(rawText);
-          }
+      const contentType = res.headers.get('content-type') || '';
+      const rawText = await res.text();
+
+      console.log('[AI API] Response:', url, res.status, rawText);
+
+      if (res.ok) {
+        if (contentType.includes('application/json')) {
+          return JSON.parse(rawText);
         }
 
-        if (res.status === 405) {
-          lastErrorMsg = 'Server sedang proses pemanasan rute (405). Silakan ulangi dalam beberapa detik.';
-        } else if (contentType.includes('application/json')) {
-          try {
-            const errJson = JSON.parse(rawText);
-            if (errJson.error) lastErrorMsg = errJson.error;
-            else lastErrorMsg = `Server error (${res.status})`;
-          } catch {
-            lastErrorMsg = `Server error (${res.status})`;
-          }
-        } else {
+        return parseJsonSafely(rawText);
+      }
+
+      if (res.status === 405) {
+        lastErrorMsg =
+          `API ${url} tersedia tetapi tidak menerima POST (405).`;
+        continue;
+      }
+
+      if (contentType.includes('application/json')) {
+        try {
+          const errJson = JSON.parse(rawText);
+          lastErrorMsg =
+            errJson.error || `Server error (${res.status})`;
+        } catch {
           lastErrorMsg = `Server error (${res.status})`;
         }
-      } catch (err: any) {
-        lastErrorMsg = err.message || 'Koneksi gagal.';
+      } else {
+        lastErrorMsg = `Server error (${res.status})`;
       }
-    }
 
-    // Small delay before retry if 405 or initial failure
-    if (attempt === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (err: any) {
+      console.error('[AI API] Error:', url, err);
+      lastErrorMsg = err.message || 'Koneksi gagal.';
     }
   }
 
   if (clientFallback) {
     try {
       return await clientFallback();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('[AI API] Client fallback gagal:', err);
     }
   }
 
-  throw new Error(lastErrorMsg || 'Gagal memproses permintaan ke server AI.');
+  throw new Error(
+    lastErrorMsg || 'Gagal memproses permintaan ke server AI.'
+  );
 }
 
 export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
