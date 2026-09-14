@@ -82,7 +82,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
 
 // Client-side fallback for generating questions
 async function clientFallbackGenerateQuestions(topic: string, type: string, count: number) {
-  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  const apiKey = (import.meta as any).env?.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('Server backend mengalami kendala atau GEMINI_API_KEY belum terpasang.');
   }
