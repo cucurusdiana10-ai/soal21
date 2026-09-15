@@ -36,22 +36,29 @@ async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
   let lastError: any = null;
 
   for (const model of models) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        }
-      });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+          }
+        });
 
-      const text = response.text;
-      if (text) {
-        return parseJsonSafely(text);
+        const text = response.text;
+        if (text) {
+          return parseJsonSafely(text);
+        }
+      } catch (err: any) {
+        console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err.message);
+        lastError = err;
+        if (err?.message?.includes('503') || err?.message?.includes('429') || err?.status === 503 || err?.status === 429) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        } else {
+          break;
+        }
       }
-    } catch (err: any) {
-      console.warn(`Model ${model} gagal atau sibuk, mencoba model cadangan:`, err.message);
-      lastError = err;
     }
   }
 
@@ -227,6 +234,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
 
   app.all('/api/generate-questions', handleQuestionsGen);
   app.all('/api/ai/questions', handleQuestionsGen);
+  app.all('/api/questions', handleQuestionsGen);
 
   // Handler for Essay Grading
   const handleGradeEssay = async (req: express.Request, res: express.Response) => {
@@ -274,6 +282,7 @@ Berikan penilaian dalam format JSON dengan struktur:
 
   app.all('/api/grade-essay', handleGradeEssay);
   app.all('/api/ai/grade-essay', handleGradeEssay);
+  app.all('/api/grade', handleGradeEssay);
 
   // Handler for Modul Ajar Pembelajaran Mendalam Generation
   const handleModulGen = async (req: express.Request, res: express.Response) => {
@@ -643,6 +652,12 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
 
   app.all('/api/generate-modul', handleModulGen);
   app.all('/api/ai/modul', handleModulGen);
+  app.all('/api/modul', handleModulGen);
+
+  // Fallback for any unhandled /api/* request to prevent Vite static handler 405
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route ${req.path} tidak ditemukan.` });
+  });
 
 
   // Vite middleware for development

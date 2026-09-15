@@ -35,17 +35,24 @@ function apiDevPlugin(geminiApiKey: string): Plugin {
     const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
     let lastErr = null;
     for (const model of models) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
-        const text = response.text;
-        if (text) return parseJsonSafely(text);
-      } catch (e: any) {
-        console.warn(`Vite dev plugin model ${model} gagal atau sibuk, mencoba model cadangan:`, e.message);
-        lastErr = e;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: { responseMimeType: 'application/json' }
+          });
+          const text = response.text;
+          if (text) return parseJsonSafely(text);
+        } catch (e: any) {
+          console.warn(`Vite dev plugin model ${model} attempt ${attempt + 1} gagal/sibuk:`, e.message);
+          lastErr = e;
+          if (e?.message?.includes('503') || e?.message?.includes('429')) {
+            await new Promise((r) => setTimeout(r, 800));
+          } else {
+            break;
+          }
+        }
       }
     }
     throw lastErr || new Error('Gagal menghubungi model Gemini');
