@@ -161,6 +161,21 @@ export default function CreateModulAjar() {
     fetchSchoolSettings();
     fetchTeacherSubjects();
     fetchSavedModules();
+
+    const prefillCp = sessionStorage.getItem('prefill_modul_cp');
+    const prefillSubject = sessionStorage.getItem('prefill_modul_subject');
+    const prefillGrade = sessionStorage.getItem('prefill_modul_grade');
+    if (prefillCp || prefillSubject || prefillGrade) {
+      setFormData(prev => ({
+        ...prev,
+        ...(prefillCp ? { cp: prefillCp } : {}),
+        ...(prefillSubject ? { subject: prefillSubject } : {}),
+        ...(prefillGrade ? { grade: prefillGrade } : {})
+      }));
+      sessionStorage.removeItem('prefill_modul_cp');
+      sessionStorage.removeItem('prefill_modul_subject');
+      sessionStorage.removeItem('prefill_modul_grade');
+    }
   }, [user]);
 
   async function fetchSchoolSettings() {

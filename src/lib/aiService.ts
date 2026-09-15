@@ -54,14 +54,9 @@ async function executeClientGemini(prompt: string) {
 
   const ai = new GoogleGenAI({
     apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build'
-      }
-    }
   });
 
-  const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  const models = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
   let lastErr: any = null;
 
   for (const model of models) {
@@ -533,16 +528,18 @@ async function postApiWithFallback(
       return await clientFallback();
     } catch (err: any) {
       console.error('[AI API] Client-side fallback juga gagal:', err);
-      // If client fallback failed, use its error if it's about missing API key
-      if (err?.message) {
-        lastErrorMsg = err.message;
+      // Only overwrite if lastErrorMsg is generic
+      if (!lastErrorMsg || lastErrorMsg.includes('405') || lastErrorMsg.includes('404') || lastErrorMsg.includes('Server error')) {
+        if (err?.message) {
+          lastErrorMsg = err.message;
+        }
       }
     }
   }
 
   if (!lastErrorMsg || lastErrorMsg.includes('405') || lastErrorMsg.includes('404')) {
     lastErrorMsg =
-      'Gagal memproses AI. Jika Anda menggunakan hosting Vercel, pastikan variabel GEMINI_API_KEY telah ditambahkan di Vercel Dashboard (Settings -> Environment Variables) lalu Redeploy.';
+      'Gagal memproses AI. Jika Anda menggunakan hosting Vercel, pastikan variabel GEMINI_API_KEY telah ditambahkan di Vercel Dashboard (Settings -> Environment Variables) lalu lakukan REDEPLOY.';
   }
 
   throw new Error(lastErrorMsg);

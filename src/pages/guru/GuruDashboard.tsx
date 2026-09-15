@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink } from 'lucide-react';
+import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink, FileText, CheckCircle2 } from 'lucide-react';
 import { generateMaterialApi } from '../../lib/aiService';
 import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
 import CreateModulAjar from './CreateModulAjar';
+import GuruLihatCp from './GuruLihatCp';
 
 function MaterialGenerator() {
   const { user } = useAuth();
@@ -25,6 +26,12 @@ function MaterialGenerator() {
   const [editingSavedMaterial, setEditingSavedMaterial] = useState<any | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // Modul Ajar Acuan States
+  const [savedModules, setSavedModules] = useState<any[]>([]);
+  const [selectedModuleId, setSelectedModuleId] = useState<string>('');
+  const [selectedMeetingIndex, setSelectedMeetingIndex] = useState<string>('ALL');
+  const [useManualTopic, setUseManualTopic] = useState<boolean>(false);
+
   const [form, setForm] = useState({
     subject: '',
     grade: '',
@@ -38,12 +45,101 @@ function MaterialGenerator() {
     fetchClasses();
     fetchTeacherSubjects();
     fetchSavedMaterials();
+    fetchSavedModules();
   }, [user]);
 
   async function fetchClasses() {
     const { data } = await supabase.from('classes').select('id, name').order('name');
     if (data) setClasses(data);
   }
+
+  async function fetchSavedModules() {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('modul_ajar')
+        .select('*')
+        .eq('guru_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (data && data.length > 0) {
+        setSavedModules(data);
+      }
+    } catch (err) {
+      console.warn('Gagal memuat daftar modul ajar:', err);
+    }
+  }
+
+  const handleSelectModule = (moduleId: string) => {
+    setSelectedModuleId(moduleId);
+    setSelectedMeetingIndex('ALL');
+
+    if (!moduleId || moduleId === 'MANUAL') {
+      setUseManualTopic(true);
+      return;
+    }
+
+    setUseManualTopic(false);
+    const mod = savedModules.find(m => m.id === moduleId);
+    if (!mod) return;
+
+    // Normalize grade
+    let gradeVal = 'X';
+    const rawGrade = (mod.grade || '').toUpperCase();
+    if (rawGrade.includes('XII') || rawGrade.includes('12')) gradeVal = 'XII';
+    else if (rawGrade.includes('XI') || rawGrade.includes('11')) gradeVal = 'XI';
+    else if (rawGrade.includes('X') || rawGrade.includes('10')) gradeVal = 'X';
+
+    const subjectVal = mod.subject_name || form.subject;
+    const cleanTitle = mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name;
+
+    const cJson = mod.content_json || {};
+    const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
+
+    let topicVal = cleanTitle;
+    if (pertemuanList.length > 0 && pertemuanList[0]?.nama) {
+      topicVal = `${cleanTitle} - ${pertemuanList[0].nama}`;
+    }
+
+    const descVal = `Bahan Ajar ini mengacu pada Modul Ajar Kurikulum Merdeka:\n• Dokumen: ${mod.title || cleanTitle}\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model Pembelajaran: ${mod.metode || 'Problem-Based Learning'}\n• Alokasi Waktu: ${mod.alokasi_waktu || '2 x 45 Menit'}\nSajikan bahan ajar yang selaras dengan alur pembelajaran dan capaian pada modul tersebut.`;
+
+    setForm(prev => ({
+      ...prev,
+      subject: subjectVal,
+      grade: gradeVal,
+      topic: topicVal,
+      description: descVal
+    }));
+  };
+
+  const handleSelectMeeting = (meetingIdxStr: string) => {
+    setSelectedMeetingIndex(meetingIdxStr);
+    const mod = savedModules.find(m => m.id === selectedModuleId);
+    if (!mod) return;
+
+    const cleanTitle = mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name;
+    const cJson = mod.content_json || {};
+    const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
+
+    if (meetingIdxStr === 'ALL') {
+      setForm(prev => ({
+        ...prev,
+        topic: cleanTitle,
+        description: `Bahan Ajar rangkuman menyeluruh untuk Modul Ajar: "${mod.title || cleanTitle}". Capaian Pembelajaran: ${mod.cp || '-'}. Model: ${mod.metode || 'PBL'}.`
+      }));
+    } else {
+      const idx = parseInt(meetingIdxStr, 10);
+      const meeting = pertemuanList[idx];
+      if (meeting) {
+        const meetingName = meeting.nama || `Pertemuan ${idx + 1}`;
+        setForm(prev => ({
+          ...prev,
+          topic: `${cleanTitle} (${meetingName})`,
+          description: `Bahan ajar khusus untuk ${meetingName} pada Modul Ajar: "${mod.title || cleanTitle}".\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model: ${mod.metode || 'PBL'}\n• Sintaks/Kegiatan Inti: ${meeting.kegiatanInti ? meeting.kegiatanInti.slice(0, 180) + '...' : '-'}`
+        }));
+      }
+    }
+  };
 
   async function fetchTeacherSubjects() {
     if (!user) return;
@@ -219,7 +315,106 @@ function MaterialGenerator() {
       </div>
 
       {/* Generator Form */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+      <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-200">
+        {/* Acuan Modul Ajar Selector */}
+        <div className="mb-6 p-4 md:p-5 bg-gradient-to-br from-indigo-50/80 to-blue-50/50 rounded-2xl border border-indigo-100">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                <BookOpen className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">
+                  Acuan Modul Ajar (Capaian Pembelajaran Otomatis)
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Pilih Modul Ajar yang telah Anda racik sebelumnya agar materi terhubung langsung dengan Capaian Pembelajaran & Skenario Modul.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              to="/dashboard/cp"
+              className="text-xs font-bold text-indigo-700 hover:text-indigo-800 flex items-center gap-1 self-start md:self-auto"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Lihat Repositori CP →
+            </Link>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-3">
+            <div className={selectedModuleId && selectedModuleId !== 'MANUAL' ? "md:col-span-2" : "md:col-span-3"}>
+              <select
+                value={selectedModuleId}
+                onChange={e => handleSelectModule(e.target.value)}
+                className="w-full p-3 text-xs font-semibold border border-indigo-200 rounded-xl bg-white text-gray-800 focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              >
+                <option value="">-- Pilih Modul Ajar yang Telah Dibuat (Rekomendasi) --</option>
+                {savedModules.map(m => (
+                  <option key={m.id} value={m.id}>
+                    📚 [{m.grade || 'Fase'}] {m.subject_name} - {m.title ? m.title.replace(/^Modul Ajar:\s*/i, '') : 'Modul'} ({new Date(m.created_at).toLocaleDateString('id-ID')})
+                  </option>
+                ))}
+                <option value="MANUAL">✏️ Mode Bebas: Ketik Topik & Capaian Manual (Tanpa Modul Ajar)</option>
+              </select>
+            </div>
+
+            {selectedModuleId && selectedModuleId !== 'MANUAL' && (
+              <div>
+                {(() => {
+                  const mod = savedModules.find(m => m.id === selectedModuleId);
+                  const meetings = Array.isArray(mod?.content_json?.pertemuan) ? mod.content_json.pertemuan : [];
+                  return (
+                    <select
+                      value={selectedMeetingIndex}
+                      onChange={e => handleSelectMeeting(e.target.value)}
+                      className="w-full p-3 text-xs font-semibold border border-indigo-200 rounded-xl bg-white text-indigo-900 focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                    >
+                      <option value="ALL">🌐 Seluruh Sesi (Rangkuman Modul)</option>
+                      {meetings.map((meet: any, mIdx: number) => (
+                        <option key={mIdx} value={String(mIdx)}>
+                          📌 {meet.nama || `Pertemuan ${mIdx + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          {/* If a module is selected, show summary pill card */}
+          {selectedModuleId && selectedModuleId !== 'MANUAL' && (() => {
+            const mod = savedModules.find(m => m.id === selectedModuleId);
+            if (!mod) return null;
+            return (
+              <div className="mt-3.5 p-3.5 bg-white rounded-xl border border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-indigo-900">{mod.title}</span>
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md font-semibold text-[11px]">
+                      {mod.grade || 'Fase'}
+                    </span>
+                    {mod.metode && (
+                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md font-semibold text-[11px]">
+                        {mod.metode}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-gray-600 text-[11px] line-clamp-1">
+                    <strong className="text-gray-700">Capaian Pembelajaran (CP):</strong> {mod.cp || '-'}
+                  </p>
+                </div>
+
+                <span className="inline-flex items-center text-emerald-700 font-bold text-[11px] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 self-start md:self-auto">
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                  Acuan Terhubung
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Mata Pelajaran</label>
@@ -939,6 +1134,9 @@ function MaterialGenerator() {
 export default function GuruDashboard() {
   const location = useLocation();
 
+  if (location.pathname.startsWith('/dashboard/cp')) {
+    return <GuruLihatCp />;
+  }
   if (location.pathname.startsWith('/dashboard/bahan-ajar')) {
     return <MaterialGenerator />;
   }

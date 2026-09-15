@@ -27,7 +27,8 @@ export function parseJsonSafely(text: string) {
 }
 
 export async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
-  const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  // Prioritas model super cepat agar tidak timeout di serverless Vercel (10-15s limit pada free plan)
+  const models = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
   let lastError: any = null;
 
   for (const model of models) {

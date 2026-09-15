@@ -80,6 +80,39 @@ CREATE TABLE IF NOT EXISTS public.task_submissions (
   UNIQUE(task_id, student_id)
 );
 
+-- 8. Tabel Modul Ajar Otomatis (Modul Ajar Deep Learning)
+CREATE TABLE IF NOT EXISTS public.modul_ajar (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  guru_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+  subject_name TEXT NOT NULL,
+  grade TEXT NOT NULL,
+  cp TEXT NOT NULL,
+  metode TEXT,
+  pertemuan_count INT DEFAULT 2,
+  alokasi_waktu TEXT,
+  title TEXT NOT NULL,
+  content_json JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 9. Tabel Capaian Pembelajaran Resmi (CP Repository)
+CREATE TABLE IF NOT EXISTS public.capaian_pembelajaran (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  mata_pelajaran TEXT NOT NULL,
+  fase TEXT NOT NULL, -- Contoh: 'Fase E (Kelas X)', 'Fase F (Kelas XI)', 'Fase F (Kelas XII)'
+  judul TEXT NOT NULL,
+  deskripsi TEXT,
+  teks_cp TEXT, -- Teks CP yang bisa dibaca dan disalin langsung oleh guru
+  file_name TEXT,
+  file_size NUMERIC,
+  file_type TEXT,
+  file_data TEXT, -- Base64 data URL untuk file dokumen CP (PDF/DOCX)
+  uploaded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- ============================================================
 -- QUERY ALTER TABLE (Untuk database lama yang perlu penyesuaian kolom)
 -- ============================================================
@@ -100,6 +133,38 @@ ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS content JSONB;
 ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS answers JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
 ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS score NUMERIC DEFAULT 0;
+
+-- Pastikan tabel modul_ajar dan capaian_pembelajaran siap digunakan
+CREATE TABLE IF NOT EXISTS public.modul_ajar (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  guru_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+  subject_name TEXT NOT NULL,
+  grade TEXT NOT NULL,
+  cp TEXT NOT NULL,
+  metode TEXT,
+  pertemuan_count INT DEFAULT 2,
+  alokasi_waktu TEXT,
+  title TEXT NOT NULL,
+  content_json JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.capaian_pembelajaran (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  mata_pelajaran TEXT NOT NULL,
+  fase TEXT NOT NULL,
+  judul TEXT NOT NULL,
+  deskripsi TEXT,
+  teks_cp TEXT,
+  file_name TEXT,
+  file_size NUMERIC,
+  file_type TEXT,
+  file_data TEXT,
+  uploaded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
 -- Akun default admin
 INSERT INTO public.users (role, username, password, name) 

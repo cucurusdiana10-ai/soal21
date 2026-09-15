@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../components/AuthProvider';
-import { LogOut, LayoutDashboard, Users, BookOpen, FileText, CheckSquare, GraduationCap, Shield, Settings, Menu, X, Sparkles } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, BookOpen, FileText, CheckSquare, GraduationCap, Shield, Settings, Menu, X, Sparkles, Database } from 'lucide-react';
 
 import AdminDashboard from './admin/AdminDashboard';
 import AppSettings from './admin/AppSettings';
 import UserManagement from './admin/UserManagement';
 import ClassManagement from './admin/ClassManagement';
+import AdminCpManagement from './admin/AdminCpManagement';
 import GuruDashboard from './guru/GuruDashboard';
 import SiswaDashboard from './siswa/SiswaDashboard';
 
@@ -36,10 +37,12 @@ export default function Dashboard() {
       { path: '/dashboard/guru', icon: Users, label: 'Kelola Guru' },
       { path: '/dashboard/kelas', icon: BookOpen, label: 'Kelola Kelas' },
       { path: '/dashboard/siswa', icon: GraduationCap, label: 'Kelola Siswa' },
+      { path: '/dashboard/cp', icon: Database, label: 'Kelola CP (Upload)' },
       { path: '/dashboard/pengaturan', icon: Settings, label: 'Kelola Aplikasi' },
     ],
     guru: [
       { path: '/dashboard/modul', icon: Sparkles, label: 'Modul Ajar Otomatis' },
+      { path: '/dashboard/cp', icon: FileText, label: 'Lihat CP' },
       { path: '/dashboard/bahan-ajar', icon: BookOpen, label: 'Bahan Ajar AI' },
       { path: '/dashboard/soal', icon: FileText, label: 'Buat Soal' },
       { path: '/dashboard/laporan', icon: CheckSquare, label: 'Laporan Nilai' },
@@ -139,6 +142,7 @@ export default function Dashboard() {
                 <Route path="/guru" element={<UserManagement role="guru" title="Kelola Guru" />} />
                 <Route path="/kelas" element={<ClassManagement />} />
                 <Route path="/siswa" element={<UserManagement role="siswa" title="Kelola Siswa" />} />
+                <Route path="/cp" element={<AdminCpManagement />} />
                 <Route path="/pengaturan" element={<AppSettings />} />
                 <Route path="/*" element={<AdminDashboard />} />
               </>

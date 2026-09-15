@@ -40,3 +40,35 @@ export interface Submission {
   score: number;
   status: string;
 }
+
+export interface CapaianPembelajaran {
+  id: string;
+  mata_pelajaran: string;
+  fase: string; // e.g. 'Fase E (Kelas X)', 'Fase F (Kelas XI)', 'Fase F (Kelas XII)'
+  judul: string;
+  deskripsi?: string;
+  teks_cp?: string;
+  file_name?: string;
+  file_size?: number;
+  file_type?: string;
+  file_data?: string; // base64 data url
+  uploaded_by?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ModulAjarItem {
+  id: string;
+  guru_id: string;
+  subject_name: string;
+  grade: string;
+  cp: string;
+  metode?: string;
+  pertemuan_count?: number;
+  alokasi_waktu?: string;
+  title: string;
+  content_json: any;
+  created_at: string;
+  updated_at?: string;
+}
+

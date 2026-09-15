@@ -1,5 +1,8 @@
 import { handleModulGeneration } from './_gemini';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 export default async function handler(req: any, res: any) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,7 +14,11 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method === 'GET') {
-    return res.status(200).json({ status: 'ready', endpoint: '/api/generate-modul' });
+    return res.status(200).json({ 
+      status: 'ready', 
+      endpoint: '/api/generate-modul',
+      hasKey: Boolean(process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY)
+    });
   }
 
   if (req.method !== 'POST') {
@@ -22,7 +29,7 @@ export default async function handler(req: any, res: any) {
     const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({
-        error: 'GEMINI_API_KEY environment variable is missing di hosting Vercel. Silakan tambahkan GEMINI_API_KEY pada Settings -> Environment Variables di Vercel.'
+        error: 'GEMINI_API_KEY belum terdeteksi di Vercel Functions. Pastikan setelah menambahkan variabel GEMINI_API_KEY di Vercel Dashboard, Anda telah melakukan REDEPLOY agar variabel tersebut aktif pada serverless runtime.'
       });
     }
 
