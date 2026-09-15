@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
-function parseJsonSafely(text: string) {
-  if (!text) throw new Error('Respon kosong');
+export function parseJsonSafely(text: string) {
+  if (!text) throw new Error('Respon AI kosong');
   let cleaned = text.trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```.*$/s, '').trim();
@@ -22,18 +22,75 @@ function parseJsonSafely(text: string) {
       const candidate = cleaned.slice(firstBracket, lastBracket + 1);
       return JSON.parse(candidate);
     }
-    throw new Error('Gagal mengurai format respon.');
+    throw new Error('Gagal mengurai format respon AI.');
   }
 }
 
-// Client-side fallback if backend API route is unreachable
-async function clientFallbackGenerateMaterial(subject: string, grade: string, topic: string, description?: string) {
-  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+export function getClientGeminiApiKey(): string {
+  const metaEnv = (import.meta as any).env || {};
+  if (metaEnv.VITE_GEMINI_API_KEY && typeof metaEnv.VITE_GEMINI_API_KEY === 'string' && metaEnv.VITE_GEMINI_API_KEY.trim()) {
+    return metaEnv.VITE_GEMINI_API_KEY.trim();
+  }
+  if (metaEnv.GEMINI_API_KEY && typeof metaEnv.GEMINI_API_KEY === 'string' && metaEnv.GEMINI_API_KEY.trim()) {
+    return metaEnv.GEMINI_API_KEY.trim();
+  }
+  try {
+    const local = localStorage.getItem('gemini_api_key') || localStorage.getItem('GEMINI_API_KEY');
+    if (local && local.trim()) return local.trim();
+  } catch {
+    // Ignore localStorage issues
+  }
+  return '';
+}
+
+async function executeClientGemini(prompt: string) {
+  const apiKey = getClientGeminiApiKey();
   if (!apiKey) {
-    throw new Error('Server backend mengalami kendala atau GEMINI_API_KEY belum terpasang.');
+    throw new Error(
+      'Server backend Vercel belum merespons dan GEMINI_API_KEY belum terdeteksi. ' +
+      'Pastikan Anda telah menambahkan "GEMINI_API_KEY" pada menu Project Settings -> Environment Variables di Dashboard Vercel lalu Redeploy.'
+    );
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build'
+      }
+    }
+  });
+
+  const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  let lastErr: any = null;
+
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: { responseMimeType: 'application/json' }
+        });
+        const text = response.text;
+        if (text) return parseJsonSafely(text);
+      } catch (err: any) {
+        console.warn(`[Client AI] Model ${model} attempt ${attempt + 1} gagal:`, err?.message);
+        lastErr = err;
+        if (err?.message?.includes('503') || err?.message?.includes('429')) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  throw lastErr || new Error('Gagal menghubungi AI Gemini.');
+}
+
+// Client-side fallback for generating material
+async function clientFallbackGenerateMaterial(subject: string, grade: string, topic: string, description?: string) {
   const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
   
   const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif dan menyenangkan untuk siswa SMA di SMAN 21 Garut, buatkan bahan ajar interaktif, seru, dan mudah dipahami untuk:
@@ -41,53 +98,55 @@ Mata Pelajaran: ${subject}
 Kelas/Tingkat: ${grade}
 Capaian Pembelajaran / Topik: "${fullTopic}"
 
+Bahan ajar harus memuat elemen visual/media (Gambar dan/atau Rekomendasi Video Pembelajaran YouTube yang relevan).
 Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
   "imageUrl": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
   "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   "mediaType": "both",
-  "mindMap": ["Konsep Inti 1", "Konsep Inti 2", "Konsep Inti 3", "Aplikasi Nyata"],
-  "funFact": "1 fakta mengejutkan / unik tentang topik ini.",
-  "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari.",
+  "mindMap": [
+    "Konsep Inti 1",
+    "Konsep Inti 2",
+    "Konsep Inti 3",
+    "Aplikasi Nyata"
+  ],
+  "funFact": "1 fakta mengejutkan / unik / 'tahukah kamu' yang memicu rasa penasaran siswa SMA tentang topik ini.",
+  "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari atau dunia kerja/teknologi.",
   "materials": [
-    { "title": "1. Pengantar Konsep & Cerita / Analogi Seru", "content": "Penjelasan pembuka..." },
-    { "title": "2. Pembahasan Inti & Konsep Kunci", "content": "Penjelasan mendalam..." },
-    { "title": "3. Tips Cepat Paham & Rangkuman", "content": "Ringkasan intisari..." }
+    {
+      "title": "1. Pengantar Konsep & Cerita / Analogi Seru",
+      "content": "Jelaskan pembuka materi dengan bahasa akrab siswa SMA, gunakan analogi kehidupan sehari-hari yang mudah diingat."
+    },
+    {
+      "title": "2. Pembahasan Inti & Konsep Kunci",
+      "content": "Penjelasan mendalam, lengkap dengan poin-poin terstruktur, definisi, dan contoh konkret."
+    },
+    {
+      "title": "3. Tips Cepat Paham & Rangkuman",
+      "content": "Cara mudah mengingat / mnemonik / ringkasan intisari materi agar siswa tidak mudah lupa."
+    }
   ],
   "interactiveQuestions": [
     {
-      "question": "Pertanyaan pancingan 1?",
+      "question": "Pertanyaan pancingan / kuis pemahaman 1?",
       "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
       "answer": "A",
-      "explanation": "Penjelasan mengapa benar."
+      "explanation": "Penjelasan ringkas mengapa jawaban ini benar."
+    },
+    {
+      "question": "Pertanyaan pancingan / kuis pemahaman 2?",
+      "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
+      "answer": "B",
+      "explanation": "Penjelasan ringkas mengapa jawaban ini benar."
     }
   ]
 }`;
 
-  for (const model of ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash']) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      });
-      const text = response.text;
-      if (text) return parseJsonSafely(text);
-    } catch {
-      // try next
-    }
-  }
-  throw new Error('Gagal meracik bahan ajar dari AI.');
+  return await executeClientGemini(prompt);
 }
 
 // Client-side fallback for generating questions
 async function clientFallbackGenerateQuestions(topic: string, type: string, count: number) {
-  const apiKey = (import.meta as any).env?.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Server backend mengalami kendala atau GEMINI_API_KEY belum terpasang.');
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
   let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
   prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
   prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
@@ -107,20 +166,306 @@ async function clientFallbackGenerateQuestions(topic: string, type: string, coun
   prompt += `  }\n`;
   prompt += `]`;
 
-  for (const model of ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash']) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      });
-      const text = response.text;
-      if (text) return parseJsonSafely(text);
-    } catch {
-      // try next
-    }
+  return await executeClientGemini(prompt);
+}
+
+// Client-side fallback for grading essay
+async function clientFallbackGradeEssay(question: string, answerKey: string, studentAnswer: string) {
+  const prompt = `Sebagai guru penilai ahli SMAN 21 Garut, nilai jawaban esai siswa berikut secara objektif dan mendidik.
+Pertanyaan: "${question}"
+Kunci Jawaban / Kriteria Guru: "${answerKey}"
+Jawaban Siswa: "${studentAnswer || '(Tidak menjawab)'}"
+
+Berikan penilaian dalam FORMAT JSON murni berikut:
+{
+  "score": (nilai angka bulat skala 0-100),
+  "feedback": "Umpan balik konstruktif, apresiasi terhadap pemahaman siswa, dan poin mana yang perlu disempurnakan."
+}`;
+
+  return await executeClientGemini(prompt);
+}
+
+// Client-side fallback for generating Modul Ajar
+async function clientFallbackGenerateModulAjar(payload: ModulAjarPayload) {
+  const schoolName = payload.namaSekolah || 'SMAN 21 Garut';
+  const schoolNpsn = payload.npsn || '20209194';
+  const schoolAddress = payload.alamatSekolah || 'Jl. Raya Talegong No. 21, Kec. Talegong, Kab. Garut, Jawa Barat 44167';
+  const teacherName = payload.namaGuru || 'Guru Pengampu';
+  const teacherNip = payload.nipGuru || '-';
+  const totalMeetings = Number(payload.pertemuanCount) || 2;
+  const timeAllocation = payload.alokasiWaktu || '2 x 45 Menit (2 JP)';
+  const methodChosen = payload.metode || 'Problem-Based Learning (PBL)';
+  const targetGrade = payload.grade || 'Fase E (Kelas X)';
+  const academicYear = payload.tahunPelajaran || '2026/2027';
+  const currentSemester = payload.semester || 'Ganjil';
+  const headmaster = payload.namaKepsek || 'Agus Supriatna, S.Pd., M.Si.';
+  const headmasterNip = payload.nipKepsek || '';
+
+  const meetingMethods: string[] = Array.isArray(payload.pertemuanMetode) && payload.pertemuanMetode.length > 0
+    ? payload.pertemuanMetode.slice(0, totalMeetings)
+    : Array(totalMeetings).fill(methodChosen);
+
+  while (meetingMethods.length < totalMeetings) {
+    meetingMethods.push(methodChosen);
   }
-  throw new Error('Gagal meracik soal dari AI.');
+
+  const meetingMethodsDesc = meetingMethods
+    .map((m, idx) => `Pertemuan ${idx + 1}: ${m}`)
+    .join('; ');
+
+  const is5JP = (timeAllocation || '').includes('5 JP') || (timeAllocation || '').includes('5 jp') || (timeAllocation || '').includes('5 x 45');
+
+  const prompt = `Anda adalah seorang ahli pengembang kurikulum nasional dan pakar Pembelajaran Mendalam (Deep Learning) serta Kurikulum Merdeka untuk jenjang SMA di ${schoolName}.
+Tugas Anda adalah merancang "MODUL AJAR PEMBELAJARAN MENDALAM (DEEP LEARNING)" yang sangat komprehensif, operasional, berbobot tinggi, dan siap pakai.
+
+DATA MASUKAN:
+- Nama Satuan Pendidikan: ${schoolName}
+- NPSN: ${schoolNpsn}
+- Alamat Sekolah: ${schoolAddress}
+- Nama Penyusun (Guru): ${teacherName}
+- NIP/ID Guru: ${teacherNip}
+- Kepala Sekolah: ${headmaster} ${headmasterNip ? `(NIP. ${headmasterNip})` : ''}
+- Tahun Pelajaran: ${academicYear}
+- Semester: ${currentSemester}
+- Mata Pelajaran: ${payload.subject}
+- Fase / Kelas: ${targetGrade}
+- Capaian Pembelajaran (CP): "${payload.cp}"
+- Jumlah Pertemuan: Tepat ${totalMeetings} Pertemuan
+- Alokasi Waktu: ${timeAllocation}
+- Metode Pembelajaran Tiap Pertemuan:
+${meetingMethods.map((m, idx) => `  * Pertemuan ${idx + 1}: ${m}`).join('\n')}
+${payload.tanggalCetak ? `- Tanggal Cetak Modul / Titimangsa: ${payload.tanggalCetak}` : ''}
+
+ATURAN KHUSUS METODE PEMBELAJARAN & SINTAKS PER PERTEMUAN:
+Setiap pertemuan di array "pertemuan" HARUS memiliki metode tersendiri sesuai pilihan guru di atas:
+${meetingMethods.map((m, idx) => `- Pertemuan ${idx + 1}: Wajib menerapkan sintaks resmi dari metode "${m}" pada Kegiatan Inti.`).join('\n')}
+
+ATURAN RINCIAN KEGIATAN PENDAHULUAN DAN PENUTUP:
+- Pada "kegiatanPendahuluan" (durasi: 15 Menit):
+  Wajib memuat minimal 6-7 langkah konkret:
+  1. Orientasi & Penumbuhan Budi Pekerti (salam hangat, doa bersama, cek kebersihan/kerapian kelas).
+  2. Presensi & Kesiapan Belajar fisik-psikologis.
+  3. Mindfulness / Ice Breaking (Teknik STOP / Joyful Learning).
+  4. Apersepsi Kontekstual materi prasyarat.
+  5. Pertanyaan Pemantik & Motivasi bermakna.
+  6. Penyampaian Capaian & Tujuan Pembelajaran serta skenario aktivitas & teknik penilaian.
+  7. Pembagian kelompok heterogen (diferensiasi) dan kesepakatan kelas.
+
+- Pada "kegiatanPenutup" (durasi: 15 Menit):
+  Wajib memuat minimal 5-6 langkah konkret:
+  1. Simpulan Bersama merangkum konsep esensial.
+  2. Refleksi Terbimbing Peserta Didik (metakognisi).
+  3. Asesmen Formatif Cepat (Exit ticket / kuis kilat).
+  4. Apresiasi & Penguatan Positif Guru.
+  5. Tindak Lanjut (remedial/pengayaan) dan info pertemuan berikutnya.
+  6. Doa Penutup & Salam penuh syukur.
+
+ATURAN DIMENSI PROFIL LULUSAN (8 DIMENSI LULUSAN):
+Gunakan "Dimensi Profil Lulusan" yang wajib memuat 8 Dimensi Lulusan:
+1. Keimanan dan Ketakwaan terhadap Tuhan YME
+2. Kewargaan
+3. Penalaran Kritis
+4. Kreativitas
+5. Kolaborasi
+6. Kemandirian
+7. Kesehatan
+8. Komunikasi
+
+WAJIB MENGEMBALIKAN RESPONS DALAM FORMAT JSON MURNI YANG VALID dengan struktur:
+{
+  "identitas": {
+    "namaSekolah": "${schoolName}",
+    "npsn": "${schoolNpsn}",
+    "alamatSekolah": "${schoolAddress}",
+    "namaGuru": "${teacherName}",
+    "nipGuru": "${teacherNip}",
+    "mataPelajaran": "${payload.subject}",
+    "fase": "${targetGrade}",
+    "alokasiWaktu": "${timeAllocation}",
+    "jumlahPertemuan": ${totalMeetings},
+    "tahunPelajaran": "${academicYear}",
+    "semester": "${currentSemester}",
+    "namaKepsek": "${headmaster}",
+    "nipKepsek": "${headmasterNip}",
+    "metodeGabungan": "${meetingMethodsDesc}",
+    "tanggalCetak": "${payload.tanggalCetak || ''}"
+  },
+  "capaianPembelajaran": "${payload.cp}",
+  "elemenCp": "Elemen/Domain konten utama CP",
+  "tujuanPembelajaran": [
+    "TP operasional 1 terukur dengan KKO",
+    "TP operasional 2 terukur dengan KKO",
+    "TP operasional 3 terukur dengan KKO"
+  ],
+  "pemahamanBermakna": "Intisari pemahaman bermakna yang bertahan lama",
+  "pertanyaanPemantik": [
+    "Pertanyaan pemantik terbuka 1?",
+    "Pertanyaan pemantik terbuka 2?"
+  ],
+  "dimensiProfilLulusan": [
+    "Keimanan dan Ketakwaan terhadap Tuhan YME: Uraian kontekstual spiritual",
+    "Kewargaan: Uraian kontekstual kepedulian sosial",
+    "Penalaran Kritis: Uraian analisis logis dan data",
+    "Kreativitas: Uraian solusi inovatif",
+    "Kolaborasi: Uraian gotong royong dan kerja tim",
+    "Kemandirian: Uraian inisiatif dan regulasi diri",
+    "Kesehatan: Uraian kesejahteraan fisik-mental",
+    "Komunikasi: Uraian presentasi dan dialog"
+  ],
+  "prinsipPembelajaranMendalam": {
+    "mindful": "Penerapan berkesadaran penuh",
+    "meaningful": "Keterkaitan topik dengan realitas",
+    "joyful": "Aktivitas eksploratif menggembirakan"
+  },
+  "saranaPrasarana": {
+    "media": ["Media digital, infografis, video interaktif"],
+    "alatBahan": ["Laptop, proyektor, smartphone, LKPD"],
+    "sumberBelajar": ["Buku teks Kurikulum Merdeka, artikel terpercaya"]
+  },
+  "modelMetode": {
+    "nama": "${meetingMethodsDesc}",
+    "alasanPemilihan": "Alasan pedagogis pemilihan metode",
+    "sintaksUtama": ["Tahap 1", "Tahap 2", "Tahap lanjutan"]
+  },
+  "pertemuan": [
+    {
+      "nomor": 1,
+      "topik": "Topik spesifik pertemuan 1",
+      "metode": "${meetingMethods[0] || methodChosen}",
+      "alokasiWaktu": "${is5JP ? '2 x 45 Menit (2 JP)' : timeAllocation}",
+      "tujuanPertemuan": "Tujuan spesifik pertemuan 1",
+      "kegiatanPendahuluan": {
+        "durasi": "15 Menit",
+        "langkah": [
+          "Orientasi & Penumbuhan Budi Pekerti: Guru membuka pembelajaran dengan salam hangat dan memimpin doa.",
+          "Presensi & Kesiapan Ruang: Guru memeriksa kebersihan kelas dan mengecek kehadiran siswa.",
+          "Mindfulness & Ice Breaking: Guru memandu teknik STOP untuk memusatkan fokus belajar.",
+          "Apersepsi Kontekstual: Mengaitkan materi sebelumnya dengan topik hari ini.",
+          "Pertanyaan Pemantik & Motivasi: Mengajukan pertanyaan pemantik kontekstual.",
+          "Penyampaian Tujuan & Asesmen: Menyampaikan tujuan dan kriteria penilaian.",
+          "Kontrak Belajar & Kelompok: Pembagian kelompok heterogen dan kesepakatan kelas."
+        ]
+      },
+      "kegiatanInti": {
+        "durasi": "${is5JP ? '60 Menit' : '60 Menit'}",
+        "metode": "${meetingMethods[0] || methodChosen}",
+        "sintaks": [
+          {
+            "tahap": "Tahap 1 sintaks metode",
+            "aktivitasGuru": "Aktivitas fasilitasi guru",
+            "aktivitasSiswa": "Aktivitas eksplorasi mendalam siswa",
+            "fokusMendalam": "Aspek Deep Learning"
+          },
+          {
+            "tahap": "Tahap 2 sintaks metode",
+            "aktivitasGuru": "Aktivitas bimbingan penyelidikan guru",
+            "aktivitasSiswa": "Aktivitas diskusi dan analisis siswa",
+            "fokusMendalam": "Aspek Deep Learning"
+          },
+          {
+            "tahap": "Tahap 3 sintaks metode",
+            "aktivitasGuru": "Aktivitas fasilitasi presentasi guru",
+            "aktivitasSiswa": "Aktivitas unjuk karya dan tanggapan siswa",
+            "fokusMendalam": "Aspek Deep Learning"
+          }
+        ]
+      },
+      "kegiatanPenutup": {
+        "durasi": "15 Menit",
+        "langkah": [
+          "Simpulan Bersama: Menarik kesimpulan esensial konsep materi.",
+          "Refleksi Terbimbing: Siswa menjawab pertanyaan refleksi metakognitif.",
+          "Asesmen Formatif Cepat: Mengisi exit ticket pemahaman mandiri.",
+          "Apresiasi & Penguatan Positif: Guru memberikan umpan balik apresiatif.",
+          "Tindak Lanjut & Info Pertemuan Berikutnya: Pengarahan materi pertemuan depan.",
+          "Doa Penutup & Salam: Penutupan dengan rasa syukur dan doa."
+        ]
+      }
+    }
+  ],
+  "asesmen": {
+    "diagnostik": {
+      "teknik": "Tes diagnostik awal",
+      "instrumen": "Daftar pertanyaan apersepsi"
+    },
+    "formatif": {
+      "teknik": "Observasi proses diskusi kelompok dan LKPD",
+      "instrumen": "Lembar observasi profil lulusan dan ceklis tugas",
+      "fokus": "Umpan balik langsung selama pembelajaran"
+    },
+    "sumatif": {
+      "teknik": "Penilaian karya presentasi / tes studi kasus",
+      "instrumen": "Rubrik penilaian komprehensif",
+      "fokus": "Kedalaman pemahaman dan nalar kritis"
+    },
+    "rubrik": [
+      {
+        "aspek": "Penguasaan Konsep & Analisis Masalah",
+        "sangatMahir": "Mampu menjelaskan konsep secara akurat, mendalam, dan menghubungkan dengan solusi nyata",
+        "mahir": "Mampu menjelaskan konsep dan menganalisis masalah dengan baik",
+        "berkembang": "Menjelaskan konsep secara parsial dan memerlukan arahan",
+        "perluBimbingan": "Belum mampu menjelaskan konsep dasar dan membutuhkan bimbingan"
+      },
+      {
+        "aspek": "Kolaborasi & Partisipasi Aktif",
+        "sangatMahir": "Memimpin diskusi secara konstruktif dan sangat proaktif",
+        "mahir": "Berpartisipasi aktif dalam kelompok dengan baik",
+        "berkembang": "Cukup aktif dalam kerja sama",
+        "perluBimbingan": "Kurang terlibat dan pasif"
+      },
+      {
+        "aspek": "Kreativitas & Komunikasi Hasil",
+        "sangatMahir": "Menyajikan solusi yang orisinal, argumentatif, dan komunikatif memukau",
+        "mahir": "Menyajikan solusi dengan runtut, jelas, dan percaya diri",
+        "berkembang": "Menyajikan hasil namun belum sistematis",
+        "perluBimbingan": "Penyampaian belum jelas dan butuh panduan penuh"
+      }
+    ]
+  },
+  "pengayaanRemedial": {
+    "pengayaan": "Penugasan tantangan eksplorasi kasus lanjutan atau peran tutor sebaya.",
+    "remedial": "Bimbingan terfokus pada indikator yang belum tuntas melalui peninjauan konsep kunci."
+  },
+  "refleksi": {
+    "refleksiSiswa": [
+      "Bagian materi mana yang paling menarik dan bermakna hari ini?",
+      "Tantangan apa yang dihadapi dan bagaimana mengatasinya?",
+      "Bagaimana konsep ini dapat kamu terapkan di kehidupan nyata?"
+    ],
+    "refleksiGuru": [
+      "Apakah seluruh peserta didik terlibat aktif dalam pembelajaran?",
+      "Apakah alokasi waktu berjalan sesuai rencana?",
+      "Langkah apa yang perlu diperbaiki untuk pertemuan selanjutnya?"
+    ]
+  },
+  "lampiran": {
+    "lkpd": {
+      "judul": "Lembar Kerja Peserta Didik (LKPD) Pembelajaran Mendalam",
+      "petunjuk": "Bacalah instruksi dengan cermat, diskusikan dalam kelompok, dan rumuskan solusi terbaik.",
+      "tugasLangkah": [
+        "1. Cermati stimulus kontekstual yang disajikan.",
+        "2. Identifikasi rumusan masalah dan fakta kunci.",
+        "3. Kumpulkan data dan lakukan analisis mendalam.",
+        "4. Rumuskan solusi inovatif dan presentasikan."
+      ],
+      "studiKasusSoal": "Studi kasus kontekstual nyata yang menantang nalar kritis siswa SMA."
+    },
+    "bahanBacaan": "Uraian ringkas bahan bacaan mengenai esensi konsep materi dan keterkaitannya dengan kehidupan.",
+    "glosarium": [
+      {
+        "istilah": "Istilah kunci 1",
+        "definisi": "Definisi istilah kunci 1"
+      }
+    ],
+    "daftarPustaka": [
+      "Kementerian Pendidikan, Kebudayaan, Riset, dan Teknologi. (2024). Buku Panduan Guru dan Siswa SMA. Jakarta: Pusat Perbukuan."
+    ]
+  }
+}
+
+PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, runtut dari Pertemuan 1 sampai Pertemuan ${totalMeetings}.`;
+
+  return await executeClientGemini(prompt);
 }
 
 async function postApiWithFallback(
@@ -129,10 +474,11 @@ async function postApiWithFallback(
   clientFallback?: () => Promise<any>
 ) {
   let lastErrorMsg = '';
+  let attemptedServer = false;
 
   for (const url of endpoints) {
     try {
-      console.log('[AI API] POST:', url);
+      console.log('[AI API] Mencoba POST ke server:', url);
 
       const res = await fetch(url, {
         method: 'POST',
@@ -142,59 +488,69 @@ async function postApiWithFallback(
         body: JSON.stringify(payload)
       });
 
+      attemptedServer = true;
       const contentType = res.headers.get('content-type') || '';
       const rawText = await res.text();
 
-      console.log('[AI API] Response:', url, res.status, rawText);
+      console.log('[AI API] Status respon:', url, res.status);
 
       if (res.ok) {
         if (contentType.includes('application/json')) {
           return JSON.parse(rawText);
         }
-
         return parseJsonSafely(rawText);
       }
 
-      if (res.status === 405) {
-        lastErrorMsg =
-          `API ${url} tersedia tetapi tidak menerima POST (405).`;
+      // If server returns 405 (Method Not Allowed) or 404 (Not Found):
+      // This happens on hosting like Vercel when static rewrite triggers or serverless route is warming up.
+      if (res.status === 405 || res.status === 404) {
+        console.warn(`[AI API] Endpoint ${url} merespons ${res.status}. Beralih otomatis ke fallback...`);
+        lastErrorMsg = `Server endpoint ${url} (${res.status})`;
+        // Immediately try next endpoint or fallback
         continue;
       }
 
       if (contentType.includes('application/json')) {
         try {
           const errJson = JSON.parse(rawText);
-          lastErrorMsg =
-            errJson.error || `Server error (${res.status})`;
+          lastErrorMsg = errJson.error || `Server error (${res.status})`;
         } catch {
           lastErrorMsg = `Server error (${res.status})`;
         }
       } else {
         lastErrorMsg = `Server error (${res.status})`;
       }
-
     } catch (err: any) {
-      console.error('[AI API] Error:', url, err);
-      lastErrorMsg = err.message || 'Koneksi gagal.';
+      console.warn('[AI API] Gagal terhubung ke endpoint:', url, err?.message);
+      lastErrorMsg = err?.message || 'Koneksi ke backend gagal.';
     }
   }
 
+  // If server endpoints failed, 405'd, or 404'd, automatically engage client fallback
   if (clientFallback) {
     try {
+      console.log('[AI API] Mengaktifkan client-side AI generation...');
       return await clientFallback();
-    } catch (err) {
-      console.error('[AI API] Client fallback gagal:', err);
+    } catch (err: any) {
+      console.error('[AI API] Client-side fallback juga gagal:', err);
+      // If client fallback failed, use its error if it's about missing API key
+      if (err?.message) {
+        lastErrorMsg = err.message;
+      }
     }
   }
 
-  throw new Error(
-    lastErrorMsg || 'Gagal memproses permintaan ke server AI.'
-  );
+  if (!lastErrorMsg || lastErrorMsg.includes('405') || lastErrorMsg.includes('404')) {
+    lastErrorMsg =
+      'Gagal memproses AI. Jika Anda menggunakan hosting Vercel, pastikan variabel GEMINI_API_KEY telah ditambahkan di Vercel Dashboard (Settings -> Environment Variables) lalu Redeploy.';
+  }
+
+  throw new Error(lastErrorMsg);
 }
 
 export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
   return postApiWithFallback(
-    ['/api/generate-material', '/api/ai/material', '/api/material'],
+    ['/api/generate-material', '/api/material', '/api/ai/material'],
     payload,
     () => clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description)
   );
@@ -202,7 +558,7 @@ export async function generateMaterialApi(payload: { subject: string; grade: str
 
 export async function generateQuestionsApi(payload: { topic: string; type: string; count: number }) {
   return postApiWithFallback(
-    ['/api/generate-questions', '/api/ai/questions'],
+    ['/api/generate-questions', '/api/questions', '/api/ai/questions'],
     payload,
     () => clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count)
   );
@@ -210,8 +566,9 @@ export async function generateQuestionsApi(payload: { topic: string; type: strin
 
 export async function gradeEssayApi(payload: { question: string; answerKey: string; studentAnswer: string }) {
   return postApiWithFallback(
-    ['/api/grade-essay', '/api/ai/grade-essay'],
-    payload
+    ['/api/grade-essay', '/api/grade', '/api/ai/grade-essay'],
+    payload,
+    () => clientFallbackGradeEssay(payload.question, payload.answerKey, payload.studentAnswer)
   );
 }
 
@@ -237,8 +594,8 @@ export interface ModulAjarPayload {
 
 export async function generateModulAjarApi(payload: ModulAjarPayload) {
   return postApiWithFallback(
-    ['/api/generate-modul', '/api/ai/modul'],
-    payload
+    ['/api/generate-modul', '/api/modul', '/api/ai/modul'],
+    payload,
+    () => clientFallbackGenerateModulAjar(payload)
   );
 }
-

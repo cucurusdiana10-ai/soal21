@@ -620,9 +620,13 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  const apiKey = env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
 
   return {
+    define: {
+      'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(apiKey),
+      'import.meta.env.GEMINI_API_KEY': JSON.stringify(apiKey),
+    },
     plugins: [react(), tailwindcss(), apiDevPlugin(apiKey)],
     resolve: {
       alias: {
