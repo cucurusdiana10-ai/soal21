@@ -1,21 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../components/AuthProvider';
 import { supabase } from '../lib/supabase';
-import { GraduationCap, ArrowLeft, Loader2 } from 'lucide-react';
+import { GraduationCap, ArrowLeft, Loader2, Shield, Users, UserCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function Login() {
   const [searchParams] = useSearchParams();
-  const requestedRole = searchParams.get('role') || 'siswa';
+  const requestedRole = searchParams.get('role') || 'guru';
   
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // If user is already logged in with this role, redirect to dashboard smoothly
+    if (user && user.role === requestedRole) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, requestedRole, navigate]);
+
+  const handleRoleChange = (newRole: string) => {
+    setError('');
+    setUsername('');
+    setPassword('');
+    navigate(`/login?role=${newRole}`, { replace: true });
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,14 +107,54 @@ export default function Login() {
             <GraduationCap className="w-8 h-8 text-white" />
           </div>
           <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
-            Login {requestedRole.charAt(0).toUpperCase() + requestedRole.slice(1)}
+            Login {requestedRole === 'guru' ? 'Guru' : requestedRole === 'admin' ? 'Administrator' : 'Siswa'}
           </h2>
           <p className="mt-2 text-sm text-slate-500 uppercase tracking-widest">
             Portal Pembelajaran Digital
           </p>
         </div>
+
+        {/* Role Switcher Tabs */}
+        <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+          <button
+            type="button"
+            onClick={() => handleRoleChange('guru')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+              requestedRole === 'guru'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Guru
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRoleChange('siswa')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+              requestedRole === 'siswa'
+                ? 'bg-orange-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <GraduationCap className="w-3.5 h-3.5" />
+            Siswa
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRoleChange('admin')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+              requestedRole === 'admin'
+                ? 'bg-blue-800 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5" />
+            Admin
+          </button>
+        </div>
         
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+        <form className="mt-6 space-y-5" onSubmit={handleLogin}>
           {error && (
             <div className="p-3 text-sm text-red-600 bg-red-50 rounded-lg border border-red-100">
               {error}

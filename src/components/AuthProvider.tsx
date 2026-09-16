@@ -20,17 +20,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Initial session check
     supabase?.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
-        logout();
+        setUser(null);
+        localStorage.removeItem('auth_user');
       }
     });
 
     // Listen to auth changes
     const { data: { subscription } } = supabase?.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
-        logout();
+        setUser(null);
+        localStorage.removeItem('auth_user');
       } else if (event === 'SIGNED_IN' && session) {
         // Only fetch if we don't have the user state yet to avoid duplicate calls on login
-        if (!user) {
+        const saved = localStorage.getItem('auth_user');
+        if (!saved) {
           const { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
           if (data) {
             login(data);
@@ -52,13 +55,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setUser(null);
     localStorage.removeItem('auth_user');
-    
-    // Only call signOut if we actually have a session to avoid infinite loops
-    supabase?.auth.getSession().then(({ data }) => {
-      if (data?.session) {
-        supabase.auth.signOut().catch(() => {});
-      }
-    });
+    try {
+      await supabase?.auth.signOut();
+    } catch (e) {
+      console.warn('SignOut error:', e);
+    }
   };
 
   return (

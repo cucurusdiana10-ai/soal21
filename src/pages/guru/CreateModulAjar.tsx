@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import {
@@ -20,12 +21,78 @@ import {
   BookMarked,
   HelpCircle,
   RotateCcw,
-  Check
+  Check,
+  Search,
+  Filter,
+  Bookmark
 } from 'lucide-react';
 import { generateModulAjarApi } from '../../lib/aiService';
 import { exportModulAjarToDocx } from '../../lib/modulDocxGenerator';
 import ModulAjarEditor, { DELAPAN_DIMENSI_LULUSAN } from './ModulAjarEditor';
 import { parseKepsek, getDetailedPendahuluan, getDetailedPenutup } from '../../lib/schoolSettings';
+import { getTeacherSavedCps, SavedCpItem } from '../../lib/cpStorage';
+
+export function extractMateriTitleFromModule(mod: {
+  title?: string;
+  cp?: string;
+  content_json?: any;
+  subject_name?: string;
+}): string {
+  const cJson = mod.content_json || {};
+
+  // 1. If content_json has elemenCp and it's meaningful
+  if (cJson.elemenCp && typeof cJson.elemenCp === 'string' && cJson.elemenCp.trim() && !cJson.elemenCp.toLowerCase().includes('elemen/domain')) {
+    const el = cJson.elemenCp.trim();
+    if (el.length <= 65) return el;
+  }
+
+  // 2. If first meeting has a specific lesson/topic name
+  if (Array.isArray(cJson.pertemuan) && cJson.pertemuan[0]?.nama) {
+    const pNama = String(cJson.pertemuan[0].nama).trim();
+    if (pNama && !pNama.toLowerCase().startsWith('pertemuan')) {
+      return pNama;
+    }
+  }
+
+  // 3. If first Tujuan Pembelajaran has a clear topic
+  if (Array.isArray(cJson.tujuanPembelajaran) && cJson.tujuanPembelajaran[0]) {
+    const tp = String(cJson.tujuanPembelajaran[0])
+      .replace(/^(peserta didik mampu|siswa mampu|memahami|menganalisis|menerapkan|menjelaskan|mengevaluasi)\s+/i, '')
+      .trim();
+    if (tp && tp.length <= 70) {
+      return tp.charAt(0).toUpperCase() + tp.slice(1);
+    }
+  }
+
+  // 4. Extract from CP text
+  const rawCp = mod.cp || cJson.capaianPembelajaran || '';
+  if (rawCp) {
+    const cleaned = rawCp.trim()
+      .replace(/^pada akhir fase [a-z0-9\s()]+peserta didik mampu\s+/i, '')
+      .replace(/^pada akhir fase [a-z0-9\s(),]+siswa mampu\s+/i, '')
+      .replace(/^peserta didik mampu\s+/i, '')
+      .replace(/^siswa mampu\s+/i, '');
+    
+    const firstSegment = cleaned.split(/[.\n;]/)[0].trim();
+    if (firstSegment.length > 0) {
+      if (firstSegment.length <= 65) {
+        return firstSegment.charAt(0).toUpperCase() + firstSegment.slice(1);
+      }
+      return firstSegment.slice(0, 62).trim() + '...';
+    }
+  }
+
+  // 5. If title has a custom material name after colon or hyphen
+  if (mod.title) {
+    const clean = mod.title.replace(/^Modul Ajar:\s*/i, '').replace(/^Modul:\s*/i, '').trim();
+    const parts = clean.split(' - ');
+    if (parts.length > 1 && parts[1] && !parts[1].toLowerCase().includes('learning') && !parts[1].toLowerCase().includes('inquiry')) {
+      return parts[1].trim();
+    }
+  }
+
+  return 'Materi Pokok';
+}
 
 function formatIndoDate(dateStr?: string) {
   if (!dateStr) return '';
@@ -137,6 +204,12 @@ export default function CreateModulAjar() {
   const [teacherSubjects, setTeacherSubjects] = useState<string[]>([]);
   const [savedModules, setSavedModules] = useState<any[]>([]);
   const [selectedSavedModule, setSelectedSavedModule] = useState<any | null>(null);
+  const [teacherSavedCps, setTeacherSavedCps] = useState<SavedCpItem[]>([]);
+
+  // Archive filters
+  const [archiveSearch, setArchiveSearch] = useState('');
+  const [archiveSubjectFilter, setArchiveSubjectFilter] = useState('ALL');
+  const [archiveMetodeFilter, setArchiveMetodeFilter] = useState('ALL');
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -161,6 +234,7 @@ export default function CreateModulAjar() {
     fetchSchoolSettings();
     fetchTeacherSubjects();
     fetchSavedModules();
+    fetchTeacherSavedCps();
 
     const prefillCp = sessionStorage.getItem('prefill_modul_cp');
     const prefillSubject = sessionStorage.getItem('prefill_modul_subject');
@@ -247,6 +321,16 @@ export default function CreateModulAjar() {
     }
   }
 
+  async function fetchTeacherSavedCps() {
+    if (!user) return;
+    try {
+      const list = await getTeacherSavedCps(user.id);
+      setTeacherSavedCps(list);
+    } catch (err) {
+      console.warn('Gagal memuat CP tersimpan:', err);
+    }
+  }
+
   const selectedSubjectFinal = formData.subject === 'OTHER' ? formData.customSubject : formData.subject;
 
   const handleGenerate = async (e: React.FormEvent) => {
@@ -294,6 +378,15 @@ export default function CreateModulAjar() {
       if (user?.id) {
         setAutoSaving(true);
         try {
+          const materiSnippet = extractMateriTitleFromModule({
+            cp: formData.cp || data.capaianPembelajaran,
+            content_json: data,
+            subject_name: selectedSubjectFinal || data.identitas?.mataPelajaran
+          });
+          const distinctTitle = materiSnippet && materiSnippet !== 'Materi Pokok'
+            ? `${selectedSubjectFinal || 'Mapel'} - ${materiSnippet}`
+            : `Modul Ajar: ${selectedSubjectFinal || 'Mapel'} - ${formData.metode}`;
+
           const { data: savedRecord, error: saveErr } = await supabase
             .from('modul_ajar')
             .insert([
@@ -305,7 +398,7 @@ export default function CreateModulAjar() {
                 metode: formData.metode || data.modelMetode?.nama || '',
                 pertemuan_count: Number(formData.pertemuanCount) || 2,
                 alokasi_waktu: formData.alokasiWaktu || '2 x 45 Menit',
-                title: `Modul Ajar: ${selectedSubjectFinal || 'Mapel'} - ${formData.metode}`,
+                title: distinctTitle,
                 content_json: data
               }
             ])
@@ -338,12 +431,21 @@ export default function CreateModulAjar() {
       if (user?.id) {
         try {
           setAutoSaving(true);
+          const editMateriSnippet = extractMateriTitleFromModule({
+            cp: result.capaianPembelajaran || formData.cp,
+            content_json: result,
+            subject_name: result.identitas?.mataPelajaran || selectedSubjectFinal
+          });
+          const editDistinctTitle = editMateriSnippet && editMateriSnippet !== 'Materi Pokok'
+            ? `${result.identitas?.mataPelajaran || selectedSubjectFinal || 'Mapel'} - ${editMateriSnippet}`
+            : `Modul Ajar: ${result.identitas?.mataPelajaran || selectedSubjectFinal} - ${result.modelMetode?.nama || formData.metode}`;
+
           if (currentSavedId) {
             await supabase
               .from('modul_ajar')
               .update({
                 content_json: result,
-                title: `Modul Ajar: ${result.identitas?.mataPelajaran || selectedSubjectFinal} - ${result.modelMetode?.nama || formData.metode}`,
+                title: editDistinctTitle,
                 updated_at: new Date().toISOString()
               })
               .eq('id', currentSavedId);
@@ -359,7 +461,7 @@ export default function CreateModulAjar() {
                   metode: result.modelMetode?.nama || formData.metode || '',
                   pertemuan_count: Number(result.pertemuan?.length || formData.pertemuanCount) || 2,
                   alokasi_waktu: result.identitas?.alokasiWaktu || formData.alokasiWaktu || '2 x 45 Menit',
-                  title: `Modul Ajar: ${result.identitas?.mataPelajaran || selectedSubjectFinal} - ${result.modelMetode?.nama || formData.metode}`,
+                  title: editDistinctTitle,
                   content_json: result
                 }
               ])
@@ -667,14 +769,14 @@ export default function CreateModulAjar() {
               </div>
 
               {/* 5. Capaian Pembelajaran (CP) */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
                   <label className="block text-sm font-bold text-gray-800">
                     Capaian Pembelajaran (CP) / Materi Utama
                   </label>
                   <div className="flex items-center gap-1 text-xs text-gray-500">
-                    <span>Template Cepat:</span>
-                    {CONTOH_CP.slice(0, 3).map((ex, i) => (
+                    <span>Template:</span>
+                    {CONTOH_CP.slice(0, 2).map((ex, i) => (
                       <button
                         key={i}
                         type="button"
@@ -692,12 +794,117 @@ export default function CreateModulAjar() {
                     ))}
                   </div>
                 </div>
+
+                {/* Pilih dari CP yang Telah Disimpan (Filter Sesuai Mata Pelajaran) */}
+                {(() => {
+                  const effectiveSub = formData.subject === 'OTHER' ? formData.customSubject : formData.subject;
+                  const matchingSavedCps = teacherSavedCps.filter(item => {
+                    if (!effectiveSub) return true;
+                    return (
+                      item.mata_pelajaran.toLowerCase() === effectiveSub.toLowerCase() ||
+                      item.mata_pelajaran.toLowerCase().includes(effectiveSub.toLowerCase()) ||
+                      effectiveSub.toLowerCase().includes(item.mata_pelajaran.toLowerCase())
+                    );
+                  });
+
+                  return (
+                    <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200 rounded-2xl space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Bookmark className="w-4 h-4 text-blue-700" />
+                          <span className="text-xs font-bold text-blue-950">
+                            Pilih dari CP Tersimpan di Akun Anda
+                          </span>
+                          {effectiveSub && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-200/70 text-blue-900">
+                              Filter Mapel: {effectiveSub}
+                            </span>
+                          )}
+                        </div>
+
+                        <Link
+                          to="/dashboard/cp"
+                          className="text-[11px] font-bold text-blue-700 hover:text-blue-900 underline flex items-center gap-1"
+                        >
+                          Cari & Simpan CP BSKAP 046/2025 →
+                        </Link>
+                      </div>
+
+                      {matchingSavedCps.length > 0 ? (
+                        <div className="space-y-2">
+                          <select
+                            onChange={(e) => {
+                              const sel = teacherSavedCps.find(c => c.id === e.target.value);
+                              if (sel) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  cp: sel.teks_cp,
+                                  ...(sel.fase ? { grade: sel.fase } : {}),
+                                  ...(prev.subject ? {} : { subject: sel.mata_pelajaran })
+                                }));
+                              }
+                            }}
+                            defaultValue=""
+                            className="w-full p-2.5 bg-white border border-blue-200 rounded-xl text-xs font-medium text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                          >
+                            <option value="" disabled>
+                              -- Klik di sini untuk memilih CP ({matchingSavedCps.length} CP tersedia) --
+                            </option>
+                            {matchingSavedCps.map((cp) => (
+                              <option key={cp.id} value={cp.id}>
+                                [{cp.mata_pelajaran} - {cp.fase}] {cp.judul}
+                              </option>
+                            ))}
+                          </select>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] text-blue-800 font-semibold">Pilih Cepat:</span>
+                            {matchingSavedCps.slice(0, 4).map((cp) => (
+                              <button
+                                key={cp.id}
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    cp: cp.teks_cp,
+                                    ...(cp.fase ? { grade: cp.fase } : {}),
+                                    ...(prev.subject ? {} : { subject: cp.mata_pelajaran })
+                                  }));
+                                }}
+                                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-300 text-blue-950 rounded-lg text-[11px] font-medium transition shadow-2xs max-w-xs truncate"
+                                title={cp.judul}
+                              >
+                                ✓ {cp.judul}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-blue-900 bg-white/70 p-2.5 rounded-xl border border-blue-100">
+                          <p>
+                            {effectiveSub
+                              ? `Belum ada CP tersimpan untuk mata pelajaran "${effectiveSub}".`
+                              : 'Belum ada CP tersimpan di akun Anda.'}
+                          </p>
+                          <Link
+                            to="/dashboard/cp"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold transition shadow-sm w-fit"
+                          >
+                            <Bookmark className="w-3 h-3" />
+                            Cari di Dokumen BSKAP 046/2025
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <textarea
-                  rows={3}
+                  rows={4}
                   value={formData.cp}
                   onChange={e => setFormData({ ...formData, cp: e.target.value })}
-                  placeholder="Contoh: Peserta didik mampu menganalisis keterkaitan interaksi komponen biotik dan abiotik dalam ekosistem, mengidentifikasi ancaman kerusakan lingkungan di sekitar Garut, serta merancang solusi pelestarian lingkungan hidup..."
-                  className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed"
+                  placeholder="Ketik Capaian Pembelajaran atau pilih dari CP tersimpan di atas..."
+                  className="w-full p-3 border border-gray-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed bg-white shadow-2xs"
                   required
                 />
               </div>
@@ -1258,89 +1465,231 @@ export default function CreateModulAjar() {
       )}
 
       {/* TAB 2: ARSIP MODUL TERSIMPAN */}
-      {activeTab === 'saved' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Arsip Modul Ajar Tersimpan</h2>
-                <p className="text-sm text-gray-500">Daftar Modul Ajar Pembelajaran Mendalam yang telah Anda racik dan simpan.</p>
+      {activeTab === 'saved' && (() => {
+        // Unique options for filters
+        const uniqueSubjects = Array.from(new Set(savedModules.map(m => m.subject_name).filter(Boolean)));
+        const uniqueMethods = Array.from(new Set(savedModules.map(m => m.metode).filter(Boolean)));
+
+        const filteredSavedModules = savedModules.filter(m => {
+          const materi = extractMateriTitleFromModule(m).toLowerCase();
+          const cp = (m.cp || '').toLowerCase();
+          const title = (m.title || '').toLowerCase();
+          const subj = (m.subject_name || '').toLowerCase();
+          const met = (m.metode || '').toLowerCase();
+          const q = archiveSearch.toLowerCase().trim();
+
+          const matchSearch = !q || materi.includes(q) || cp.includes(q) || title.includes(q) || subj.includes(q) || met.includes(q);
+          const matchSubject = archiveSubjectFilter === 'ALL' || m.subject_name === archiveSubjectFilter;
+          const matchMetode = archiveMetodeFilter === 'ALL' || m.metode === archiveMetodeFilter;
+
+          return matchSearch && matchSubject && matchMetode;
+        });
+
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-100">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <BookMarked className="w-5 h-5 text-blue-600" />
+                    Arsip Modul Ajar Tersimpan
+                  </h2>
+                  <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+                    Daftar Modul Ajar terorganisir berdasarkan Capaian Pembelajaran (CP), Materi Utama, dan Metode Pembelajaran.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 bg-blue-50 text-blue-800 rounded-full text-xs font-bold border border-blue-200">
+                    Total: {savedModules.length} Modul
+                  </span>
+                  <button
+                    onClick={() => setActiveTab('create')}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                  >
+                    + Buat Modul Baru
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {savedModules.length === 0 ? (
-              <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                <BookMarked className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-600 font-bold text-sm">Belum ada modul ajar yang tersimpan.</p>
-                <p className="text-gray-400 text-xs mt-1">Setiap modul ajar yang Anda buat di tab "Buat Modul Baru" akan tersimpan otomatis ke database dan tampil di sini.</p>
-                <button
-                  onClick={() => setActiveTab('create')}
-                  className="mt-4 px-4 py-2 bg-blue-700 text-white rounded-xl text-xs font-bold hover:bg-blue-800 transition"
-                >
-                  Buat Modul Ajar Sekarang
-                </button>
-              </div>
-            ) : (
-              <div className="grid md:grid-cols-2 gap-4">
-                {savedModules.map(m => (
-                  <div key={m.id} className="p-4 rounded-xl border border-gray-200 hover:border-blue-400 transition bg-white shadow-sm flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-100">
-                          {m.subject_name}
-                        </span>
-                        <span className="text-[11px] text-gray-400">
-                          {new Date(m.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </span>
-                      </div>
-
-                      <h3 className="font-bold text-gray-900 text-sm mt-2">{m.title}</h3>
-                      <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                        <strong>Metode:</strong> {m.metode} • <strong>Pertemuan:</strong> {m.pertemuan_count} Pertemuan
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2 italic">
-                        "{m.cp}"
-                      </p>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setResult(m.content_json);
-                            setCurrentSavedId(m.id);
-                            setActiveTab('create');
-                          }}
-                          className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold flex items-center gap-1 transition"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> Buka
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadDocx(m.content_json)}
-                          className="px-3 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold flex items-center gap-1 transition"
-                        >
-                          <FileDown className="w-3.5 h-3.5" /> Word
-                        </button>
-                      </div>
-
+              {/* Filter and Search Bar */}
+              {savedModules.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  {/* Search Input */}
+                  <div className="sm:col-span-6 relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={archiveSearch}
+                      onChange={e => setArchiveSearch(e.target.value)}
+                      placeholder="Cari materi, topik CP, mata pelajaran..."
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                    {archiveSearch && (
                       <button
-                        type="button"
-                        onClick={() => handleDeleteSavedModule(m.id)}
-                        className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
-                        title="Hapus Modul"
+                        onClick={() => setArchiveSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        ✕
                       </button>
-                    </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {/* Subject Filter */}
+                  <div className="sm:col-span-3">
+                    <select
+                      value={archiveSubjectFilter}
+                      onChange={e => setArchiveSubjectFilter(e.target.value)}
+                      className="w-full py-2 px-2.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="ALL">Semua Mata Pelajaran</option>
+                      {uniqueSubjects.map(sub => (
+                        <option key={sub} value={sub}>{sub}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Metode Filter */}
+                  <div className="sm:col-span-3">
+                    <select
+                      value={archiveMetodeFilter}
+                      onChange={e => setArchiveMetodeFilter(e.target.value)}
+                      className="w-full py-2 px-2.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="ALL">Semua Model/Metode</option>
+                      {uniqueMethods.map(met => (
+                        <option key={met} value={met}>{met}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {savedModules.length === 0 ? (
+                <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                  <BookMarked className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                  <p className="text-gray-600 font-bold text-sm">Belum ada modul ajar yang tersimpan.</p>
+                  <p className="text-gray-400 text-xs mt-1">Setiap modul ajar yang Anda buat di tab "Buat Modul Baru" akan tersimpan otomatis ke database dan tampil di sini.</p>
+                  <button
+                    onClick={() => setActiveTab('create')}
+                    className="mt-4 px-4 py-2 bg-blue-700 text-white rounded-xl text-xs font-bold hover:bg-blue-800 transition"
+                  >
+                    Buat Modul Ajar Sekarang
+                  </button>
+                </div>
+              ) : filteredSavedModules.length === 0 ? (
+                <div className="text-center py-8 bg-gray-50 rounded-xl border border-gray-200">
+                  <p className="text-gray-600 font-medium text-xs">Tidak ada modul yang cocok dengan kata kunci pencarian atau filter.</p>
+                  <button
+                    onClick={() => {
+                      setArchiveSearch('');
+                      setArchiveSubjectFilter('ALL');
+                      setArchiveMetodeFilter('ALL');
+                    }}
+                    className="mt-2 text-blue-600 hover:text-blue-800 text-xs font-bold underline"
+                  >
+                    Reset Filter Pencarian
+                  </button>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-4">
+                  {filteredSavedModules.map(m => {
+                    const materiName = extractMateriTitleFromModule(m);
+
+                    return (
+                      <div
+                        key={m.id}
+                        className="p-4 rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md transition bg-white shadow-sm flex flex-col justify-between gap-3"
+                      >
+                        <div className="space-y-2.5">
+                          {/* Tags & Date Row */}
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200">
+                                {m.subject_name}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                {m.grade || 'Fase E'}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-gray-400 font-medium">
+                              {new Date(m.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          </div>
+
+                          {/* Prominent Materi / Topik Title */}
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-blue-600 mb-0.5">
+                              Nama Materi / Topik Modul
+                            </div>
+                            <h3 className="font-bold text-gray-900 text-sm leading-snug">
+                              {materiName}
+                            </h3>
+                          </div>
+
+                          {/* Capaian Pembelajaran Box */}
+                          <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                            <div className="flex items-center gap-1 text-[11px] font-bold text-slate-700">
+                              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Capaian Pembelajaran (CP):</span>
+                            </div>
+                            <p className="text-xs text-slate-600 line-clamp-2 italic leading-relaxed">
+                              "{m.cp || 'Tidak ada uraian CP'}"
+                            </p>
+                          </div>
+
+                          {/* Metode Pembelajaran & Sesi */}
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md font-medium text-[11px]">
+                              🌱 {m.metode || 'Problem-Based Learning'}
+                            </span>
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded-md font-medium text-[11px]">
+                              ⏱️ {m.pertemuan_count} Pertemuan ({m.alokasi_waktu || '2 JP'})
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResult(m.content_json);
+                                setCurrentSavedId(m.id);
+                                setActiveTab('create');
+                              }}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> Buka Modul
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadDocx(m.content_json)}
+                              className="px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                            >
+                              <FileDown className="w-3.5 h-3.5" /> Word (.docx)
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSavedModule(m.id)}
+                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
+                            title="Hapus Modul"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

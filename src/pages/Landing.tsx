@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../components/AuthProvider';
+import { LogIn, ArrowRight } from 'lucide-react';
 const heroImg = 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=80';
 
 export default function Landing() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [settings, setSettings] = useState<{ tahun_pelajaran?: string; semester?: string; nama_sekolah?: string; nama_aplikasi?: string }>({});
   const [stats, setStats] = useState({ siswaCount: 0, guruCount: 0, classCount: 0 });
 
@@ -62,11 +66,30 @@ export default function Landing() {
             </p>
           </div>
         </div>
-        <div className="hidden md:flex gap-6 text-sm font-medium">
-          <span className="opacity-90">Tahun Ajaran {settings.tahun_pelajaran || '2023/2024'}</span>
-          <span className="bg-blue-600 px-3 py-1 rounded shadow-sm">
-            Semester {settings.semester || 'Ganjil'}
-          </span>
+        <div className="flex items-center gap-4 text-sm font-medium">
+          <div className="hidden md:flex gap-6 items-center">
+            <span className="opacity-90">Tahun Ajaran {settings.tahun_pelajaran || '2023/2024'}</span>
+            <span className="bg-blue-600 px-3 py-1 rounded shadow-sm">
+              Semester {settings.semester || 'Ganjil'}
+            </span>
+          </div>
+          {user ? (
+            <Link
+              to="/dashboard"
+              className="px-4 py-2 bg-white text-blue-800 hover:bg-blue-50 rounded-xl font-bold text-xs shadow-sm flex items-center gap-1.5 transition"
+            >
+              Dashboard ({user.name})
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          ) : (
+            <Link
+              to="/login?role=guru"
+              className="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded-xl font-bold text-xs shadow-sm flex items-center gap-1.5 transition border border-blue-500"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              Masuk
+            </Link>
+          )}
         </div>
       </nav>
 

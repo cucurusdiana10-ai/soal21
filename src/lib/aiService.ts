@@ -84,17 +84,36 @@ async function executeClientGemini(prompt: string) {
   throw lastErr || new Error('Gagal menghubungi AI Gemini.');
 }
 
-// Client-side fallback for generating material
-async function clientFallbackGenerateMaterial(subject: string, grade: string, topic: string, description?: string) {
+// Client-side fallback for generating material with meetings & gamification
+async function clientFallbackGenerateMaterial(
+  subject: string,
+  grade: string,
+  topic: string,
+  description?: string,
+  pertemuanList?: any[],
+  selectedMeetingIndex?: string
+) {
   const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
-  
-  const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif dan menyenangkan untuk siswa SMA di SMAN 21 Garut, buatkan bahan ajar interaktif, seru, dan mudah dipahami untuk:
-Mata Pelajaran: ${subject}
-Kelas/Tingkat: ${grade}
-Capaian Pembelajaran / Topik: "${fullTopic}"
+  const meetings = Array.isArray(pertemuanList) ? pertemuanList : [];
+  const hasMultiple = meetings.length > 0 && selectedMeetingIndex === 'ALL';
 
-Bahan ajar harus memuat elemen visual/media (Gambar dan/atau Rekomendasi Video Pembelajaran YouTube yang relevan).
-Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
+  let prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif, joyful & mindful learning, serta gamifikasi edukatif untuk siswa SMA di SMAN 21 Garut:
+Mata Pelajaran: ${subject}
+Jenjang / Tingkat: SMA Kelas ${grade}
+Capaian Pembelajaran / Topik: "${fullTopic}"
+`;
+
+  if (hasMultiple) {
+    prompt += `\nJUMLAH PERTEMUAN:
+Bahan Ajar mengacu pada Modul Ajar dengan ${meetings.length} Pertemuan:
+${meetings.map((m: any, idx: number) => `* Pertemuan ${idx + 1}: ${m.nama || `Pertemuan ${idx + 1}`}`).join('\n')}
+Wajib buat array "pertemuanMateri" dengan TEPAT ${meetings.length} item sesuai pertemuan di atas!
+`;
+  }
+
+  prompt += `
+Buat bahan ajar dengan gamifikasi seru (Misi Siswa, Poin XP, Tantangan Aktif, Kuis Interaktif).
+Kembalikan respon DALAM FORMAT JSON MURNI valid persis berikut:
 {
   "imageUrl": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
   "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -107,6 +126,23 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ],
   "funFact": "1 fakta mengejutkan / unik / 'tahukah kamu' yang memicu rasa penasaran siswa SMA tentang topik ini.",
   "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari atau dunia kerja/teknologi.",
+  "pertemuanMateri": [
+    {
+      "pertemuanKe": 1,
+      "judulPertemuan": "Judul Pertemuan 1",
+      "tujuanSingkat": "Tujuan pemahaman siswa",
+      "materiInti": "Penjelasan konsep akrab dan analogi seru",
+      "gamifikasi": {
+        "misiSiswa": "Misi Eksplorasi Siswa",
+        "instruksiMisi": "Langkah aktif bereksplorasi",
+        "tantanganAktif": "Teka-teki atau studi kasus pemantik",
+        "xpReward": 50,
+        "badgeName": "Penjelajah Konsep",
+        "badgeIcon": "🎯"
+      },
+      "skenarioDiskusi": "Dilema atau pertanyaan aktif untuk kelas"
+    }
+  ],
   "materials": [
     {
       "title": "1. Pengantar Konsep & Cerita / Analogi Seru",
@@ -545,11 +581,29 @@ async function postApiWithFallback(
   throw new Error(lastErrorMsg);
 }
 
-export async function generateMaterialApi(payload: { subject: string; grade: string; topic: string; description?: string }) {
+export interface GenerateMaterialPayload {
+  subject: string;
+  grade: string;
+  topic: string;
+  description?: string;
+  pertemuanList?: any[];
+  pertemuanCount?: number;
+  selectedMeetingIndex?: string;
+}
+
+export async function generateMaterialApi(payload: GenerateMaterialPayload) {
   return postApiWithFallback(
     ['/api/generate-material', '/api/material', '/api/ai/material'],
     payload,
-    () => clientFallbackGenerateMaterial(payload.subject, payload.grade, payload.topic, payload.description)
+    () =>
+      clientFallbackGenerateMaterial(
+        payload.subject,
+        payload.grade,
+        payload.topic,
+        payload.description,
+        payload.pertemuanList,
+        payload.selectedMeetingIndex
+      )
   );
 }
 
@@ -596,3 +650,79 @@ export async function generateModulAjarApi(payload: ModulAjarPayload) {
     () => clientFallbackGenerateModulAjar(payload)
   );
 }
+
+export interface CpSearchPayload {
+  subject: string;
+  fase?: string;
+  keyword?: string;
+  jenjang?: string;
+}
+
+export interface CpPhaseItem {
+  fase: string;
+  kelas: string;
+  judul: string;
+  teksCp: string;
+  fokusKompetensi?: string;
+}
+
+export interface CpSearchResult {
+  mataPelajaran: string;
+  jenjang: string;
+  dasarHukum: string;
+  dokumenRujukanUrl: string;
+  capaianPerFase: CpPhaseItem[];
+}
+
+async function clientFallbackSearchCp(payload: CpSearchPayload): Promise<CpSearchResult> {
+  const targetJenjang = payload.jenjang || 'SMA (Sekolah Menengah Atas)';
+  const prompt = `Anda adalah pakar kurikulum nasional Indonesia yang menguasai regulasi resmi:
+"Keputusan Kepala Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP) Kementerian Pendidikan Dasar dan Menengah Nomor 046/H/KR/2025 tentang Capaian Pembelajaran pada Pendidikan Anak Usia Dini, Jenjang Pendidikan Dasar, dan Jenjang Pendidikan Menengah pada Kurikulum Merdeka".
+Dokumen rujukan: https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf.
+
+Lakukan ekstraksi Capaian Pembelajaran (CP) otentik dari naskah BSKAP 046/2025 KHUSUS UNTUK JENJANG SMA:
+- Mata Pelajaran: ${payload.subject}
+- Jenjang: ${targetJenjang}
+- Fase: ${payload.fase || 'Fase E (Kelas X SMA) dan Fase F (Kelas XI - XII SMA)'}
+- Kata Kunci: ${payload.keyword || 'Capaian Pembelajaran Keseluruhan Fase'}
+
+KETENTUAN PENTING:
+- Hasil berupa teks Capaian Pembelajaran (CP) berdasarkan FASE dan JENJANG (Fase E Kelas X SMA, Fase F Kelas XI-XII SMA).
+- JANGAN sertakan elemen terpisah (bukan elemennya).
+- HILANGKAN rasional mata pelajaran pada hasil.
+
+Keluarkan HANYA format JSON valid berikut:
+{
+  "mataPelajaran": "${payload.subject}",
+  "jenjang": "SMA",
+  "dasarHukum": "Keputusan Kepala BSKAP No. 046/H/KR/2025",
+  "dokumenRujukanUrl": "https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf",
+  "capaianPerFase": [
+    {
+      "fase": "Fase E",
+      "kelas": "Kelas X SMA",
+      "judul": "Capaian Pembelajaran ${payload.subject} Fase E (Kelas X SMA)",
+      "teksCp": "Teks resmi Capaian Pembelajaran Fase E...",
+      "fokusKompetensi": "Ringkasan fokus kompetensi fase ini"
+    },
+    {
+      "fase": "Fase F",
+      "kelas": "Kelas XI - XII SMA",
+      "judul": "Capaian Pembelajaran ${payload.subject} Fase F (Kelas XI - XII SMA)",
+      "teksCp": "Teks resmi Capaian Pembelajaran Fase F...",
+      "fokusKompetensi": "Ringkasan fokus kompetensi fase ini"
+    }
+  ]
+}`;
+
+  return await executeClientGemini(prompt);
+}
+
+export async function searchCpApi(payload: CpSearchPayload): Promise<CpSearchResult> {
+  return postApiWithFallback(
+    ['/api/cp/search', '/api/search-cp'],
+    payload,
+    () => clientFallbackSearchCp(payload)
+  );
+}
+

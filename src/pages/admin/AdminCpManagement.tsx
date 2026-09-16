@@ -56,18 +56,19 @@ export default function AdminCpManagement() {
 
   // Form state
   const [formData, setFormData] = useState({
-    mata_pelajaran: 'Informatika',
+    mata_pelajaran: 'Semua Mata Pelajaran (Umum)',
     custom_subject: '',
-    fase: 'Fase E (Kelas X)',
+    fase: 'Semua Fase (Fase E & F)',
     judul: '',
     deskripsi: '',
     teks_cp: ''
   });
+  const [isSpecificScope, setIsSpecificScope] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{
+    file: File;
     name: string;
     size: number;
     type: string;
-    dataUrl: string;
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -123,26 +124,23 @@ export default function AdminCpManagement() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert('Ukuran file maksimal adalah 15 MB.');
+    if (file.size > 25 * 1024 * 1024) {
+      alert('Ukuran file maksimal adalah 25 MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setSelectedFile({
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        dataUrl: reader.result as string
-      });
-      // Auto fill title if empty
-      if (!formData.judul) {
-        const cleanName = file.name.replace(/\.[^/.]+$/, '');
-        setFormData(prev => ({ ...prev, judul: cleanName }));
-      }
-    };
-    reader.readAsDataURL(file);
+    setSelectedFile({
+      file,
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream'
+    });
+
+    // Auto fill title if empty
+    if (!formData.judul) {
+      const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+      setFormData(prev => ({ ...prev, judul: cleanName }));
+    }
   };
 
   const handleSaveCp = async (e: React.FormEvent) => {
@@ -150,14 +148,18 @@ export default function AdminCpManagement() {
     setErrorMessage('');
     setSuccessMessage('');
 
-    const finalSubject = formData.mata_pelajaran === 'LAINNYA' 
-      ? formData.custom_subject.trim() 
-      : formData.mata_pelajaran;
+    let finalSubject = formData.mata_pelajaran;
+    let finalFase = formData.fase;
 
-    if (!finalSubject) {
-      setErrorMessage('Mata pelajaran wajib diisi.');
-      return;
+    if (!isSpecificScope) {
+      finalSubject = 'Semua Mata Pelajaran (Umum)';
+      finalFase = 'Semua Fase (Fase E & F)';
+    } else {
+      if (formData.mata_pelajaran === 'LAINNYA') {
+        finalSubject = formData.custom_subject.trim() || 'Semua Mata Pelajaran (Umum)';
+      }
     }
+
     if (!formData.judul.trim()) {
       setErrorMessage('Judul dokumen CP wajib diisi.');
       return;
@@ -168,28 +170,102 @@ export default function AdminCpManagement() {
     }
 
     setSubmitting(true);
-    const newRecord: CapaianPembelajaran = {
-      id: crypto.randomUUID(),
-      mata_pelajaran: finalSubject,
-      fase: formData.fase,
-      judul: formData.judul.trim(),
-      deskripsi: formData.deskripsi.trim() || undefined,
-      teks_cp: formData.teks_cp.trim() || undefined,
-      file_name: selectedFile?.name,
-      file_size: selectedFile?.size,
-      file_type: selectedFile?.type,
-      file_data: selectedFile?.dataUrl,
-      uploaded_by: user?.id,
-      created_at: new Date().toISOString()
-    };
 
     try {
-      const { error } = await supabase
-        .from('capaian_pembelajaran')
-        .insert([newRecord]);
+      let uploadedFileUrl: string | undefined = undefined;
 
-      if (error) {
-        console.warn('Simpan ke Supabase gagal, beralih ke cache lokal:', error.message);
+      // 1. Upload file directly to Supabase Storage bucket 'cp-documents' (NOT database)
+      if (selectedFile?.file) {
+        const rawFile = selectedFile.file;
+        const fileExt = rawFile.name.split('.').pop() || 'pdf';
+        const cleanName = rawFile.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
+        const filePath = `${Date.now()}_${cleanName}.${fileExt}`;
+
+        try {
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('cp-documents')
+            .upload(filePath, rawFile, {
+              cacheControl: '3600',
+              upsert: true
+            });
+
+          if (uploadError) {
+            console.warn('Upload to cp-documents bucket failed:', uploadError.message);
+            // Try fallback to 'documents' bucket
+            const { error: fallbackError } = await supabase.storage
+              .from('documents')
+              .upload(filePath, rawFile, {
+                cacheControl: '3600',
+                upsert: true
+              });
+
+            if (!fallbackError) {
+              const { data: pubData } = supabase.storage.from('documents').getPublicUrl(filePath);
+              uploadedFileUrl = pubData?.publicUrl;
+            } else {
+              console.warn('Storage fallback failed as well, error:', uploadError.message);
+              // Inform admin how to enable bucket if needed, but allow save with notification
+              setErrorMessage(`Peringatan Storage Supabase: Bucket 'cp-documents' belum dapat diakses (${uploadError.message}). Pastikan bucket 'cp-documents' telah dibuat di Supabase Storage dengan status Public.`);
+              setSubmitting(false);
+              return;
+            }
+          } else {
+            const { data: pubData } = supabase.storage.from('cp-documents').getPublicUrl(filePath);
+            uploadedFileUrl = pubData?.publicUrl;
+          }
+        } catch (storageErr: any) {
+          console.error('Storage upload exception:', storageErr);
+          setErrorMessage(`Gagal mengunggah ke Supabase Storage: ${storageErr.message || 'Koneksi terputus'}`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // 2. Insert metadata to database table (only storing file_url, NOT heavy base64 data)
+      const newRecord: CapaianPembelajaran = {
+        id: crypto.randomUUID(),
+        mata_pelajaran: finalSubject,
+        fase: finalFase,
+        judul: formData.judul.trim(),
+        deskripsi: formData.deskripsi.trim() || undefined,
+        teks_cp: formData.teks_cp.trim() || undefined,
+        file_name: selectedFile?.name,
+        file_size: selectedFile?.size,
+        file_type: selectedFile?.type,
+        file_url: uploadedFileUrl,
+        uploaded_by: user?.id,
+        created_at: new Date().toISOString()
+      };
+
+      const insertPayload: any = {
+        id: newRecord.id,
+        mata_pelajaran: newRecord.mata_pelajaran,
+        fase: newRecord.fase,
+        judul: newRecord.judul,
+        deskripsi: newRecord.deskripsi,
+        teks_cp: newRecord.teks_cp,
+        file_name: newRecord.file_name,
+        file_size: newRecord.file_size,
+        file_type: newRecord.file_type,
+        file_url: uploadedFileUrl,
+        uploaded_by: newRecord.uploaded_by,
+        created_at: newRecord.created_at
+      };
+
+      let { error: insertError } = await supabase
+        .from('capaian_pembelajaran')
+        .insert([insertPayload]);
+
+      // If file_url column does not exist yet in Supabase schema, fallback gracefully
+      if (insertError && insertError.message?.includes('file_url')) {
+        delete insertPayload.file_url;
+        insertPayload.file_data = uploadedFileUrl; // Store the storage URL in file_data column as fallback string
+        const retryRes = await supabase.from('capaian_pembelajaran').insert([insertPayload]);
+        insertError = retryRes.error;
+      }
+
+      if (insertError) {
+        console.warn('Simpan ke tabel Supabase gagal, simpan ke cache lokal:', insertError.message);
         setDbTableMissing(true);
       }
       
@@ -198,20 +274,14 @@ export default function AdminCpManagement() {
       setCpList(updatedList);
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
 
-      setSuccessMessage('Dokumen Capaian Pembelajaran (CP) berhasil diunggah!');
+      setSuccessMessage('Dokumen CP berhasil disimpan! File tersimpan aman di Supabase Storage.');
       setTimeout(() => {
         setIsUploadModalOpen(false);
         resetForm();
       }, 1200);
     } catch (err: any) {
-      const updatedList = [newRecord, ...cpList];
-      setCpList(updatedList);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
-      setSuccessMessage('Dokumen disimpan ke repositori CP!');
-      setTimeout(() => {
-        setIsUploadModalOpen(false);
-        resetForm();
-      }, 1200);
+      console.error('Error in handleSaveCp:', err);
+      setErrorMessage(`Gagal menyimpan CP: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -233,13 +303,14 @@ export default function AdminCpManagement() {
 
   const resetForm = () => {
     setFormData({
-      mata_pelajaran: 'Informatika',
+      mata_pelajaran: 'Semua Mata Pelajaran (Umum)',
       custom_subject: '',
-      fase: 'Fase E (Kelas X)',
+      fase: 'Semua Fase (Fase E & F)',
       judul: '',
       deskripsi: '',
       teks_cp: ''
     });
+    setIsSpecificScope(false);
     setSelectedFile(null);
     setErrorMessage('');
     setSuccessMessage('');
@@ -252,16 +323,28 @@ export default function AdminCpManagement() {
   };
 
   const downloadFile = (cp: CapaianPembelajaran) => {
-    if (!cp.file_data) {
-      alert('Dokumen ini tidak memiliki file lampiran (hanya teks CP).');
+    const directUrl = cp.file_url || (cp.file_data?.startsWith('http') ? cp.file_data : null);
+    if (directUrl) {
+      const link = document.createElement('a');
+      link.href = directUrl;
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      link.download = cp.file_name || `Dokumen_CP_${cp.judul}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       return;
     }
-    const link = document.createElement('a');
-    link.href = cp.file_data;
-    link.download = cp.file_name || `CP_${cp.mata_pelajaran}_${cp.fase}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (cp.file_data) {
+      const link = document.createElement('a');
+      link.href = cp.file_data;
+      link.download = cp.file_name || `CP_${cp.mata_pelajaran}_${cp.fase}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+    alert('Dokumen ini tidak memiliki file lampiran (hanya teks narasi CP).');
   };
 
   const filteredList = cpList.filter(item => {
@@ -271,28 +354,56 @@ export default function AdminCpManagement() {
       (item.deskripsi && item.deskripsi.toLowerCase().includes(search.toLowerCase())) ||
       (item.teks_cp && item.teks_cp.toLowerCase().includes(search.toLowerCase()));
 
-    const matchPhase = selectedPhase === 'ALL' || item.fase === selectedPhase;
-    const matchSubject = selectedSubject === 'ALL' || item.mata_pelajaran === selectedSubject;
+    const matchPhase = 
+      selectedPhase === 'ALL' || 
+      item.fase === selectedPhase || 
+      item.fase?.includes('Semua');
+
+    const matchSubject = 
+      selectedSubject === 'ALL' || 
+      item.mata_pelajaran === selectedSubject || 
+      item.mata_pelajaran?.includes('Semua') ||
+      item.mata_pelajaran?.includes('Umum');
 
     return matchSearch && matchPhase && matchSubject;
   });
 
-  const sqlAlterScript = `-- Jalankan query ini di menu SQL Editor pada Dashboard Supabase Anda:
+  const sqlAlterScript = `-- 1. JALANKAN DI SUPABASE SQL EDITOR:
+-- Membuat tabel capaian_pembelajaran (jika belum ada)
 CREATE TABLE IF NOT EXISTS public.capaian_pembelajaran (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  mata_pelajaran TEXT NOT NULL,
-  fase TEXT NOT NULL,
+  mata_pelajaran TEXT NOT NULL DEFAULT 'Semua Mata Pelajaran (Umum)',
+  fase TEXT NOT NULL DEFAULT 'Semua Fase (Fase E & F)',
   judul TEXT NOT NULL,
   deskripsi TEXT,
   teks_cp TEXT,
   file_name TEXT,
   file_size NUMERIC,
   file_type TEXT,
+  file_url TEXT,
   file_data TEXT,
   uploaded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);`;
+);
+
+-- 2. Tambahkan kolom file_url jika tabel sudah pernah dibuat sebelumnya:
+ALTER TABLE public.capaian_pembelajaran ADD COLUMN IF NOT EXISTS file_url TEXT;
+
+-- 3. Membuat Storage Bucket 'cp-documents' untuk berkas CP:
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('cp-documents', 'cp-documents', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- 4. Kebijakan RLS Storage agar publik bisa membaca dan admin bisa mengunggah:
+CREATE POLICY "Public Read CP Documents" ON storage.objects
+  FOR SELECT USING (bucket_id = 'cp-documents');
+
+CREATE POLICY "Authenticated Upload CP Documents" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'cp-documents');
+
+CREATE POLICY "Authenticated Manage CP Documents" ON storage.objects
+  FOR ALL USING (bucket_id = 'cp-documents');`;
 
   return (
     <div className="space-y-6">
@@ -460,10 +571,10 @@ CREATE TABLE IF NOT EXISTS public.capaian_pembelajaran (
                     Lihat Teks CP
                   </button>
 
-                  {cp.file_data && (
+                  {(cp.file_url || cp.file_data) && (
                     <button
                       onClick={() => downloadFile(cp)}
-                      title="Unduh file dokumen asli"
+                      title="Unduh file dokumen asli dari Supabase Storage"
                       className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold transition"
                     >
                       <Download className="w-4 h-4" />
@@ -520,53 +631,112 @@ CREATE TABLE IF NOT EXISTS public.capaian_pembelajaran (
             )}
 
             <form onSubmit={handleSaveCp} className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">Mata Pelajaran</label>
-                  <select
-                    value={formData.mata_pelajaran}
-                    onChange={e => setFormData({ ...formData, mata_pelajaran: e.target.value })}
-                    className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
-                  >
-                    {COMMON_SUBJECTS.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                    <option value="LAINNYA">+ Ketik Mata Pelajaran Lainnya</option>
-                  </select>
+              {/* Informational Scope Badge */}
+              <div className="p-3 bg-indigo-50/80 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-indigo-900 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                  <span>Lingkup Dokumen: <strong>Semua Mata Pelajaran & Semua Fase</strong></span>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">Fase / Jenjang</label>
-                  <select
-                    value={formData.fase}
-                    onChange={e => setFormData({ ...formData, fase: e.target.value })}
-                    className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
-                  >
-                    {PHASES.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSpecificScope(!isSpecificScope)}
+                  className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 underline"
+                >
+                  {isSpecificScope ? 'Tutup Pilihan Khusus' : 'Pilih Mapel/Fase Khusus?'}
+                </button>
               </div>
 
-              {formData.mata_pelajaran === 'LAINNYA' && (
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">Nama Mata Pelajaran</label>
-                  <input
-                    type="text"
-                    placeholder="Contoh: Muatan Lokal Bahasa Sunda"
-                    value={formData.custom_subject}
-                    onChange={e => setFormData({ ...formData, custom_subject: e.target.value })}
-                    className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
-                  />
+              {/* Optional Specific Scope Accordion */}
+              {isSpecificScope && (
+                <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200 space-y-3">
+                  <p className="text-[11px] text-gray-500 font-medium">
+                    Secara default dokumen CP berlaku untuk semua guru. Jika dokumen ini hanya untuk mata pelajaran atau fase tertentu, tentukan di bawah ini:
+                  </p>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Mata Pelajaran Khusus</label>
+                      <select
+                        value={formData.mata_pelajaran}
+                        onChange={e => setFormData({ ...formData, mata_pelajaran: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 bg-white"
+                      >
+                        <option value="Semua Mata Pelajaran (Umum)">Semua Mata Pelajaran (Umum)</option>
+                        {COMMON_SUBJECTS.map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                        <option value="LAINNYA">+ Ketik Mata Pelajaran Lainnya</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Fase / Jenjang Khusus</label>
+                      <select
+                        value={formData.fase}
+                        onChange={e => setFormData({ ...formData, fase: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 bg-white"
+                      >
+                        <option value="Semua Fase (Fase E & F)">Semua Fase (Fase E & F)</option>
+                        {PHASES.map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {formData.mata_pelajaran === 'LAINNYA' && (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Nama Mata Pelajaran</label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: Muatan Lokal Bahasa Sunda"
+                        value={formData.custom_subject}
+                        onChange={e => setFormData({ ...formData, custom_subject: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded-xl text-xs font-medium bg-white"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* Unggah File Dokumen ke Supabase Storage */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">Judul Dokumen CP</label>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5 flex items-center justify-between">
+                  <span>Pilih Berkas Dokumen CP (PDF, Word, TXT)</span>
+                  <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Disimpan ke Supabase Storage
+                  </span>
+                </label>
+                <div className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/20 hover:bg-indigo-50/40 rounded-2xl p-5 text-center transition cursor-pointer relative">
+                  <input
+                    type="file"
+                    accept=".pdf,.docx,.doc,.txt,.rtf"
+                    onChange={handleFileChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                  {selectedFile ? (
+                    <div className="flex items-center justify-center gap-2 text-indigo-800 font-bold text-xs py-2">
+                      <FileCheck className="w-6 h-6 text-emerald-600" />
+                      <div className="text-left">
+                        <p className="text-gray-900 font-bold">{selectedFile.name}</p>
+                        <p className="text-[11px] text-gray-500">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • Siap diunggah ke Storage</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1 py-2">
+                      <Upload className="w-8 h-8 text-indigo-500 mx-auto" />
+                      <p className="text-xs text-gray-800 font-bold">Klik atau seret dokumen CP ke sini</p>
+                      <p className="text-[11px] text-gray-400">Format PDF, DOCX, DOC, atau TXT. Maksimal 25 MB.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Judul Dokumen CP <span className="text-red-500">*</span></label>
                 <input
                   type="text"
-                  placeholder="Contoh: Capaian Pembelajaran Informatika Fase E (SK BSKAP 032/H/KR/2024)"
+                  required
+                  placeholder="Contoh: Capaian Pembelajaran Kurikulum Merdeka (SK BSKAP No 032/H/KR/2024)"
                   value={formData.judul}
                   onChange={e => setFormData({ ...formData, judul: e.target.value })}
                   className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
@@ -577,7 +747,7 @@ CREATE TABLE IF NOT EXISTS public.capaian_pembelajaran (
                 <label className="block text-xs font-bold text-gray-700 mb-1.5">Deskripsi / Keterangan Singkat (Opsional)</label>
                 <input
                   type="text"
-                  placeholder="Contoh: Dokumen kurikulum merdeka revisi terbaru, mencakup elemen DPK & TIK"
+                  placeholder="Contoh: Pedoman resmi CP BSKAP Kemendikbudristek untuk seluruh mata pelajaran SMA"
                   value={formData.deskripsi}
                   onChange={e => setFormData({ ...formData, deskripsi: e.target.value })}
                   className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
@@ -586,42 +756,16 @@ CREATE TABLE IF NOT EXISTS public.capaian_pembelajaran (
 
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                  Teks Narasi Capaian Pembelajaran (CP)
-                  <span className="text-gray-400 font-normal ml-1">(Sangat disarankan diisi agar guru dapat menyalin langsung)</span>
+                  Teks Ringkasan / Narasi Capaian Pembelajaran (Opsional)
+                  <span className="text-gray-400 font-normal ml-1">(Bisa ditempelkan agar guru dapat menyalin langsung tanpa mengunduh)</span>
                 </label>
                 <textarea
-                  rows={4}
-                  placeholder="Tempelkan (paste) teks Capaian Pembelajaran lengkap di sini. Contoh: Pada akhir fase E, peserta didik mampu menerapkan strategi algoritmik standar..."
+                  rows={3}
+                  placeholder="Tempelkan kutipan teks Capaian Pembelajaran di sini jika ada..."
                   value={formData.teks_cp}
                   onChange={e => setFormData({ ...formData, teks_cp: e.target.value })}
                   className="w-full p-3 border border-gray-300 rounded-xl text-xs leading-relaxed focus:ring-2 focus:ring-indigo-500 font-mono"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                  Unggah Dokumen Lampiran File (PDF, DOCX, TXT)
-                </label>
-                <div className="border-2 border-dashed border-gray-300 rounded-2xl p-4 text-center hover:bg-gray-50 transition cursor-pointer relative">
-                  <input
-                    type="file"
-                    accept=".pdf,.docx,.doc,.txt,.rtf"
-                    onChange={handleFileChange}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                  />
-                  {selectedFile ? (
-                    <div className="flex items-center justify-center gap-2 text-indigo-700 font-bold text-xs">
-                      <FileCheck className="w-5 h-5 text-indigo-600" />
-                      <span>{selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)</span>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      <Upload className="w-6 h-6 text-gray-400 mx-auto" />
-                      <p className="text-xs text-gray-600 font-medium">Klik atau seret file PDF / Word ke sini</p>
-                      <p className="text-[11px] text-gray-400">Maksimal 15 MB. Disimpan langsung ke storage database.</p>
-                    </div>
-                  )}
-                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">

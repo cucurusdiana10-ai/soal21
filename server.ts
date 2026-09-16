@@ -101,7 +101,15 @@ async function startServer() {
         return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
       }
 
-      const { subject, grade, topic, description } = req.body || {};
+      const {
+        subject,
+        grade,
+        topic,
+        description,
+        pertemuanList,
+        pertemuanCount,
+        selectedMeetingIndex,
+      } = req.body || {};
       if (!subject || !grade || !topic) {
         return res.status(400).json({ error: 'Missing required fields: subject, grade, topic' });
       }
@@ -114,18 +122,44 @@ async function startServer() {
           }
         }
       });
-      const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
-      
-      const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif dan menyenangkan untuk siswa SMA di SMAN 21 Garut, buatkan bahan ajar interaktif, seru, dan mudah dipahami untuk:
-Mata Pelajaran: ${subject}
-Kelas/Tingkat: ${grade}
-Capaian Pembelajaran / Topik: "${fullTopic}"
 
-Bahan ajar harus memuat elemen visual/media (Gambar dan/atau Rekomendasi Video Pembelajaran YouTube yang relevan).
-Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
+      const effectiveMeetings = Array.isArray(pertemuanList) && pertemuanList.length > 0 ? pertemuanList : [];
+      const hasMultipleMeetings = effectiveMeetings.length > 0 && selectedMeetingIndex === 'ALL';
+      const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
+
+      let prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif, menyenangkan (joyful, mindful, meaningful), dan gamifikasi edukatif untuk siswa SMA di SMAN 21 Garut:
+Mata Pelajaran: ${subject}
+Jenjang / Tingkat: SMA Kelas ${grade}
+Capaian Pembelajaran / Topik: "${fullTopic}"
+`;
+
+      if (hasMultipleMeetings) {
+        prompt += `\nPERHATIAN KHUSUS - JUMLAH PERTEMUAN MODUL AJAR:
+Bahan Ajar ini mengacu langsung pada Modul Ajar yang memiliki TEpat ${effectiveMeetings.length} PERTEMUAN:
+${effectiveMeetings.map((m: any, idx: number) => `* Pertemuan ${idx + 1}: ${m.nama || `Pertemuan ${idx + 1}`} (Kegiatan: ${m.kegiatanInti ? m.kegiatanInti.slice(0, 100) + '...' : 'Sintaks Pembelajaran'})`).join('\n')}
+Anda WAJIB menstrukturkan bahan ajar ke dalam array "pertemuanMateri" dengan TEPAT ${effectiveMeetings.length} item sesuai rincian pertemuan modul di atas!
+`;
+      } else if (selectedMeetingIndex !== undefined && selectedMeetingIndex !== 'ALL' && effectiveMeetings.length > 0) {
+        const mIdx = parseInt(selectedMeetingIndex, 10);
+        const specificMeet = effectiveMeetings[mIdx] || effectiveMeetings[0];
+        prompt += `\nPERHATIAN KHUSUS - PERTEMUAN SPESIFIK:
+Bahan Ajar ini difokuskan mendalam untuk Pertemuan ${mIdx + 1}: "${specificMeet.nama || `Pertemuan ${mIdx + 1}`}".
+`;
+      }
+
+      prompt += `
+PERSYARATAN INTERAKTIVITAS & GAMIFIKASI:
+Hasil bahan ajar HARUS sangat menarik dan mengajak siswa AKTIF, BUKAN teks pasif yang membosankan!
+Sertakan elemen gamifikasi nyata:
+1. Misi Tantangan Siswa (Student Quest / Challenge) dengan poin XP Reward dan Badge Penghargaan per sesi.
+2. Skenario Dilema Interaktif / Teka-Teki Pemantik diskusi aktif kelompok.
+3. Media visual (Gambar Unsplash dan/atau Video Pembelajaran YouTube edukatif).
+4. Kuis interaktif pancingan dengan umpan balik instan.
+
+Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
-  "imageUrl": "URL foto Unsplash berkualitas tinggi dan relevan dengan topik, contoh: https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
-  "videoUrl": "URL video pembelajaran YouTube yang relevan dengan topik (contoh: https://www.youtube.com/watch?v=dQw4w9WgXcQ atau https://youtu.be/xxx atau link embed edukasi sains/matematika/sosial relevan)",
+  "imageUrl": "URL foto Unsplash berkualitas tinggi dan relevan topik",
+  "videoUrl": "URL video pembelajaran YouTube edukatif yang relevan",
   "mediaType": "both",
   "mindMap": [
     "Konsep Inti 1",
@@ -133,12 +167,29 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
     "Konsep Inti 3",
     "Aplikasi Nyata"
   ],
-  "funFact": "1 fakta mengejutkan / unik / 'tahukah kamu' yang memicu rasa penasaran siswa SMA tentang topik ini.",
-  "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari atau dunia kerja/teknologi.",
+  "funFact": "1 fakta unik, mengejutkan, atau 'tahukah kamu' yang memicu rasa penasaran siswa SMA.",
+  "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan nyata atau masa depan.",
+  "pertemuanMateri": [
+    {
+      "pertemuanKe": 1,
+      "judulPertemuan": "Judul Sesi Pertemuan 1",
+      "tujuanSingkat": "Tujuan pemahaman siswa pada sesi ini",
+      "materiInti": "Penjelasan konsep secara akrab, analogi seru, dan poin penting yang mudah dipahami.",
+      "gamifikasi": {
+        "misiSiswa": "Nama misi siswa (misal: 'Misi Detektif: Ungkap Misteri Enzim')",
+        "instruksiMisi": "Instruksi aktivitas aktif yang harus dilakukan siswa bersama teman kelompoknya.",
+        "tantanganAktif": "Teka-teki atau kasus mini yang harus dipecahkan siswa.",
+        "xpReward": 50,
+        "badgeName": "Pakar Sains Pemula",
+        "badgeIcon": "🎯"
+      },
+      "skenarioDiskusi": "Pertanyaan dilematis atau skenario memantik perdebatan seru di kelas."
+    }
+  ],
   "materials": [
     {
       "title": "1. Pengantar Konsep & Cerita / Analogi Seru",
-      "content": "Jelaskan pembuka materi dengan bahasa akrab siswa SMA, gunakan analogi kehidupan sehari-hari yang mudah diingat."
+      "content": "Jelaskan pembuka materi dengan bahasa akrab siswa SMA, gunakan analogi kehidupan sehari-hari."
     },
     {
       "title": "2. Pembahasan Inti & Konsep Kunci",
@@ -146,21 +197,21 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
     },
     {
       "title": "3. Tips Cepat Paham & Rangkuman",
-      "content": "Cara mudah mengingat / mnemonik / ringkasan intisari materi agar siswa tidak mudah lupa."
+      "content": "Cara mudah mengingat / mnemonik / ringkasan intisari materi."
     }
   ],
   "interactiveQuestions": [
     {
-      "question": "Pertanyaan pancingan / kuis pemahaman 1?",
+      "question": "Pertanyaan kuis pemantik 1?",
       "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
       "answer": "A",
-      "explanation": "Penjelasan ringkas mengapa jawaban ini benar."
+      "explanation": "Penjelasan ringkas jawaban yang tepat."
     },
     {
-      "question": "Pertanyaan pancingan / kuis pemahaman 2?",
+      "question": "Pertanyaan kuis pemantik 2?",
       "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
       "answer": "B",
-      "explanation": "Penjelasan ringkas mengapa jawaban ini benar."
+      "explanation": "Penjelasan ringkas jawaban yang tepat."
     }
   ]
 }`;
@@ -650,9 +701,83 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
     }
   };
 
+  // Handler for Capaian Pembelajaran Search (Referencing KepKa BSKAP 046/2025 - Jenjang SMA)
+  const handleCpSearch = async (req: express.Request, res: express.Response) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return res.json({ status: 'ready', endpoint: req.path });
+    }
+    if (req.method !== 'POST') {
+      return res.status(200).json({ status: 'ready', endpoint: req.path });
+    }
+
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY belum dikonfigurasi di server.' });
+      }
+
+      const { subject, fase, keyword, jenjang } = req.body;
+      if (!subject) {
+        return res.status(400).json({ error: 'Mata pelajaran wajib diisi.' });
+      }
+
+      const targetJenjang = jenjang || 'SMA (Sekolah Menengah Atas)';
+      const ai = new GoogleGenAI({ apiKey });
+
+      const prompt = `Anda adalah pakar kurikulum nasional Indonesia yang menguasai regulasi resmi:
+"Keputusan Kepala Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP) Kementerian Pendidikan Dasar dan Menengah Nomor 046/H/KR/2025 tentang Capaian Pembelajaran pada Pendidikan Anak Usia Dini, Jenjang Pendidikan Dasar, dan Jenjang Pendidikan Menengah pada Kurikulum Merdeka".
+Dokumen rujukan tersimpan pada: https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf.
+
+Tugas Anda:
+Lakukan penelusuran dan ekstraksi Capaian Pembelajaran (CP) otentik, presisi, dan sesuai regulasi BSKAP 046/2025 KHUSUS UNTUK JENJANG SMA (Sekolah Menengah Atas):
+- Mata Pelajaran: ${subject}
+- Jenjang: ${targetJenjang}
+- Fase yang Dicari: ${fase || 'Fase E (Kelas X SMA) dan/atau Fase F (Kelas XI - XII SMA)'}
+- Kata Kunci / Fokus Topik: ${keyword || 'Capaian Pembelajaran Keseluruhan Fase'}
+
+KETENTUAN PENTING:
+1. Hasil yang ditampilkan adalah TEKS CAPAIAN PEMBELAJARAN (CP) RESMI berdasarkan FASE dan JENJANG (Fase E Kelas X SMA, dan/atau Fase F Kelas XI - XII SMA).
+2. JANGAN sertakan rincian elemen-elemen terpisah (bukan elemennya).
+3. HILANGKAN rasional mata pelajaran pada hasil (jangan sertakan teks rasional).
+
+Berikan output WAJIB HANYA berupa JSON valid dengan format persis:
+{
+  "mataPelajaran": "${subject}",
+  "jenjang": "SMA",
+  "dasarHukum": "Keputusan Kepala BSKAP No. 046/H/KR/2025",
+  "dokumenRujukanUrl": "https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf",
+  "capaianPerFase": [
+    {
+      "fase": "Fase E",
+      "kelas": "Kelas X SMA",
+      "judul": "Capaian Pembelajaran ${subject} Fase E (Kelas X SMA)",
+      "teksCp": "Teks lengkap dan otentik Capaian Pembelajaran pada akhir Fase E sesuai naskah resmi BSKAP 046/2025...",
+      "fokusKompetensi": "Ringkasan ruang lingkup kompetensi utama fase ini (1-2 kalimat padat)."
+    },
+    {
+      "fase": "Fase F",
+      "kelas": "Kelas XI - XII SMA",
+      "judul": "Capaian Pembelajaran ${subject} Fase F (Kelas XI - XII SMA)",
+      "teksCp": "Teks lengkap dan otentik Capaian Pembelajaran pada akhir Fase F sesuai naskah resmi BSKAP 046/2025...",
+      "fokusKompetensi": "Ringkasan ruang lingkup kompetensi utama fase ini (1-2 kalimat padat)."
+    }
+  ]
+}`;
+
+      const parsedData = await generateContentWithFallback(ai, prompt);
+      res.json(parsedData);
+    } catch (error: any) {
+      console.error('Error searching CP:', error);
+      res.status(500).json({ error: error.message || 'Gagal mencari Capaian Pembelajaran' });
+    }
+  };
+
   app.all('/api/generate-modul', handleModulGen);
   app.all('/api/ai/modul', handleModulGen);
   app.all('/api/modul', handleModulGen);
+
+  app.all('/api/cp/search', handleCpSearch);
+  app.all('/api/search-cp', handleCpSearch);
 
   // Fallback for any unhandled /api/* request to prevent Vite static handler 405
   app.all('/api/*', (req, res) => {

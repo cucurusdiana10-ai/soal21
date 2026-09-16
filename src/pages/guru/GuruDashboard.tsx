@@ -7,7 +7,7 @@ import { generateMaterialApi } from '../../lib/aiService';
 import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
-import CreateModulAjar from './CreateModulAjar';
+import CreateModulAjar, { extractMateriTitleFromModule } from './CreateModulAjar';
 import GuruLihatCp from './GuruLihatCp';
 
 function MaterialGenerator() {
@@ -91,7 +91,8 @@ function MaterialGenerator() {
     else if (rawGrade.includes('X') || rawGrade.includes('10')) gradeVal = 'X';
 
     const subjectVal = mod.subject_name || form.subject;
-    const cleanTitle = mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name;
+    const materiTitle = extractMateriTitleFromModule(mod);
+    const cleanTitle = materiTitle || (mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name);
 
     const cJson = mod.content_json || {};
     const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
@@ -101,7 +102,7 @@ function MaterialGenerator() {
       topicVal = `${cleanTitle} - ${pertemuanList[0].nama}`;
     }
 
-    const descVal = `Bahan Ajar ini mengacu pada Modul Ajar Kurikulum Merdeka:\n• Dokumen: ${mod.title || cleanTitle}\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model Pembelajaran: ${mod.metode || 'Problem-Based Learning'}\n• Alokasi Waktu: ${mod.alokasi_waktu || '2 x 45 Menit'}\nSajikan bahan ajar yang selaras dengan alur pembelajaran dan capaian pada modul tersebut.`;
+    const descVal = `Bahan Ajar ini mengacu pada Modul Ajar Kurikulum Merdeka:\n• Dokumen / Materi: ${cleanTitle}\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model Pembelajaran: ${mod.metode || 'Problem-Based Learning'}\n• Alokasi Waktu: ${mod.alokasi_waktu || '2 x 45 Menit'}\nSajikan bahan ajar yang selaras dengan alur pembelajaran dan capaian pada modul tersebut.`;
 
     setForm(prev => ({
       ...prev,
@@ -117,7 +118,8 @@ function MaterialGenerator() {
     const mod = savedModules.find(m => m.id === selectedModuleId);
     if (!mod) return;
 
-    const cleanTitle = mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name;
+    const materiTitle = extractMateriTitleFromModule(mod);
+    const cleanTitle = materiTitle || (mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name);
     const cJson = mod.content_json || {};
     const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
 
@@ -125,7 +127,7 @@ function MaterialGenerator() {
       setForm(prev => ({
         ...prev,
         topic: cleanTitle,
-        description: `Bahan Ajar rangkuman menyeluruh untuk Modul Ajar: "${mod.title || cleanTitle}". Capaian Pembelajaran: ${mod.cp || '-'}. Model: ${mod.metode || 'PBL'}.`
+        description: `Bahan Ajar rangkuman menyeluruh untuk Modul Ajar: "${cleanTitle}". Capaian Pembelajaran: ${mod.cp || '-'}. Model: ${mod.metode || 'PBL'}.`
       }));
     } else {
       const idx = parseInt(meetingIdxStr, 10);
@@ -135,7 +137,7 @@ function MaterialGenerator() {
         setForm(prev => ({
           ...prev,
           topic: `${cleanTitle} (${meetingName})`,
-          description: `Bahan ajar khusus untuk ${meetingName} pada Modul Ajar: "${mod.title || cleanTitle}".\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model: ${mod.metode || 'PBL'}\n• Sintaks/Kegiatan Inti: ${meeting.kegiatanInti ? meeting.kegiatanInti.slice(0, 180) + '...' : '-'}`
+          description: `Bahan ajar khusus untuk ${meetingName} pada Modul Ajar: "${cleanTitle}".\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model: ${mod.metode || 'PBL'}\n• Sintaks/Kegiatan Inti: ${meeting.kegiatanInti ? meeting.kegiatanInti.slice(0, 180) + '...' : '-'}`
         }));
       }
     }
@@ -350,11 +352,14 @@ function MaterialGenerator() {
                 className="w-full p-3 text-xs font-semibold border border-indigo-200 rounded-xl bg-white text-gray-800 focus:ring-2 focus:ring-indigo-500 shadow-sm"
               >
                 <option value="">-- Pilih Modul Ajar yang Telah Dibuat (Rekomendasi) --</option>
-                {savedModules.map(m => (
-                  <option key={m.id} value={m.id}>
-                    📚 [{m.grade || 'Fase'}] {m.subject_name} - {m.title ? m.title.replace(/^Modul Ajar:\s*/i, '') : 'Modul'} ({new Date(m.created_at).toLocaleDateString('id-ID')})
-                  </option>
-                ))}
+                {savedModules.map(m => {
+                  const mName = extractMateriTitleFromModule(m);
+                  return (
+                    <option key={m.id} value={m.id}>
+                      📚 [{m.grade || 'Fase'}] {m.subject_name} • Materi: {mName} ({m.metode || 'PBL'})
+                    </option>
+                  );
+                })}
                 <option value="MANUAL">✏️ Mode Bebas: Ketik Topik & Capaian Manual (Tanpa Modul Ajar)</option>
               </select>
             </div>
@@ -387,12 +392,16 @@ function MaterialGenerator() {
           {selectedModuleId && selectedModuleId !== 'MANUAL' && (() => {
             const mod = savedModules.find(m => m.id === selectedModuleId);
             if (!mod) return null;
+            const mName = extractMateriTitleFromModule(mod);
             return (
               <div className="mt-3.5 p-3.5 bg-white rounded-xl border border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-indigo-900">{mod.title}</span>
+                    <span className="font-bold text-indigo-900">{mName}</span>
                     <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md font-semibold text-[11px]">
+                      {mod.subject_name}
+                    </span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-semibold text-[11px]">
                       {mod.grade || 'Fase'}
                     </span>
                     {mod.metode && (
@@ -1150,6 +1159,6 @@ export default function GuruDashboard() {
     return <CreateModulAjar />;
   }
 
-  // Default: Modul Ajar Otomatis as the primary top menu item
-  return <CreateModulAjar />;
+  // Default: Lihat CP as the primary top menu item
+  return <GuruLihatCp />;
 }

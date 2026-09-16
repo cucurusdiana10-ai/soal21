@@ -51,7 +51,8 @@ export interface CapaianPembelajaran {
   file_name?: string;
   file_size?: number;
   file_type?: string;
-  file_data?: string; // base64 data url
+  file_url?: string; // Supabase Storage public URL
+  file_data?: string; // base64 fallback for legacy records
   uploaded_by?: string;
   created_at: string;
   updated_at?: string;
