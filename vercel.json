@@ -1,7 +1,10 @@
 {
   "version": 2,
   "functions": {
-    "api/hello.ts": {
+    "api/*.ts": {
+      "maxDuration": 60
+    },
+    "api/**/*.ts": {
       "maxDuration": 60
     }
   },
