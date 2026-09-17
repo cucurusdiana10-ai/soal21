@@ -672,6 +672,10 @@ export default function CreateModulAjar() {
                       <option value={4}>4 Pertemuan</option>
                       <option value={5}>5 Pertemuan</option>
                       <option value={6}>6 Pertemuan</option>
+                      <option value={7}>7 Pertemuan</option>
+                      <option value={8}>8 Pertemuan</option>
+                      <option value={9}>9 Pertemuan</option>
+                      <option value={10}>10 Pertemuan</option>
                     </select>
                   </div>
 
@@ -1183,9 +1187,9 @@ export default function CreateModulAjar() {
                       G. Dimensi Profil Lulusan (8 Dimensi Lulusan)
                     </h4>
                     <div className="grid sm:grid-cols-2 gap-2 font-sans">
-                      {((result.dimensiProfilLulusan && result.dimensiProfilLulusan.length > 0)
+                      {((Array.isArray(result.dimensiProfilLulusan) && result.dimensiProfilLulusan.length > 0)
                         ? result.dimensiProfilLulusan
-                        : (result.dimensiProfilPelajarPancasila && result.dimensiProfilPelajarPancasila.length > 0)
+                        : (Array.isArray(result.dimensiProfilPelajarPancasila) && result.dimensiProfilPelajarPancasila.length > 0)
                         ? result.dimensiProfilPelajarPancasila
                         : DELAPAN_DIMENSI_LULUSAN
                       ).map((dim: string, idx: number) => (

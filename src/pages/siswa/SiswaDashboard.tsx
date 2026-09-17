@@ -68,8 +68,8 @@ function SiswaTugas() {
   const handleSubmitTask = async () => {
     if (!activeTask || !user) return;
 
-    const questions = activeTask.content || [];
-    if (Object.keys(answers).length < questions.length) {
+    const questions = Array.isArray(activeTask.content) ? activeTask.content : [];
+    if (questions.length > 0 && Object.keys(answers).length < questions.length) {
       if (!confirm('Masih ada soal yang belum dijawab. Yakin ingin mengumpulkan tugas sekarang?')) return;
     }
 

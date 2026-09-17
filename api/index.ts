@@ -2,7 +2,8 @@ import {
   handleMaterialGeneration,
   handleQuestionsGeneration,
   handleGradeEssayGeneration,
-  handleModulGeneration
+  handleModulGeneration,
+  handleCpSearchGeneration
 } from './_gemini';
 
 export default async function handler(req: any, res: any) {
@@ -53,6 +54,11 @@ export default async function handler(req: any, res: any) {
 
     if (url.includes('generate-questions') || url.includes('questions')) {
       const result = await handleQuestionsGeneration(body, apiKey);
+      return res.status(200).json(result);
+    }
+
+    if (url.includes('search-cp') || url.includes('cp/search')) {
+      const result = await handleCpSearchGeneration(body, apiKey);
       return res.status(200).json(result);
     }
 

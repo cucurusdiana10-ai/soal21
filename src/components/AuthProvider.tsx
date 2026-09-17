@@ -18,10 +18,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Initial session check
-    supabase?.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        setUser(null);
-        localStorage.removeItem('auth_user');
+    supabase?.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const saved = localStorage.getItem('auth_user');
+        if (!saved) {
+          const { data } = await supabase
+            .from('users')
+            .select('*')
+            .or(`id.eq.${session.user.id},username.eq.${session.user.email?.split('@')[0]}`)
+            .limit(1)
+            .maybeSingle();
+          if (data) {
+            login(data);
+          }
+        }
+      } else {
+        // If no active Supabase Auth session, check if we have a valid database user in localStorage
+        const saved = localStorage.getItem('auth_user');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (parsed?.id) {
+              // Verify user is still active in database
+              const { data: verified } = await supabase
+                .from('users')
+                .select('*')
+                .eq('id', parsed.id)
+                .maybeSingle();
+              if (verified && verified.status === 'active') {
+                setUser(verified);
+              } else if (verified && verified.status !== 'active') {
+                setUser(null);
+                localStorage.removeItem('auth_user');
+              }
+            }
+          } catch {
+            setUser(null);
+            localStorage.removeItem('auth_user');
+          }
+        }
       }
     });
 
@@ -30,11 +65,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         localStorage.removeItem('auth_user');
-      } else if (event === 'SIGNED_IN' && session) {
-        // Only fetch if we don't have the user state yet to avoid duplicate calls on login
+      } else if (event === 'SIGNED_IN' && session?.user) {
         const saved = localStorage.getItem('auth_user');
         if (!saved) {
-          const { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          const { data } = await supabase
+            .from('users')
+            .select('*')
+            .or(`id.eq.${session.user.id},username.eq.${session.user.email?.split('@')[0]}`)
+            .limit(1)
+            .maybeSingle();
           if (data) {
             login(data);
           }

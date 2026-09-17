@@ -88,8 +88,8 @@ export default function Dashboard() {
           <nav className="space-y-1">
             {navLinks.map((link) => {
               const Icon = link.icon;
-              const isActive = (user.role === 'guru' && link.path === '/dashboard/modul')
-                ? (location.pathname === '/dashboard/modul' || location.pathname === '/dashboard')
+              const isActive = (user.role === 'guru' && link.path === '/dashboard/cp')
+                ? (location.pathname === '/dashboard/cp' || location.pathname === '/dashboard' || location.pathname === '/dashboard/')
                 : location.pathname === link.path;
               return (
                 <Link
@@ -144,7 +144,12 @@ export default function Dashboard() {
                 <Route path="/*" element={<AdminDashboard />} />
               </>
             )}
-            {user.role === 'guru' && <Route path="/*" element={<GuruDashboard />} />}
+            {user.role === 'guru' && (
+              <>
+                <Route path="/" element={<Navigate to="/dashboard/cp" replace />} />
+                <Route path="/*" element={<GuruDashboard />} />
+              </>
+            )}
             {user.role === 'siswa' && <Route path="/*" element={<SiswaDashboard />} />}
           </Routes>
         </div>

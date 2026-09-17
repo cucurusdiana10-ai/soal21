@@ -42,41 +42,92 @@ export default function Login() {
       const cleanUsername = username.trim();
       const cleanPassword = password.trim();
       
-      const email = `${cleanUsername}@sekolah.com`;
-
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: cleanPassword
-      });
-
-      if (authError) {
-        console.error("Auth Error:", authError);
-        throw new Error(`Kredensial tidak valid: Pastikan username dan password benar.`);
+      const emailCandidates: string[] = [];
+      if (cleanUsername.includes('@')) {
+        emailCandidates.push(cleanUsername);
+      } else {
+        emailCandidates.push(`${cleanUsername}@sekolah.com`);
+        if (cleanUsername.toLowerCase().includes('cucurusdiana') || cleanUsername.toLowerCase() === 'admin') {
+          emailCandidates.push('cucurusdiana10@gmail.com');
+        }
       }
 
-      if (!authData.user) {
-        throw new Error('Kredensial tidak valid: User tidak ditemukan.');
+      let authSuccess = false;
+      let userProfile: any = null;
+
+      // 1. Try Supabase Auth first with candidates
+      for (const candidateEmail of emailCandidates) {
+        if (authSuccess) break;
+        try {
+          const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email: candidateEmail,
+            password: cleanPassword
+          });
+
+          if (!authError && authData?.user) {
+            let { data: userData } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', authData.user.id)
+              .maybeSingle();
+
+            if (!userData) {
+              const usernamePart = cleanUsername.includes('@') ? cleanUsername.split('@')[0] : cleanUsername;
+              const { data: matchedUser } = await supabase
+                .from('users')
+                .select('*')
+                .or(`username.ilike.${usernamePart},username.ilike.${cleanUsername}`)
+                .limit(1)
+                .maybeSingle();
+              if (matchedUser) {
+                userData = matchedUser;
+              }
+            }
+
+            if (userData) {
+              authSuccess = true;
+              userProfile = userData;
+              break;
+            }
+          }
+        } catch (authErr) {
+          console.warn(`Supabase auth signIn error for ${candidateEmail}:`, authErr);
+        }
       }
 
-      // Fetch user profile
-      const { data: userData, error: dbError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single();
+      // 2. Fallback to direct users table validation (for seeded/database users)
+      if (!authSuccess) {
+        const usernamePart = cleanUsername.includes('@') ? cleanUsername.split('@')[0] : cleanUsername;
+        const { data: dbUser, error: queryErr } = await supabase
+          .from('users')
+          .select('*')
+          .or(`username.ilike.${cleanUsername},username.ilike.${usernamePart}`)
+          .limit(1)
+          .maybeSingle();
 
-      if (dbError || !userData) {
-        console.error("DB Error:", dbError);
-        throw new Error(`Database Error: Gagal memuat profil pengguna.`);
+        if (dbUser && !queryErr) {
+          if (String(dbUser.password).trim() === cleanPassword) {
+            authSuccess = true;
+            userProfile = dbUser;
+          }
+        }
       }
 
-      if (userData.status !== 'active') {
-        await supabase.auth.signOut();
-        throw new Error('Akun Anda tidak aktif.');
+      if (!authSuccess || !userProfile) {
+        throw new Error('Username/NISN atau kata sandi tidak cocok. Silakan periksa kembali.');
       }
 
-      login(userData);
-      navigate('/dashboard');
+      if (userProfile.status !== 'active') {
+        try { await supabase.auth.signOut(); } catch {}
+        throw new Error('Akun Anda sedang dinonaktifkan oleh administrator.');
+      }
+
+      login(userProfile);
+      if (userProfile.role === 'guru') {
+        navigate('/dashboard/cp');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err: any) {
       setError(err.message || 'Terjadi kesalahan saat login.');
     } finally {

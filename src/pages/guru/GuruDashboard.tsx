@@ -9,6 +9,7 @@ import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
 import CreateModulAjar, { extractMateriTitleFromModule } from './CreateModulAjar';
 import GuruLihatCp from './GuruLihatCp';
+import InteractiveBahanAjar from '../../components/InteractiveBahanAjar';
 
 function MaterialGenerator() {
   const { user } = useAuth();
@@ -640,30 +641,15 @@ function MaterialGenerator() {
               </div>
             )}
 
-            {/* Mindmap / Konsep Utama */}
-            <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-                <BookOpen className="w-5 h-5 mr-2 text-indigo-500" /> Peta Konsep Utama
-              </h3>
-              <div className="flex flex-wrap gap-3">
-                {result.mindMap?.map((item: string, idx: number) => (
-                  <span key={idx} className="px-4 py-2 bg-indigo-50 text-indigo-800 rounded-full text-sm font-semibold border border-indigo-100 flex items-center gap-1">
-                    {isEditing ? (
-                      <input 
-                        type="text" 
-                        value={item}
-                        onChange={e => {
-                          const updated = [...result.mindMap];
-                          updated[idx] = e.target.value;
-                          setResult({ ...result, mindMap: updated });
-                        }}
-                        className="bg-white border px-2 py-0.5 rounded text-xs text-indigo-900 font-bold"
-                      />
-                    ) : item}
-                  </span>
-                ))}
-              </div>
-            </div>
+            {/* Interactive Gamification & Peta Konsep Arena */}
+            <InteractiveBahanAjar
+              petaKonsep={result.petaKonsep}
+              gamifikasi={result.gamifikasi}
+              mindMapFallback={result.mindMap}
+              topicTitle={form.topic || form.subject}
+              pertemuanMateri={result.pertemuanMateri}
+              isTeacherView={true}
+            />
 
             {/* Detail Materi */}
             <div className="space-y-6">
@@ -878,19 +864,15 @@ function MaterialGenerator() {
                 </div>
               )}
 
-              {/* Mind Map */}
-              {selectedMaterial.content_json?.mindMap && (
-                <div>
-                  <h4 className="font-bold text-gray-900 mb-2 text-sm">Peta Konsep</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedMaterial.content_json.mindMap.map((item: string, idx: number) => (
-                      <span key={idx} className="px-3 py-1 bg-indigo-50 text-indigo-800 rounded-full text-xs font-medium">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Interactive Gamification & Peta Konsep Arena */}
+              <InteractiveBahanAjar
+                petaKonsep={selectedMaterial.content_json?.petaKonsep}
+                gamifikasi={selectedMaterial.content_json?.gamifikasi}
+                mindMapFallback={selectedMaterial.content_json?.mindMap}
+                topicTitle={selectedMaterial.topic || selectedMaterial.title}
+                pertemuanMateri={selectedMaterial.content_json?.pertemuanMateri}
+                isTeacherView={true}
+              />
 
               {/* Materials */}
               {selectedMaterial.content_json?.materials && (
@@ -939,21 +921,17 @@ function MaterialGenerator() {
               className="max-w-5xl mx-auto"
             />
 
-            {/* Mindmap Fullscreen */}
-            {fullscreenMaterial.content_json?.mindMap && (
-              <div className="p-8 bg-gray-900/80 rounded-3xl border border-gray-800">
-                <h3 className="text-xl font-bold text-indigo-400 mb-4 flex items-center">
-                  <BookOpen className="w-6 h-6 mr-2" /> Peta Konsep Utama
-                </h3>
-                <div className="flex flex-wrap gap-4">
-                  {fullscreenMaterial.content_json.mindMap.map((item: string, idx: number) => (
-                    <span key={idx} className="px-5 py-3 bg-indigo-900/50 text-indigo-200 rounded-2xl text-base font-bold border border-indigo-700/50 shadow-inner">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Interactive Gamification & Peta Konsep Arena in Fullscreen */}
+            <div className="bg-white text-gray-900 rounded-3xl p-6 shadow-2xl">
+              <InteractiveBahanAjar
+                petaKonsep={fullscreenMaterial.content_json?.petaKonsep}
+                gamifikasi={fullscreenMaterial.content_json?.gamifikasi}
+                mindMapFallback={fullscreenMaterial.content_json?.mindMap}
+                topicTitle={fullscreenMaterial.topic || fullscreenMaterial.title}
+                pertemuanMateri={fullscreenMaterial.content_json?.pertemuanMateri}
+                isTeacherView={true}
+              />
+            </div>
 
             {/* Material Cards Fullscreen */}
             {fullscreenMaterial.content_json?.materials && (

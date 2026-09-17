@@ -26,33 +26,148 @@ import {
   Loader2,
   CheckCircle2,
   Layers,
+  GraduationCap,
+  School,
 } from 'lucide-react';
 
-const COMMON_SUBJECTS = [
-  'Informatika',
-  'Koding dan Kecerdasan Artifisial',
-  'Matematika',
-  'Bahasa Indonesia',
-  'Bahasa Inggris',
-  'Fisika',
-  'Kimia',
-  'Biologi',
-  'Sejarah',
-  'Geografi',
-  'Sosiologi',
-  'Ekonomi',
-  'Pendidikan Pancasila (PPKn)',
-  'Pendidikan Agama dan Budi Pekerti',
-  'PJOK',
-  'Seni Budaya',
-  'Prakarya dan Kewirausahaan',
-  'Bimbingan Konseling',
-];
-
-const PHASES = [
-  'Fase E (Kelas X)',
-  'Fase F (Kelas XI - XII)',
-  'Fase E & F (SMA)',
+export const JENJANG_OPTIONS = [
+  {
+    id: 'SMA / MA',
+    name: 'SMA / MA (Sekolah Menengah Atas)',
+    phases: [
+      'Fase E (Kelas X SMA/MA)',
+      'Fase F (Kelas XI - XII SMA/MA)',
+      'Fase E & F (SMA/MA)',
+    ],
+    defaultSubject: 'Informatika',
+    subjects: [
+      'Informatika',
+      'Koding dan Kecerdasan Artifisial',
+      'Matematika',
+      'Bahasa Indonesia',
+      'Bahasa Inggris',
+      'Fisika',
+      'Kimia',
+      'Biologi',
+      'Sejarah',
+      'Geografi',
+      'Sosiologi',
+      'Ekonomi',
+      'Pendidikan Pancasila (PPKn)',
+      'Pendidikan Agama dan Budi Pekerti',
+      'PJOK',
+      'Seni Budaya',
+      'Prakarya dan Kewirausahaan',
+      'Bimbingan Konseling',
+    ],
+  },
+  {
+    id: 'SMK / MAK',
+    name: 'SMK / MAK (Sekolah Menengah Kejuruan)',
+    phases: [
+      'Fase E (Kelas X SMK/MAK)',
+      'Fase F (Kelas XI - XII SMK/MAK)',
+      'Fase E & F (SMK/MAK)',
+    ],
+    defaultSubject: 'Dasar-Dasar Teknik Komputer & Informatika',
+    subjects: [
+      'Dasar-Dasar Teknik Komputer & Informatika',
+      'Rekayasa Perangkat Lunak & Gim',
+      'Teknik Jaringan Komputer & Telekomunikasi',
+      'Dasar-Dasar Manajemen Perkantoran & Bisnis',
+      'Dasar-Dasar Akuntansi & Keuangan Lembaga',
+      'Dasar-Dasar Otomotif',
+      'Dasar-Dasar Mesin',
+      'Desain Komunikasi Visual (DKV)',
+      'Informatika',
+      'Koding dan Kecerdasan Artifisial',
+      'Matematika',
+      'Bahasa Indonesia',
+      'Bahasa Inggris',
+      'Pendidikan Pancasila',
+      'Pendidikan Agama dan Budi Pekerti',
+      'PJOK',
+      'Projek Kreatif dan Kewirausahaan',
+    ],
+  },
+  {
+    id: 'SMP / MTs',
+    name: 'SMP / MTs (Sekolah Menengah Pertama)',
+    phases: [
+      'Fase D (Kelas VII, VIII, IX SMP/MTs)',
+    ],
+    defaultSubject: 'Informatika',
+    subjects: [
+      'Bahasa Indonesia',
+      'Matematika',
+      'Ilmu Pengetahuan Alam (IPA)',
+      'Ilmu Pengetahuan Sosial (IPS)',
+      'Bahasa Inggris',
+      'Informatika',
+      'Pendidikan Pancasila',
+      'Pendidikan Agama dan Budi Pekerti',
+      'PJOK',
+      'Seni Budaya',
+      'Prakarya',
+    ],
+  },
+  {
+    id: 'SD / MI',
+    name: 'SD / MI (Sekolah Dasar)',
+    phases: [
+      'Fase A (Kelas I - II SD/MI)',
+      'Fase B (Kelas III - IV SD/MI)',
+      'Fase C (Kelas V - VI SD/MI)',
+      'Semua Fase SD (Fase A, B, C)',
+    ],
+    defaultSubject: 'Bahasa Indonesia',
+    subjects: [
+      'Bahasa Indonesia',
+      'Matematika',
+      'Ilmu Pengetahuan Alam dan Sosial (IPAS)',
+      'Pendidikan Pancasila',
+      'Pendidikan Agama dan Budi Pekerti',
+      'PJOK',
+      'Seni Rupa / Musik / Tari / Teater',
+      'Bahasa Inggris',
+    ],
+  },
+  {
+    id: 'PAUD / TK',
+    name: 'PAUD / TK (Pendidikan Anak Usia Dini)',
+    phases: [
+      'Fase Fondasi (PAUD / TK / RA)',
+    ],
+    defaultSubject: 'Dasar-Dasar Literasi & STEAM',
+    subjects: [
+      'Nilai Agama dan Budi Pekerti',
+      'Jati Diri',
+      'Dasar-Dasar Literasi, Matematika, Sains, Teknologi, Rekayasa, dan Seni (STEAM)',
+    ],
+  },
+  {
+    id: 'SLB / Diksus',
+    name: 'SLB / Pendidikan Khusus',
+    phases: [
+      'Fase A Diksus (Kelas I - II)',
+      'Fase B Diksus (Kelas III - IV)',
+      'Fase C Diksus (Kelas V - VI)',
+      'Fase D Diksus (Kelas VII - IX)',
+      'Fase E Diksus (Kelas X)',
+      'Fase F Diksus (Kelas XI - XII)',
+    ],
+    defaultSubject: 'Program Kebutuhan Khusus',
+    subjects: [
+      'Program Kebutuhan Khusus',
+      'Bahasa Indonesia',
+      'Matematika',
+      'Pendidikan Pancasila',
+      'Pendidikan Agama dan Budi Pekerti',
+      'Keterampilan Vokasional',
+      'Seni Budaya',
+      'PJOK',
+    ],
+  },
 ];
 
 export default function GuruLihatCp() {
@@ -62,9 +177,10 @@ export default function GuruLihatCp() {
   const [activeTab, setActiveTab] = useState<'search' | 'saved'>('search');
 
   // Search parameters
+  const [selectedJenjang, setSelectedJenjang] = useState('SMA / MA');
   const [selectedSubject, setSelectedSubject] = useState('Informatika');
   const [customSubject, setCustomSubject] = useState('');
-  const [selectedPhase, setSelectedPhase] = useState('Fase E (Kelas X)');
+  const [selectedPhase, setSelectedPhase] = useState('Fase E (Kelas X SMA/MA)');
   const [keyword, setKeyword] = useState('');
 
   // Search results state
@@ -100,6 +216,18 @@ export default function GuruLihatCp() {
     }
   }
 
+  const activeJenjangConfig =
+    JENJANG_OPTIONS.find((j) => j.id === selectedJenjang) || JENJANG_OPTIONS[0];
+
+  const handleJenjangChange = (newJenjangId: string) => {
+    setSelectedJenjang(newJenjangId);
+    const targetConfig = JENJANG_OPTIONS.find((j) => j.id === newJenjangId) || JENJANG_OPTIONS[0];
+    setSelectedPhase(targetConfig.phases[0]);
+    if (!targetConfig.subjects.includes(selectedSubject) && selectedSubject !== 'LAINNYA') {
+      setSelectedSubject(targetConfig.defaultSubject);
+    }
+  };
+
   const handleSearchCp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const mapel = selectedSubject === 'LAINNYA' ? customSubject.trim() : selectedSubject;
@@ -116,6 +244,7 @@ export default function GuruLihatCp() {
         subject: mapel,
         fase: selectedPhase,
         keyword: keyword.trim() || undefined,
+        jenjang: activeJenjangConfig.name,
       });
       setSearchResult(res);
     } catch (err: any) {
@@ -137,13 +266,14 @@ export default function GuruLihatCp() {
     if (!user) return;
     const mapel = searchResult?.mataPelajaran || selectedSubject;
     const fase = searchResult?.fase || selectedPhase;
+    const jenjang = searchResult?.jenjang || activeJenjangConfig.name;
 
     try {
       const saved = await saveTeacherCp(user.id, {
         mata_pelajaran: mapel,
         fase,
-        judul,
-        deskripsi: `Acuan resmi KepKa BSKAP No. 046/H/KR/2025 (${elemenName || 'Capaian Umum'})`,
+        judul: `[${selectedJenjang}] ${judul}`,
+        deskripsi: `Acuan resmi KepKa BSKAP No. 046/H/KR/2025 (${elemenName || 'Capaian Umum'}) • ${jenjang}`,
         teks_cp: teksCp,
         elemen: elemenName,
         materi_pokok: materiPokok,
@@ -318,78 +448,102 @@ export default function GuruLihatCp() {
               </p>
             </div>
 
-            <form onSubmit={handleSearchCp} className="grid grid-cols-1 md:grid-cols-12 gap-4">
-              {/* Mata Pelajaran */}
-              <div className="md:col-span-5 space-y-1">
-                <label className="block text-xs font-bold text-gray-700">Mata Pelajaran</label>
-                <select
-                  value={selectedSubject}
-                  onChange={(e) => setSelectedSubject(e.target.value)}
-                  className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-medium text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  {COMMON_SUBJECTS.map((sub) => (
-                    <option key={sub} value={sub}>
-                      {sub}
-                    </option>
-                  ))}
-                  <option value="LAINNYA">+ Ketik Mata Pelajaran Lain...</option>
-                </select>
+            <form onSubmit={handleSearchCp} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-4">
+                {/* 1. Jenjang Sekolah */}
+                <div className="md:col-span-4 space-y-1">
+                  <label className="block text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                    <GraduationCap className="w-4 h-4 text-blue-600" />
+                    Jenjang Sekolah
+                  </label>
+                  <select
+                    value={selectedJenjang}
+                    onChange={(e) => handleJenjangChange(e.target.value)}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-semibold text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    {JENJANG_OPTIONS.map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                {selectedSubject === 'LAINNYA' && (
-                  <input
-                    type="text"
-                    value={customSubject}
-                    onChange={(e) => setCustomSubject(e.target.value)}
-                    placeholder="Masukkan nama mata pelajaran..."
-                    className="w-full mt-2 p-2.5 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                    required
-                  />
-                )}
+                {/* 2. Fase / Kelas */}
+                <div className="md:col-span-4 space-y-1">
+                  <label className="block text-xs font-bold text-gray-700">Fase / Tingkat Kelas</label>
+                  <select
+                    value={selectedPhase}
+                    onChange={(e) => setSelectedPhase(e.target.value)}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-medium text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    {activeJenjangConfig.phases.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Mata Pelajaran */}
+                <div className="md:col-span-4 space-y-1">
+                  <label className="block text-xs font-bold text-gray-700">Mata Pelajaran</label>
+                  <select
+                    value={selectedSubject}
+                    onChange={(e) => setSelectedSubject(e.target.value)}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-medium text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    {activeJenjangConfig.subjects.map((sub) => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                    <option value="LAINNYA">+ Ketik Mata Pelajaran Lain...</option>
+                  </select>
+
+                  {selectedSubject === 'LAINNYA' && (
+                    <input
+                      type="text"
+                      value={customSubject}
+                      onChange={(e) => setCustomSubject(e.target.value)}
+                      placeholder="Ketik nama mata pelajaran..."
+                      className="w-full mt-2 p-2.5 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                      required
+                    />
+                  )}
+                </div>
               </div>
 
-              {/* Fase */}
-              <div className="md:col-span-3 space-y-1">
-                <label className="block text-xs font-bold text-gray-700">Fase / Kelas</label>
-                <select
-                  value={selectedPhase}
-                  onChange={(e) => setSelectedPhase(e.target.value)}
-                  className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-medium text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  {PHASES.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Topik / Kata Kunci Khusus */}
-              <div className="md:col-span-4 space-y-1">
-                <label className="block text-xs font-bold text-gray-700">
-                  Topik / Elemen Khusus (Opsional)
-                </label>
-                <div className="flex gap-2">
+              {/* Row 2: Topik Kata Kunci & Tombol Cari */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                <div className="md:col-span-9 space-y-1">
+                  <label className="block text-xs font-bold text-gray-700">
+                    Topik / Elemen Khusus CP BSKAP 046/2025 (Opsional)
+                  </label>
                   <input
                     type="text"
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
-                    placeholder="Contoh: Berpikir Komputasional, Aljabar..."
-                    className="flex-1 p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Contoh: Berpikir Komputasional, Aljabar, Ekosistem, Menulis Teks Prosedur..."
+                    className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                   />
+                </div>
+
+                <div className="md:col-span-3">
                   <button
                     type="submit"
                     disabled={searching}
-                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
                   >
                     {searching ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Mencari...
+                        Mencari di BSKAP 046...
                       </>
                     ) : (
                       <>
                         <Search className="w-4 h-4" />
-                        Cari CP
+                        Cari CP BSKAP 046/2025
                       </>
                     )}
                   </button>
@@ -406,211 +560,297 @@ export default function GuruLihatCp() {
           )}
 
           {/* Search Result Display */}
-          {searchResult && (
-            <div className="space-y-4">
-              {/* Header result */}
-              <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-100">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200">
-                        {searchResult.mataPelajaran}
-                      </span>
-                      <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                        {searchResult.fase}
-                      </span>
-                      <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        {searchResult.dasarHukum}
-                      </span>
-                    </div>
-                    <h3 className="text-lg font-black text-gray-900">
-                      Capaian Pembelajaran: {searchResult.mataPelajaran} ({searchResult.fase})
-                    </h3>
-                  </div>
+          {searchResult && (() => {
+            const elemenList = Array.isArray(searchResult.elemen) ? searchResult.elemen : [];
+            const faseList = Array.isArray(searchResult.capaianPerFase) ? searchResult.capaianPerFase : [];
+            const displayFase = searchResult.fase || faseList[0]?.fase || selectedPhase || 'Fase E / F';
+            const displayCapaianUmum = searchResult.capaianFaseUmum || (faseList.length > 0 ? faseList[0].teksCp : '');
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleSaveCpItem(
-                          `CP Lengkap ${searchResult.mataPelajaran} (${searchResult.fase})`,
-                          searchResult.capaianFaseUmum
-                        )
-                      }
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
-                    >
-                      <Bookmark className="w-3.5 h-3.5" />
-                      Simpan Seluruh CP ke Akun
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleUseInModulAjar({
-                          mata_pelajaran: searchResult.mataPelajaran,
-                          fase: searchResult.fase,
-                          teks_cp: searchResult.capaianFaseUmum,
-                        })
-                      }
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Gunakan di Modul Ajar
-                    </button>
-                  </div>
-                </div>
-
-                {/* Rasional */}
-                {searchResult.rasionalSingkat && (
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                    <span className="text-[11px] uppercase tracking-wider font-bold text-slate-600">
-                      Rasional Mata Pelajaran
-                    </span>
-                    <p className="text-xs text-slate-700 leading-relaxed">
-                      {searchResult.rasionalSingkat}
-                    </p>
-                  </div>
-                )}
-
-                {/* Capaian Umum */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-                      <BookOpen className="w-4 h-4 text-blue-600" />
-                      Teks Capaian Pembelajaran Umum Fase:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        copyTextToClipboard(searchResult.capaianFaseUmum, 'capaian-umum')
-                      }
-                      className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                    >
-                      {copiedId === 'capaian-umum' ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-600" /> Tersalin
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" /> Salin Teks
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <div className="p-3.5 bg-blue-50/50 border border-blue-200/80 rounded-xl text-xs text-gray-800 leading-relaxed italic">
-                    "{searchResult.capaianFaseUmum}"
-                  </div>
-                </div>
-              </div>
-
-              {/* Rincian Elemen CP */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-indigo-600" />
-                    Elemen-Elemen Capaian Pembelajaran ({searchResult.elemen.length} Elemen)
-                  </h4>
-                  <span className="text-xs text-gray-500">
-                    Klik "Simpan Elemen Ini" untuk menyimpan fokus materi ke akun Anda
-                  </span>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  {searchResult.elemen.map((el, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between gap-3 hover:border-blue-400 transition"
-                    >
-                      <div className="space-y-2.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
-                            Elemen #{idx + 1}
-                          </span>
-                          <span className="text-[11px] text-gray-400 font-medium">
-                            {searchResult.mataPelajaran}
-                          </span>
-                        </div>
-
-                        <h5 className="font-bold text-gray-900 text-sm">{el.namaElemen}</h5>
-
-                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                          <p className="text-xs text-slate-700 leading-relaxed italic">
-                            "{el.deskripsiCp}"
-                          </p>
-                        </div>
-
-                        {el.materiPokok && el.materiPokok.length > 0 && (
-                          <div className="space-y-1">
-                            <span className="text-[11px] font-bold text-gray-600">
-                              Materi Pokok Terkait:
-                            </span>
-                            <div className="flex flex-wrap gap-1">
-                              {el.materiPokok.map((mp, mIdx) => (
-                                <span
-                                  key={mIdx}
-                                  className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px]"
-                                >
-                                  {mp}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+            return (
+              <div className="space-y-4">
+                {/* Header result */}
+                <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-100">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-purple-100 text-purple-900 border border-purple-200 flex items-center gap-1">
+                          <GraduationCap className="w-3.5 h-3.5 text-purple-700" />
+                          {searchResult.jenjang || selectedJenjang}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200">
+                          {searchResult.mataPelajaran}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          {displayFase}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-900 border border-emerald-300 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          {searchResult.dasarHukum || 'Keputusan Kepala BSKAP No. 046/H/KR/2025'}
+                        </span>
                       </div>
+                      <h3 className="text-lg font-black text-gray-900">
+                        Capaian Pembelajaran: {searchResult.mataPelajaran} ({displayFase})
+                      </h3>
+                    </div>
 
-                      <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleSaveCpItem(
-                                `${el.namaElemen} - ${searchResult.mataPelajaran}`,
-                                el.deskripsiCp,
-                                el.namaElemen,
-                                el.materiPokok
-                              )
-                            }
-                            className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition"
-                          >
-                            <Bookmark className="w-3.5 h-3.5" />
-                            Simpan Elemen Ini
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              copyTextToClipboard(el.deskripsiCp, `el-${idx}`)
-                            }
-                            className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition"
-                            title="Salin Teks Elemen"
-                          >
-                            {copiedId === `el-${idx}` ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSaveCpItem(
+                            `CP Lengkap ${searchResult.mataPelajaran} (${displayFase})`,
+                            displayCapaianUmum
+                          )
+                        }
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                      >
+                        <Bookmark className="w-3.5 h-3.5" />
+                        Simpan Seluruh CP ke Akun
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleUseInModulAjar({
+                            mata_pelajaran: searchResult.mataPelajaran,
+                            fase: displayFase,
+                            teks_cp: displayCapaianUmum,
+                          })
+                        }
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Gunakan di Modul Ajar
+                      </button>
+                    </div>
+                  </div>
 
+                  {/* Rasional */}
+                  {searchResult.rasionalSingkat && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                      <span className="text-[11px] uppercase tracking-wider font-bold text-slate-600">
+                        Rasional Mata Pelajaran
+                      </span>
+                      <p className="text-xs text-slate-700 leading-relaxed">
+                        {searchResult.rasionalSingkat}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Capaian Umum */}
+                  {displayCapaianUmum && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                          <BookOpen className="w-4 h-4 text-blue-600" />
+                          Teks Capaian Pembelajaran Umum Fase:
+                        </span>
                         <button
                           type="button"
                           onClick={() =>
-                            handleUseInModulAjar({
-                              mata_pelajaran: searchResult.mataPelajaran,
-                              fase: searchResult.fase,
-                              teks_cp: el.deskripsiCp,
-                            })
+                            copyTextToClipboard(displayCapaianUmum, 'capaian-umum')
                           }
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm"
+                          className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
                         >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          Gunakan
+                          {copiedId === 'capaian-umum' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600" /> Tersalin
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" /> Salin Teks
+                            </>
+                          )}
                         </button>
                       </div>
+                      <div className="p-3.5 bg-blue-50/50 border border-blue-200/80 rounded-xl text-xs text-gray-800 leading-relaxed italic">
+                        "{displayCapaianUmum}"
+                      </div>
                     </div>
-                  ))}
+                  )}
                 </div>
+
+                {/* Rincian Capaian Per Fase (jika ada) */}
+                {faseList.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-indigo-600" />
+                      Capaian Pembelajaran Per Fase ({faseList.length} Fase)
+                    </h4>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {faseList.map((fItem, fIdx) => (
+                        <div
+                          key={fIdx}
+                          className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between gap-3 hover:border-blue-400 transition"
+                        >
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                                {fItem.fase} ({fItem.kelas})
+                              </span>
+                              <span className="text-[11px] text-gray-400 font-medium">
+                                {searchResult.mataPelajaran}
+                              </span>
+                            </div>
+                            <h5 className="font-bold text-gray-900 text-sm">{fItem.judul}</h5>
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                              <p className="text-xs text-slate-700 leading-relaxed italic">
+                                "{fItem.teksCp}"
+                              </p>
+                            </div>
+                            {fItem.fokusKompetensi && (
+                              <p className="text-[11px] text-gray-500">
+                                <strong>Fokus:</strong> {fItem.fokusKompetensi}
+                              </p>
+                            )}
+                          </div>
+                          <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSaveCpItem(
+                                  `${fItem.judul} - ${searchResult.mataPelajaran}`,
+                                  fItem.teksCp,
+                                  fItem.fase
+                                )
+                              }
+                              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                            >
+                              <Bookmark className="w-3.5 h-3.5" />
+                              Simpan CP Ini
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUseInModulAjar({
+                                  mata_pelajaran: searchResult.mataPelajaran,
+                                  fase: fItem.fase,
+                                  teks_cp: fItem.teksCp,
+                                })
+                              }
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              Gunakan
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Rincian Elemen CP (jika ada) */}
+                {elemenList.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-indigo-600" />
+                        Elemen-Elemen Capaian Pembelajaran ({elemenList.length} Elemen)
+                      </h4>
+                      <span className="text-xs text-gray-500">
+                        Klik "Simpan Elemen Ini" untuk menyimpan fokus materi ke akun Anda
+                      </span>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {elemenList.map((el, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between gap-3 hover:border-blue-400 transition"
+                        >
+                          <div className="space-y-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                                Elemen #{idx + 1}
+                              </span>
+                              <span className="text-[11px] text-gray-400 font-medium">
+                                {searchResult.mataPelajaran}
+                              </span>
+                            </div>
+
+                            <h5 className="font-bold text-gray-900 text-sm">{el.namaElemen}</h5>
+
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                              <p className="text-xs text-slate-700 leading-relaxed italic">
+                                "{el.deskripsiCp}"
+                              </p>
+                            </div>
+
+                            {Array.isArray(el.materiPokok) && el.materiPokok.length > 0 && (
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-bold text-gray-600">
+                                  Materi Pokok Terkait:
+                                </span>
+                                <div className="flex flex-wrap gap-1">
+                                  {el.materiPokok.map((mp, mIdx) => (
+                                    <span
+                                      key={mIdx}
+                                      className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px]"
+                                    >
+                                      {mp}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleSaveCpItem(
+                                    `${el.namaElemen} - ${searchResult.mataPelajaran}`,
+                                    el.deskripsiCp,
+                                    el.namaElemen,
+                                    el.materiPokok
+                                  )
+                                }
+                                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                              >
+                                <Bookmark className="w-3.5 h-3.5" />
+                                Simpan Elemen Ini
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyTextToClipboard(el.deskripsiCp, `el-${idx}`)
+                                }
+                                className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition"
+                                title="Salin Teks Elemen"
+                              >
+                                {copiedId === `el-${idx}` ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUseInModulAjar({
+                                  mata_pelajaran: searchResult.mataPelajaran,
+                                  fase: displayFase,
+                                  teks_cp: el.deskripsiCp,
+                                })
+                              }
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              Gunakan
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
 

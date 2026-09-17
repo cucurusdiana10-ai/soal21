@@ -56,7 +56,7 @@ async function executeClientGemini(prompt: string) {
     apiKey,
   });
 
-  const models = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
+  const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
   let lastErr: any = null;
 
   for (const model of models) {
@@ -70,10 +70,16 @@ async function executeClientGemini(prompt: string) {
         const text = response.text;
         if (text) return parseJsonSafely(text);
       } catch (err: any) {
-        console.warn(`[Client AI] Model ${model} attempt ${attempt + 1} gagal:`, err?.message);
+        console.warn(`[Client AI] Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err?.message);
         lastErr = err;
-        if (err?.message?.includes('503') || err?.message?.includes('429')) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
+        const isUnavailable = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE') || err?.message?.includes('high demand');
+        const isRateLimit = err?.status === 429 || err?.message?.includes('429');
+
+        if (isUnavailable) {
+          // Model 503, immediately try next model
+          break;
+        } else if (isRateLimit) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         } else {
           break;
         }
@@ -124,6 +130,70 @@ Kembalikan respon DALAM FORMAT JSON MURNI valid persis berikut:
     "Konsep Inti 3",
     "Aplikasi Nyata"
   ],
+  "petaKonsep": {
+    "topikUtama": "Nama Topik Sentral",
+    "ringkasan": "Intisari keterkaitan konsep dalam 1-2 kalimat pemantik",
+    "cabang": [
+      {
+        "id": "cabang-1",
+        "nama": "1. Konsep Dasar & Pondasi",
+        "deskripsi": "Prinsip utama yang wajib dipahami siswa",
+        "kataKunci": ["Poin A", "Poin B", "Poin C"],
+        "warna": "blue"
+      },
+      {
+        "id": "cabang-2",
+        "nama": "2. Mekanisme & Contoh Nyata",
+        "deskripsi": "Bagaimana konsep ini bekerja di kehidupan nyata",
+        "kataKunci": ["Poin D", "Poin E"],
+        "warna": "emerald"
+      },
+      {
+        "id": "cabang-3",
+        "nama": "3. Analisis Kritis & Solusi Masa Depan",
+        "deskripsi": "Penerapan praktis, inovasi, dan tantangan yang harus dipecahkan siswa",
+        "kataKunci": ["Poin F", "Poin G"],
+        "warna": "purple"
+      }
+    ]
+  },
+  "gamifikasi": {
+    "judulMisi": "Nama Misi Petualangan Siswa (contoh: 'Misi Detektif: Menguak Rahasia ...')",
+    "skenario": "Latar belakang narasi misi yang seru untuk memicu antusiasme siswa SMA",
+    "totalXp": 150,
+    "badgeReward": {
+      "nama": "Gelar Master Penjelajah",
+      "icon": "🏆",
+      "deskripsi": "Diberikan kepada siswa yang berhasil menuntaskan seluruh tantangan eksplorasi aktif"
+    },
+    "tantanganAktif": [
+      {
+        "level": 1,
+        "judul": "Tantangan 1: Observasi Detektif",
+        "instruksi": "Petunjuk aktivitas aktif mandiri/kelompok",
+        "tekaTeki": "Teka-teki atau fenomena awal pemantik rasa ingin tahu",
+        "aksiSiswa": "Aksi aktif yang harus dikerjakan siswa",
+        "xp": 50
+      },
+      {
+        "level": 2,
+        "judul": "Tantangan 2: Uji Eksperimen & Logika",
+        "instruksi": "Petunjuk eksplorasi konsep",
+        "tekaTeki": "Kasus pemecahan masalah atau analogi kritis",
+        "aksiSiswa": "Aksi kolaborasi aktif siswa",
+        "xp": 50
+      },
+      {
+        "level": 3,
+        "judul": "Tantangan 3: Kreasi Solusi Cerdas",
+        "instruksi": "Petunjuk aksi penutup",
+        "tekaTeki": "Tantangan akhir untuk merumuskan ide kreatif",
+        "aksiSiswa": "Presentasi kilat atau perumusan solusi tim",
+        "xp": 50
+      }
+    ],
+    "skenarioDebatKelas": "Pertanyaan dilematis atau mosi debat seru untuk memicu diskusi vokal dan aktif seluruh siswa di kelas"
+  },
   "funFact": "1 fakta mengejutkan / unik / 'tahukah kamu' yang memicu rasa penasaran siswa SMA tentang topik ini.",
   "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari atau dunia kerja/teknologi.",
   "pertemuanMateri": [
@@ -658,6 +728,12 @@ export interface CpSearchPayload {
   jenjang?: string;
 }
 
+export interface CpElementItem {
+  namaElemen: string;
+  deskripsiCp: string;
+  materiPokok?: string[];
+}
+
 export interface CpPhaseItem {
   fase: string;
   kelas: string;
@@ -668,54 +744,73 @@ export interface CpPhaseItem {
 
 export interface CpSearchResult {
   mataPelajaran: string;
-  jenjang: string;
+  jenjang?: string;
+  fase?: string;
   dasarHukum: string;
-  dokumenRujukanUrl: string;
-  capaianPerFase: CpPhaseItem[];
+  dokumenRujukanUrl?: string;
+  capaianFaseUmum?: string;
+  rasionalSingkat?: string;
+  elemen?: CpElementItem[];
+  capaianPerFase?: CpPhaseItem[];
 }
 
 async function clientFallbackSearchCp(payload: CpSearchPayload): Promise<CpSearchResult> {
-  const targetJenjang = payload.jenjang || 'SMA (Sekolah Menengah Atas)';
-  const prompt = `Anda adalah pakar kurikulum nasional Indonesia yang menguasai regulasi resmi:
+  const targetJenjang = payload.jenjang || 'SMA / MA (Sekolah Menengah Atas)';
+  const prompt = `Anda adalah pakar kurikulum nasional Kementerian Pendidikan Dasar dan Menengah RI yang menguasai naskah regulasi resmi terbaru:
 "Keputusan Kepala Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP) Kementerian Pendidikan Dasar dan Menengah Nomor 046/H/KR/2025 tentang Capaian Pembelajaran pada Pendidikan Anak Usia Dini, Jenjang Pendidikan Dasar, dan Jenjang Pendidikan Menengah pada Kurikulum Merdeka".
-Dokumen rujukan: https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf.
+Dokumen acuan resmi: https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf.
 
-Lakukan ekstraksi Capaian Pembelajaran (CP) otentik dari naskah BSKAP 046/2025 KHUSUS UNTUK JENJANG SMA:
+Lakukan penelusuran dan ekstraksi Capaian Pembelajaran (CP) otentik, presisi, dan sesuai regulasi BSKAP 046/H/KR/2025 untuk:
+- Jenjang Sekolah: ${targetJenjang}
 - Mata Pelajaran: ${payload.subject}
-- Jenjang: ${targetJenjang}
-- Fase: ${payload.fase || 'Fase E (Kelas X SMA) dan Fase F (Kelas XI - XII SMA)'}
-- Kata Kunci: ${payload.keyword || 'Capaian Pembelajaran Keseluruhan Fase'}
-
-KETENTUAN PENTING:
-- Hasil berupa teks Capaian Pembelajaran (CP) berdasarkan FASE dan JENJANG (Fase E Kelas X SMA, Fase F Kelas XI-XII SMA).
-- JANGAN sertakan elemen terpisah (bukan elemennya).
-- HILANGKAN rasional mata pelajaran pada hasil.
+- Fase / Kelas: ${payload.fase || 'Sesuai jenjang'}
+- Fokus / Kata Kunci: ${payload.keyword || 'Capaian Pembelajaran'}
 
 Keluarkan HANYA format JSON valid berikut:
 {
   "mataPelajaran": "${payload.subject}",
-  "jenjang": "SMA",
+  "jenjang": "${targetJenjang}",
+  "fase": "${payload.fase || 'Fase Terkait'}",
   "dasarHukum": "Keputusan Kepala BSKAP No. 046/H/KR/2025",
   "dokumenRujukanUrl": "https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf",
+  "capaianFaseUmum": "Teks resmi capaian pembelajaran umum pada akhir fase yang dipilih sesuai dokumen BSKAP 046/2025...",
+  "rasionalSingkat": "Rasional singkat mata pelajaran ini...",
+  "elemen": [
+    {
+      "namaElemen": "Nama Elemen Resmi (sesuai BSKAP 046/2025)",
+      "deskripsiCp": "Deskripsi capaian pembelajaran elemen ini...",
+      "materiPokok": ["Topik 1", "Topik 2"]
+    }
+  ],
   "capaianPerFase": [
     {
-      "fase": "Fase E",
-      "kelas": "Kelas X SMA",
-      "judul": "Capaian Pembelajaran ${payload.subject} Fase E (Kelas X SMA)",
-      "teksCp": "Teks resmi Capaian Pembelajaran Fase E...",
-      "fokusKompetensi": "Ringkasan fokus kompetensi fase ini"
-    },
-    {
-      "fase": "Fase F",
-      "kelas": "Kelas XI - XII SMA",
-      "judul": "Capaian Pembelajaran ${payload.subject} Fase F (Kelas XI - XII SMA)",
-      "teksCp": "Teks resmi Capaian Pembelajaran Fase F...",
+      "fase": "Nama Fase (misal: Fase E atau Fase D)",
+      "kelas": "Tingkat Kelas",
+      "judul": "Capaian Pembelajaran ${payload.subject} Fase ...",
+      "teksCp": "Teks resmi Capaian Pembelajaran fase ini...",
       "fokusKompetensi": "Ringkasan fokus kompetensi fase ini"
     }
   ]
-}`;
+}
+Pastikan array 'elemen' dan 'capaianPerFase' selalu ada dan terisi data valid.`;
 
-  return await executeClientGemini(prompt);
+  const raw = await executeClientGemini(prompt);
+  
+  const safeElemen = Array.isArray(raw?.elemen) ? raw.elemen : [];
+  const safeCapaianPerFase = Array.isArray(raw?.capaianPerFase) ? raw.capaianPerFase : [];
+  const safeCapaianUmum = raw?.capaianFaseUmum || (safeCapaianPerFase.length > 0 ? safeCapaianPerFase[0].teksCp : '') || '';
+
+  return {
+    mataPelajaran: raw?.mataPelajaran || payload.subject,
+    jenjang: raw?.jenjang || 'SMA',
+    fase: raw?.fase || payload.fase || 'Fase E / F',
+    dasarHukum: raw?.dasarHukum || 'Keputusan Kepala BSKAP No. 046/H/KR/2025',
+    dokumenRujukanUrl: raw?.dokumenRujukanUrl || 'https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf',
+    capaianFaseUmum: safeCapaianUmum,
+    rasionalSingkat: raw?.rasionalSingkat || '',
+    elemen: safeElemen,
+    capaianPerFase: safeCapaianPerFase,
+  };
 }
 
 export async function searchCpApi(payload: CpSearchPayload): Promise<CpSearchResult> {

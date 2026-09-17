@@ -72,7 +72,7 @@ export default function GradeReports() {
 
   const handleAiAutoGrade = async () => {
     if (!gradingModal || !selectedTask) return;
-    const questions = selectedTask.content || [];
+    const questions = Array.isArray(selectedTask.content) ? selectedTask.content : [];
     const studentAnswers = gradingModal.submission?.answers || {};
 
     setAiGradingLoading(true);

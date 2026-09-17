@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Search, Eye, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle, Film, Image } from 'lucide-react';
+import { BookOpen, Search, Eye, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle, Film, Image, Trophy, Sparkles } from 'lucide-react';
 import MediaViewer from '../../components/MediaViewer';
+import InteractiveBahanAjar from '../../components/InteractiveBahanAjar';
 
 export default function SiswaMateri() {
   const { user } = useAuth();
@@ -118,25 +119,37 @@ export default function SiswaMateri() {
 
       {/* Material Modal */}
       {selectedMaterial && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-blue-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50">
               <div>
-                <h3 className="text-xl font-bold text-blue-950">{selectedMaterial.title}</h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white shadow-xs">
+                  Bahan Ajar Interaktif Siswa
+                </span>
+                <h3 className="text-xl font-black text-blue-950 mt-1">{selectedMaterial.title}</h3>
                 <p className="text-xs text-blue-700">Topik: {selectedMaterial.topic} • Guru: {selectedMaterial.guru?.name}</p>
               </div>
-              <button onClick={() => setSelectedMaterial(null)} className="text-gray-400 hover:text-gray-600 p-2">
-                <X className="w-5 h-5" />
+              <button onClick={() => setSelectedMaterial(null)} className="text-gray-400 hover:text-gray-700 p-2 rounded-xl hover:bg-white/80 transition">
+                <X className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+            <div className="p-6 overflow-y-auto space-y-7 flex-1">
               {/* Media Player / Image Viewer */}
               <MediaViewer
                 imageUrl={selectedMaterial.content_json?.imageUrl}
                 videoUrl={selectedMaterial.content_json?.videoUrl}
                 mediaType={selectedMaterial.content_json?.mediaType || 'both'}
                 title={selectedMaterial.title}
+              />
+
+              {/* Interactive Gamification & Peta Konsep Arena */}
+              <InteractiveBahanAjar
+                petaKonsep={selectedMaterial.content_json?.petaKonsep}
+                gamifikasi={selectedMaterial.content_json?.gamifikasi}
+                mindMapFallback={selectedMaterial.content_json?.mindMap}
+                topicTitle={selectedMaterial.topic || selectedMaterial.title}
+                pertemuanMateri={selectedMaterial.content_json?.pertemuanMateri}
               />
 
               {/* Fun Fact / Tahukah Kamu */}

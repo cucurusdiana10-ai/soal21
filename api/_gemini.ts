@@ -28,7 +28,7 @@ export function parseJsonSafely(text: string) {
 
 export async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
   // Prioritas model super cepat agar tidak timeout di serverless Vercel (10-15s limit pada free plan)
-  const models = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
+  const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -49,8 +49,14 @@ export async function generateContentWithFallback(ai: GoogleGenAI, prompt: strin
       } catch (err: any) {
         console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err.message);
         lastError = err;
-        if (err?.message?.includes('503') || err?.message?.includes('429') || err?.status === 503 || err?.status === 429) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
+        const isUnavailable = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE') || err?.message?.includes('high demand');
+        const isRateLimit = err?.status === 429 || err?.message?.includes('429');
+
+        if (isUnavailable) {
+          // Model is experiencing high demand (503), immediately failover to next model
+          break;
+        } else if (isRateLimit) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         } else {
           break;
         }
@@ -77,12 +83,14 @@ export async function handleMaterialGeneration(body: any, apiKey: string) {
   });
   const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
   
-  const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif dan menyenangkan untuk siswa SMA di SMAN 21 Garut, buatkan bahan ajar interaktif, seru, dan mudah dipahami untuk:
+  const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif, menyenangkan (joyful, mindful, meaningful), dan gamifikasi edukatif untuk siswa SMA di SMAN 21 Garut:
 Mata Pelajaran: ${subject}
 Kelas/Tingkat: ${grade}
 Capaian Pembelajaran / Topik: "${fullTopic}"
 
-Bahan ajar harus memuat elemen visual/media (Gambar dan/atau Rekomendasi Video Pembelajaran YouTube yang relevan).
+PERSYARATAN INTERAKTIVITAS & GAMIFIKASI:
+Hasil bahan ajar HARUS sangat menarik dan mengajak siswa AKTIF, memuat elemen gamifikasi nyata (misi tantangan, XP, badge reward), peta konsep interaktif terstruktur, kuis pemantik, dan media visual.
+
 Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
   "imageUrl": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
@@ -94,6 +102,70 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
     "Konsep Inti 3",
     "Aplikasi Nyata"
   ],
+  "petaKonsep": {
+    "topikUtama": "Nama Topik Sentral",
+    "ringkasan": "Intisari keterkaitan konsep dalam 1-2 kalimat pemantik",
+    "cabang": [
+      {
+        "id": "cabang-1",
+        "nama": "1. Konsep Dasar & Pondasi",
+        "deskripsi": "Prinsip utama yang wajib dipahami siswa",
+        "kataKunci": ["Poin A", "Poin B", "Poin C"],
+        "warna": "blue"
+      },
+      {
+        "id": "cabang-2",
+        "nama": "2. Mekanisme & Contoh Nyata",
+        "deskripsi": "Bagaimana konsep ini bekerja di kehidupan nyata",
+        "kataKunci": ["Poin D", "Poin E"],
+        "warna": "emerald"
+      },
+      {
+        "id": "cabang-3",
+        "nama": "3. Analisis Kritis & Solusi Masa Depan",
+        "deskripsi": "Penerapan praktis, inovasi, dan tantangan yang harus dipecahkan siswa",
+        "kataKunci": ["Poin F", "Poin G"],
+        "warna": "purple"
+      }
+    ]
+  },
+  "gamifikasi": {
+    "judulMisi": "Nama Misi Petualangan Siswa (contoh: 'Misi Detektif: Menguak Rahasia ...')",
+    "skenario": "Latar belakang narasi misi yang seru untuk memicu antusiasme siswa SMA",
+    "totalXp": 150,
+    "badgeReward": {
+      "nama": "Gelar Master Penjelajah",
+      "icon": "🏆",
+      "deskripsi": "Diberikan kepada siswa yang berhasil menuntaskan seluruh tantangan eksplorasi aktif"
+    },
+    "tantanganAktif": [
+      {
+        "level": 1,
+        "judul": "Tantangan 1: Observasi Detektif",
+        "instruksi": "Petunjuk aktivitas aktif mandiri/kelompok",
+        "tekaTeki": "Teka-teki atau fenomena awal pemantik rasa ingin tahu",
+        "aksiSiswa": "Aksi aktif yang harus dikerjakan siswa",
+        "xp": 50
+      },
+      {
+        "level": 2,
+        "judul": "Tantangan 2: Uji Eksperimen & Logika",
+        "instruksi": "Petunjuk eksplorasi konsep",
+        "tekaTeki": "Kasus pemecahan masalah atau analogi kritis",
+        "aksiSiswa": "Aksi kolaborasi aktif siswa",
+        "xp": 50
+      },
+      {
+        "level": 3,
+        "judul": "Tantangan 3: Kreasi Solusi Cerdas",
+        "instruksi": "Petunjuk aksi penutup",
+        "tekaTeki": "Tantangan akhir untuk merumuskan ide kreatif",
+        "aksiSiswa": "Presentasi kilat atau perumusan solusi tim",
+        "xp": 50
+      }
+    ],
+    "skenarioDebatKelas": "Pertanyaan dilematis atau mosi debat seru untuk memicu diskusi vokal dan aktif seluruh siswa di kelas"
+  },
   "funFact": "1 fakta mengejutkan / unik / 'tahukah kamu' yang memicu rasa penasaran siswa SMA tentang topik ini.",
   "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari atau dunia kerja/teknologi.",
   "materials": [
@@ -526,4 +598,66 @@ Gunakan struktur JSON berikut:
 PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur runtut dari Pertemuan 1 sampai Pertemuan ${totalMeetings}.`;
 
   return await generateContentWithFallback(ai, prompt);
+}
+
+export async function handleCpSearchGeneration(body: any, apiKey: string) {
+  const { subject, fase, keyword, jenjang } = body || {};
+  if (!subject) {
+    throw new Error('Mata pelajaran wajib diisi.');
+  }
+
+  const targetJenjang = jenjang || 'SMA / MA (Sekolah Menengah Atas)';
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = `Anda adalah pakar kurikulum nasional Kementerian Pendidikan Dasar dan Menengah RI yang menguasai naskah regulasi resmi terbaru:
+"Keputusan Kepala Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP) Kementerian Pendidikan Dasar dan Menengah Nomor 046/H/KR/2025 tentang Capaian Pembelajaran pada Pendidikan Anak Usia Dini, Jenjang Pendidikan Dasar, dan Jenjang Pendidikan Menengah pada Kurikulum Merdeka".
+Dokumen rujukan tersimpan pada: https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf.
+
+Tugas Anda:
+Lakukan penelusuran dan ekstraksi Capaian Pembelajaran (CP) otentik, presisi, dan mutlak sesuai naskah regulasi BSKAP 046/H/KR/2025:
+- Jenjang Sekolah: ${targetJenjang}
+- Mata Pelajaran: ${subject}
+- Fase yang Dicari: ${fase || 'Sesuai jenjang'}
+- Kata Kunci / Fokus Topik: ${keyword || 'Capaian Pembelajaran'}
+
+Berikan output WAJIB HANYA berupa JSON valid dengan format persis:
+{
+  "mataPelajaran": "${subject}",
+  "jenjang": "${targetJenjang}",
+  "fase": "${fase || 'Fase Terkait'}",
+  "dasarHukum": "Keputusan Kepala BSKAP No. 046/H/KR/2025",
+  "dokumenRujukanUrl": "https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf",
+  "capaianFaseUmum": "Teks resmi Capaian Pembelajaran umum pada akhir fase yang dicari sesuai naskah KepKa BSKAP 046/2025...",
+  "rasionalSingkat": "Rasional dan tujuan ringkas mata pelajaran ini...",
+  "elemen": [
+    {
+      "namaElemen": "Nama Elemen Resmi (sesuai naskah BSKAP 046/2025)",
+      "deskripsiCp": "Teks deskripsi capaian pembelajaran elemen ini...",
+      "materiPokok": ["Topik / Ruang Lingkup 1", "Topik / Ruang Lingkup 2"]
+    }
+  ],
+  "capaianPerFase": [
+    {
+      "fase": "Nama Fase (misal: Fase E atau Fase D atau Fase A/B/C)",
+      "kelas": "Tingkat Kelas",
+      "judul": "Capaian Pembelajaran ${subject} Fase ...",
+      "teksCp": "Teks lengkap dan otentik Capaian Pembelajaran pada akhir fase ini sesuai naskah resmi BSKAP 046/2025...",
+      "fokusKompetensi": "Ringkasan ruang lingkup kompetensi utama fase ini (1-2 kalimat padat)."
+    }
+  ]
+}
+Pastikan array 'elemen' dan 'capaianPerFase' selalu terisi data array valid.`;
+
+  const parsedData = await generateContentWithFallback(ai, prompt);
+  return {
+    mataPelajaran: parsedData?.mataPelajaran || subject,
+    jenjang: parsedData?.jenjang || targetJenjang,
+    fase: parsedData?.fase || fase || 'Fase Terkait',
+    dasarHukum: parsedData?.dasarHukum || 'Keputusan Kepala BSKAP No. 046/H/KR/2025',
+    dokumenRujukanUrl: parsedData?.dokumenRujukanUrl || 'https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf',
+    capaianFaseUmum: parsedData?.capaianFaseUmum || parsedData?.capaianPerFase?.[0]?.teksCp || '',
+    rasionalSingkat: parsedData?.rasionalSingkat || '',
+    elemen: Array.isArray(parsedData?.elemen) ? parsedData.elemen : [],
+    capaianPerFase: Array.isArray(parsedData?.capaianPerFase) ? parsedData.capaianPerFase : [],
+  };
 }
