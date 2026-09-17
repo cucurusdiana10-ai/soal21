@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { getCuratedCpDataset } from '../src/lib/cpDatabase';
 
 export function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -53,7 +54,11 @@ export async function generateContentWithFallback(ai: GoogleGenAI, prompt: strin
         const isRateLimit = err?.status === 429 || err?.message?.includes('429');
 
         if (isUnavailable) {
-          // Model is experiencing high demand (503), immediately failover to next model
+          // Model is experiencing high demand (503). Retrying after short delay before moving to next model.
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            continue;
+          }
           break;
         } else if (isRateLimit) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -648,7 +653,14 @@ Berikan output WAJIB HANYA berupa JSON valid dengan format persis:
 }
 Pastikan array 'elemen' dan 'capaianPerFase' selalu terisi data array valid.`;
 
-  const parsedData = await generateContentWithFallback(ai, prompt);
+  let parsedData: any = null;
+  try {
+    parsedData = await generateContentWithFallback(ai, prompt);
+  } catch (aiErr: any) {
+    console.warn('AI search CP mengalami gangguan/503 di serverless, beralih ke data kurikulum BSKAP 046/2025:', aiErr?.message);
+    return getCuratedCpDataset(subject, fase, targetJenjang, keyword);
+  }
+
   return {
     mataPelajaran: parsedData?.mataPelajaran || subject,
     jenjang: parsedData?.jenjang || targetJenjang,
@@ -657,7 +669,11 @@ Pastikan array 'elemen' dan 'capaianPerFase' selalu terisi data array valid.`;
     dokumenRujukanUrl: parsedData?.dokumenRujukanUrl || 'https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf',
     capaianFaseUmum: parsedData?.capaianFaseUmum || parsedData?.capaianPerFase?.[0]?.teksCp || '',
     rasionalSingkat: parsedData?.rasionalSingkat || '',
-    elemen: Array.isArray(parsedData?.elemen) ? parsedData.elemen : [],
-    capaianPerFase: Array.isArray(parsedData?.capaianPerFase) ? parsedData.capaianPerFase : [],
+    elemen: Array.isArray(parsedData?.elemen) && parsedData.elemen.length > 0
+      ? parsedData.elemen
+      : getCuratedCpDataset(subject, fase, targetJenjang, keyword).elemen,
+    capaianPerFase: Array.isArray(parsedData?.capaianPerFase) && parsedData.capaianPerFase.length > 0
+      ? parsedData.capaianPerFase
+      : getCuratedCpDataset(subject, fase, targetJenjang, keyword).capaianPerFase,
   };
 }

@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import { getCuratedCpDataset } from './src/lib/cpDatabase';
 
 function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -57,7 +58,11 @@ async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
         const isRateLimit = err?.status === 429 || err?.message?.includes('429');
 
         if (isUnavailable) {
-          // Model is experiencing high demand (503), immediately failover to next model
+          // Model is experiencing high demand (503). Retrying after short delay before moving to next model.
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            continue;
+          }
           break;
         } else if (isRateLimit) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -781,17 +786,20 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
     }
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY belum dikonfigurasi di server.' });
-      }
-
-      const { subject, fase, keyword, jenjang } = req.body;
+      const { subject, fase, keyword, jenjang } = req.body || {};
       if (!subject) {
         return res.status(400).json({ error: 'Mata pelajaran wajib diisi.' });
       }
 
       const targetJenjang = jenjang || 'SMA / MA (Sekolah Menengah Atas)';
+      const apiKey = process.env.GEMINI_API_KEY;
+
+      if (!apiKey) {
+        console.warn('GEMINI_API_KEY belum dikonfigurasi, mengembalikan data kurikulum resmi BSKAP 046/2025.');
+        const fallback = getCuratedCpDataset(subject, fase, targetJenjang, keyword);
+        return res.json(fallback);
+      }
+
       const ai = new GoogleGenAI({ apiKey });
 
       const prompt = `Anda adalah pakar kurikulum nasional Kementerian Pendidikan Dasar dan Menengah RI yang menguasai naskah regulasi resmi terbaru:
@@ -833,7 +841,15 @@ Berikan output WAJIB HANYA berupa JSON valid dengan format persis:
 }
 Pastikan array 'elemen' dan 'capaianPerFase' selalu terisi data array valid.`;
 
-      const parsedData = await generateContentWithFallback(ai, prompt);
+      let parsedData: any = null;
+      try {
+        parsedData = await generateContentWithFallback(ai, prompt);
+      } catch (aiErr: any) {
+        console.warn('AI search CP mengalami gangguan/503, mengaktifkan data resmi terverifikasi BSKAP 046/2025:', aiErr?.message);
+        const fallback = getCuratedCpDataset(subject, fase, targetJenjang, keyword);
+        return res.json(fallback);
+      }
+
       const safeData = {
         mataPelajaran: parsedData?.mataPelajaran || subject,
         jenjang: parsedData?.jenjang || targetJenjang,
@@ -842,13 +858,19 @@ Pastikan array 'elemen' dan 'capaianPerFase' selalu terisi data array valid.`;
         dokumenRujukanUrl: parsedData?.dokumenRujukanUrl || 'https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf',
         capaianFaseUmum: parsedData?.capaianFaseUmum || parsedData?.capaianPerFase?.[0]?.teksCp || '',
         rasionalSingkat: parsedData?.rasionalSingkat || '',
-        elemen: Array.isArray(parsedData?.elemen) ? parsedData.elemen : [],
-        capaianPerFase: Array.isArray(parsedData?.capaianPerFase) ? parsedData.capaianPerFase : [],
+        elemen: Array.isArray(parsedData?.elemen) && parsedData.elemen.length > 0
+          ? parsedData.elemen
+          : getCuratedCpDataset(subject, fase, targetJenjang, keyword).elemen,
+        capaianPerFase: Array.isArray(parsedData?.capaianPerFase) && parsedData.capaianPerFase.length > 0
+          ? parsedData.capaianPerFase
+          : getCuratedCpDataset(subject, fase, targetJenjang, keyword).capaianPerFase,
       };
       res.json(safeData);
     } catch (error: any) {
-      console.error('Error searching CP:', error);
-      res.status(500).json({ error: error.message || 'Gagal mencari Capaian Pembelajaran' });
+      console.warn('Error in CP handler, delivering curated fallback:', error?.message);
+      const subject = req.body?.subject || 'Informatika';
+      const fallback = getCuratedCpDataset(subject, req.body?.fase, req.body?.jenjang, req.body?.keyword);
+      res.json(fallback);
     }
   };
 

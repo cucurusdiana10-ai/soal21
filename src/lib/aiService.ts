@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { getCuratedCpDataset } from './cpDatabase';
 
 export function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -76,7 +77,11 @@ async function executeClientGemini(prompt: string) {
         const isRateLimit = err?.status === 429 || err?.message?.includes('429');
 
         if (isUnavailable) {
-          // Model 503, immediately try next model
+          // Model 503 (high demand). Retrying after short delay before moving to next model
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            continue;
+          }
           break;
         } else if (isRateLimit) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -794,30 +799,44 @@ Keluarkan HANYA format JSON valid berikut:
 }
 Pastikan array 'elemen' dan 'capaianPerFase' selalu ada dan terisi data valid.`;
 
-  const raw = await executeClientGemini(prompt);
-  
-  const safeElemen = Array.isArray(raw?.elemen) ? raw.elemen : [];
-  const safeCapaianPerFase = Array.isArray(raw?.capaianPerFase) ? raw.capaianPerFase : [];
-  const safeCapaianUmum = raw?.capaianFaseUmum || (safeCapaianPerFase.length > 0 ? safeCapaianPerFase[0].teksCp : '') || '';
+  try {
+    const raw = await executeClientGemini(prompt);
+    
+    const safeElemen = Array.isArray(raw?.elemen) && raw.elemen.length > 0
+      ? raw.elemen
+      : getCuratedCpDataset(payload.subject, payload.fase, targetJenjang, payload.keyword).elemen;
+    const safeCapaianPerFase = Array.isArray(raw?.capaianPerFase) && raw.capaianPerFase.length > 0
+      ? raw.capaianPerFase
+      : getCuratedCpDataset(payload.subject, payload.fase, targetJenjang, payload.keyword).capaianPerFase;
+    const safeCapaianUmum = raw?.capaianFaseUmum || (safeCapaianPerFase && safeCapaianPerFase.length > 0 ? safeCapaianPerFase[0].teksCp : '') || '';
 
-  return {
-    mataPelajaran: raw?.mataPelajaran || payload.subject,
-    jenjang: raw?.jenjang || 'SMA',
-    fase: raw?.fase || payload.fase || 'Fase E / F',
-    dasarHukum: raw?.dasarHukum || 'Keputusan Kepala BSKAP No. 046/H/KR/2025',
-    dokumenRujukanUrl: raw?.dokumenRujukanUrl || 'https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf',
-    capaianFaseUmum: safeCapaianUmum,
-    rasionalSingkat: raw?.rasionalSingkat || '',
-    elemen: safeElemen,
-    capaianPerFase: safeCapaianPerFase,
-  };
+    return {
+      mataPelajaran: raw?.mataPelajaran || payload.subject,
+      jenjang: raw?.jenjang || targetJenjang,
+      fase: raw?.fase || payload.fase || 'Fase E / F',
+      dasarHukum: raw?.dasarHukum || 'Keputusan Kepala BSKAP No. 046/H/KR/2025',
+      dokumenRujukanUrl: raw?.dokumenRujukanUrl || 'https://vtjtunvkoicwdugnifxi.supabase.co/storage/v1/object/public/cp-documents/KepKaBSKAP-046_2025-ttg-CP.pdf',
+      capaianFaseUmum: safeCapaianUmum,
+      rasionalSingkat: raw?.rasionalSingkat || '',
+      elemen: safeElemen,
+      capaianPerFase: safeCapaianPerFase,
+    };
+  } catch (err) {
+    console.warn('[Client AI] Menampilkan basis data kurikulum resmi BSKAP 046/2025:', err);
+    return getCuratedCpDataset(payload.subject, payload.fase, targetJenjang, payload.keyword);
+  }
 }
 
 export async function searchCpApi(payload: CpSearchPayload): Promise<CpSearchResult> {
-  return postApiWithFallback(
-    ['/api/cp/search', '/api/search-cp'],
-    payload,
-    () => clientFallbackSearchCp(payload)
-  );
+  try {
+    return await postApiWithFallback(
+      ['/api/cp/search', '/api/search-cp'],
+      payload,
+      () => clientFallbackSearchCp(payload)
+    );
+  } catch (err) {
+    console.warn('[Search CP API] Gagal terhubung atau server 503, menggunakan basis data kurikulum BSKAP 046/2025:', err);
+    return getCuratedCpDataset(payload.subject, payload.fase, payload.jenjang, payload.keyword);
+  }
 }
 
