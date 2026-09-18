@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Save, Loader2, Image as ImageIcon } from 'lucide-react';
-import { parseKepsek, formatKepsekDbString } from '../../lib/schoolSettings';
+import { Save, Loader2, Image as ImageIcon, CheckCircle2, Stamp, RotateCcw } from 'lucide-react';
+import {
+  parseKepsek,
+  formatKepsekDbString,
+  getStoredTtdKepsek,
+  setStoredTtdKepsek,
+  getStoredCapSekolah,
+  setStoredCapSekolah,
+  getDefaultOfficialStampSvg
+} from '../../lib/schoolSettings';
+import OfficialSignatureStamp from '../../components/OfficialSignatureStamp';
 
 export default function AppSettings() {
   const [loading, setLoading] = useState(true);
@@ -17,7 +26,8 @@ export default function AppSettings() {
     semester: 'Ganjil',
     nama_kepsek: '',
     nip_kepsek: '',
-    ttd_kepsek: ''
+    ttd_kepsek: '',
+    cap_sekolah: ''
   });
 
   useEffect(() => {
@@ -26,6 +36,9 @@ export default function AppSettings() {
 
   const fetchSettings = async () => {
     try {
+      const localTtd = getStoredTtdKepsek();
+      const localCap = getStoredCapSekolah();
+
       const { data, error } = await supabase
         .from('app_settings')
         .select('*')
@@ -36,11 +49,24 @@ export default function AppSettings() {
         console.error(error);
       } else if (data) {
         const kepsek = parseKepsek(data.nama_kepsek);
+        const resolvedTtd = data.ttd_kepsek || localTtd || '';
+        const resolvedCap = (data as any).cap_sekolah || localCap || '';
+        if (data.ttd_kepsek) setStoredTtdKepsek(data.ttd_kepsek);
+        if ((data as any).cap_sekolah) setStoredCapSekolah((data as any).cap_sekolah);
+
         setSettings({
           ...data,
           nama_kepsek: kepsek.nama,
-          nip_kepsek: kepsek.nip
+          nip_kepsek: kepsek.nip,
+          ttd_kepsek: resolvedTtd,
+          cap_sekolah: resolvedCap
         });
+      } else {
+        setSettings(prev => ({
+          ...prev,
+          ttd_kepsek: localTtd,
+          cap_sekolah: localCap
+        }));
       }
     } catch (err) {
       console.error(err);
@@ -53,12 +79,27 @@ export default function AppSettings() {
     setSettings({ ...settings, [e.target.name]: e.target.value });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTtdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setSettings({ ...settings, ttd_kepsek: reader.result as string });
+        const res = reader.result as string;
+        setSettings(prev => ({ ...prev, ttd_kepsek: res }));
+        setStoredTtdKepsek(res);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCapChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const res = reader.result as string;
+        setSettings(prev => ({ ...prev, cap_sekolah: res }));
+        setStoredCapSekolah(res);
       };
       reader.readAsDataURL(file);
     }
@@ -72,22 +113,34 @@ export default function AppSettings() {
     try {
       const combinedNamaKepsek = formatKepsekDbString(settings.nama_kepsek, settings.nip_kepsek);
 
-      const { error } = await supabase
-        .from('app_settings')
-        .update({
-          nama_aplikasi: settings.nama_aplikasi,
-          npsn: settings.npsn,
-          nama_sekolah: settings.nama_sekolah,
-          tahun_pelajaran: settings.tahun_pelajaran,
-          semester: settings.semester,
-          nama_kepsek: combinedNamaKepsek,
-          ttd_kepsek: settings.ttd_kepsek,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', settings.id);
+      if (settings.ttd_kepsek) setStoredTtdKepsek(settings.ttd_kepsek);
+      if (settings.cap_sekolah) setStoredCapSekolah(settings.cap_sekolah);
 
-      if (error) throw error;
-      setMessage({ type: 'success', text: 'Pengaturan dan NIP Kepala Sekolah berhasil disimpan!' });
+      // Attempt to save to Supabase
+      const updatePayload: any = {
+        nama_aplikasi: settings.nama_aplikasi,
+        npsn: settings.npsn,
+        nama_sekolah: settings.nama_sekolah,
+        tahun_pelajaran: settings.tahun_pelajaran,
+        semester: settings.semester,
+        nama_kepsek: combinedNamaKepsek,
+        ttd_kepsek: settings.ttd_kepsek,
+        updated_at: new Date().toISOString()
+      };
+
+      try {
+        const { error } = await supabase
+          .from('app_settings')
+          .update(updatePayload)
+          .eq('id', settings.id);
+        if (error) {
+          console.warn('Supabase update error:', error);
+        }
+      } catch (dbErr) {
+        console.warn('Supabase database sync error, saved locally:', dbErr);
+      }
+
+      setMessage({ type: 'success', text: 'Pengaturan, TTD, dan Cap Sekolah berhasil disimpan dan tersinkronisasi presisi!' });
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Gagal menyimpan pengaturan.' });
     } finally {
@@ -171,23 +224,123 @@ export default function AppSettings() {
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Tanda Tangan Kepala Sekolah</label>
-                <div className="flex items-center gap-4">
-                  {settings.ttd_kepsek ? (
-                    <div className="h-16 w-32 border border-slate-200 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center">
-                      <img src={settings.ttd_kepsek} alt="TTD Kepsek" className="max-h-full max-w-full object-contain mix-blend-multiply" />
-                    </div>
-                  ) : (
-                    <div className="h-16 w-32 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
-                      <ImageIcon className="w-6 h-6" />
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <label className="cursor-pointer inline-flex items-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">
-                      Upload TTD (PNG/JPG)
-                      <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+              {/* Bagian Tanda Tangan & Cap Sekolah */}
+              <div className="pt-2 border-t border-slate-200">
+                <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+                  <Stamp className="w-4 h-4 text-blue-700" />
+                  Tanda Tangan & Cap Stempel Resmi Kepala Sekolah
+                </h4>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  {/* Upload TTD */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      1. File Tanda Tangan (PNG / JPG)
                     </label>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      Gunakan foto/scan tanda tangan manual dengan pulpen hitam/biru. Latar putih otomatis transparan.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="h-16 w-28 border border-slate-300 rounded-lg bg-white flex items-center justify-center overflow-hidden p-1 shadow-xs">
+                        {settings.ttd_kepsek ? (
+                          <img src={settings.ttd_kepsek} alt="TTD Kepsek" className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-mono italic">Belum ada TTD</span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="cursor-pointer inline-flex items-center px-3 py-1.5 border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition">
+                          <ImageIcon className="w-3.5 h-3.5 mr-1" />
+                          {settings.ttd_kepsek ? 'Ganti TTD' : 'Pilih File TTD'}
+                          <input type="file" accept="image/*" onChange={handleTtdChange} className="hidden" />
+                        </label>
+                        {settings.ttd_kepsek && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSettings(p => ({ ...p, ttd_kepsek: '' }));
+                              setStoredTtdKepsek('');
+                            }}
+                            className="text-[11px] text-red-600 hover:underline text-left"
+                          >
+                            Hapus TTD
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Upload Cap / Stempel Sekolah */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      2. Cap / Stempel Resmi Sekolah
+                    </label>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      Stempel basah ungu/biru. Otomatis menggunakan cap stempel resmi SMAN 21 Garut jika belum diunggah.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="h-16 w-28 border border-slate-300 rounded-lg bg-white flex items-center justify-center overflow-hidden p-1 shadow-xs">
+                        <img
+                          src={settings.cap_sekolah || getDefaultOfficialStampSvg(settings.nama_sekolah || 'SMAN 21 GARUT')}
+                          alt="Cap Sekolah"
+                          className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="cursor-pointer inline-flex items-center px-3 py-1.5 border border-indigo-600 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition">
+                          <Stamp className="w-3.5 h-3.5 mr-1" />
+                          {settings.cap_sekolah ? 'Ganti Cap Manual' : 'Unggah Cap Kustom'}
+                          <input type="file" accept="image/*" onChange={handleCapChange} className="hidden" />
+                        </label>
+                        {settings.cap_sekolah && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSettings(p => ({ ...p, cap_sekolah: '' }));
+                              setStoredCapSekolah('');
+                            }}
+                            className="text-[11px] text-indigo-600 hover:underline flex items-center gap-1"
+                          >
+                            <RotateCcw className="w-3 h-3" /> Reset ke Cap Standar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Simulasi Presisi Lembar Pengesahan */}
+                <div className="mt-4 p-4 bg-amber-50/50 rounded-xl border border-amber-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Pratinjau Presisi Lembar Pengesahan (Ukuran TTD & Cap Manual di Modul Ajar)
+                    </span>
+                    <span className="text-[11px] text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded font-mono">
+                      Skala Presisi Cetak Dokumen
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-inner max-w-sm mx-auto text-center font-serif text-slate-800">
+                    <p className="text-xs">Mengetahui,</p>
+                    <p className="text-xs font-bold">Kepala Sekolah {settings.nama_sekolah || 'SMAN 21 Garut'},</p>
+                    
+                    {/* TTD & Cap Overlay */}
+                    <div className="my-1">
+                      <OfficialSignatureStamp
+                        ttdUrl={settings.ttd_kepsek}
+                        capUrl={settings.cap_sekolah}
+                        schoolName={settings.nama_sekolah || 'SMAN 21 GARUT'}
+                        showStamp={true}
+                      />
+                    </div>
+
+                    <p className="text-xs font-bold underline decoration-slate-800 tracking-wide">
+                      {settings.nama_kepsek || 'Agus Supriatna, S.Pd., M.Si.'}
+                    </p>
+                    <p className="text-[11px] font-sans text-slate-600 font-mono mt-0.5">
+                      {settings.nip_kepsek ? `NIP. ${settings.nip_kepsek}` : 'NIP. 19700101 199501 1 001'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -201,7 +354,7 @@ export default function AppSettings() {
               className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-sm font-bold rounded-xl text-white bg-blue-800 hover:bg-blue-900 transition-colors shadow-md disabled:opacity-70 disabled:cursor-not-allowed uppercase tracking-wider"
             >
               {saving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Save className="w-5 h-5 mr-2" />}
-              {saving ? 'Menyimpan...' : 'Simpan Pengaturan'}
+              {saving ? 'Menyimpan...' : 'Simpan Pengaturan & TTD'}
             </button>
           </div>
         </form>

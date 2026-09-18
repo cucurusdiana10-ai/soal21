@@ -9,9 +9,36 @@ import {
   WidthType,
   AlignmentType,
   HeadingLevel,
-  BorderStyle
+  BorderStyle,
+  ImageRun
 } from 'docx';
-import { parseKepsek, getDetailedPendahuluan, getDetailedPenutup } from './schoolSettings';
+import { parseKepsek, getDetailedPendahuluan, getDetailedPenutup, getStoredTtdKepsek } from './schoolSettings';
+
+async function urlOrBase64ToUint8Array(input: string): Promise<Uint8Array | null> {
+  try {
+    if (!input || typeof input !== 'string') return null;
+    if (input.startsWith('data:image/')) {
+      const parts = input.split(',');
+      if (parts.length < 2) return null;
+      const binary = atob(parts[1]);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    } else if (input.startsWith('http://') || input.startsWith('https://')) {
+      const res = await fetch(input);
+      if (!res.ok) return null;
+      const buf = await res.arrayBuffer();
+      return new Uint8Array(buf);
+    }
+    return null;
+  } catch (e) {
+    console.warn('Gagal memproses gambar TTD untuk Word (.docx):', e);
+    return null;
+  }
+}
 
 export async function exportModulAjarToDocx(data: any, fileName?: string) {
   const identitas = data.identitas || {};
@@ -723,6 +750,9 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
     }
   }
 
+  const ttdKepsekSource = identitas.ttdKepsek || getStoredTtdKepsek();
+  const ttdBytes = ttdKepsekSource ? await urlOrBase64ToUint8Array(ttdKepsekSource) : null;
+
   children.push(
     new Paragraph({ spacing: { before: 400, after: 100 } }),
     new Table({
@@ -741,7 +771,21 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
                   alignment: AlignmentType.CENTER,
                   children: [new TextRun({ text: `Kepala Sekolah ${schoolName}`, bold: true, size: 20, font: 'Calibri' })]
                 }),
-                new Paragraph({ spacing: { after: 700 } }),
+                ttdBytes ? (
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [
+                      new ImageRun({
+                        type: 'png',
+                        data: ttdBytes,
+                        transformation: { width: 130, height: 55 }
+                      })
+                    ],
+                    spacing: { before: 80, after: 80 }
+                  })
+                ) : (
+                  new Paragraph({ spacing: { after: 700 } })
+                ),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
                   children: [new TextRun({ text: headmasterName, bold: true, underline: {}, size: 20, font: 'Calibri' })]

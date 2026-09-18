@@ -598,6 +598,7 @@ function MaterialGenerator() {
               videoUrl={result.videoUrl}
               mediaType={result.mediaType || 'both'}
               title={form.topic || 'Bahan Ajar Visual'}
+              subject={form.subject || ''}
               isEditing={isEditing}
               onImageUrlChange={url => setResult({ ...result, imageUrl: url })}
               onVideoUrlChange={url => setResult({ ...result, videoUrl: url })}
@@ -852,6 +853,7 @@ function MaterialGenerator() {
                 videoUrl={selectedMaterial.content_json?.videoUrl}
                 mediaType={selectedMaterial.content_json?.mediaType || 'both'}
                 title={selectedMaterial.title}
+                subject={selectedMaterial.subject || ''}
               />
 
               {/* Fun Fact */}
@@ -918,6 +920,7 @@ function MaterialGenerator() {
               videoUrl={fullscreenMaterial.content_json?.videoUrl}
               mediaType={fullscreenMaterial.content_json?.mediaType || 'both'}
               title={fullscreenMaterial.title}
+              subject={fullscreenMaterial.subject || ''}
               className="max-w-5xl mx-auto"
             />
 

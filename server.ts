@@ -4,6 +4,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { getCuratedCpDataset } from './src/lib/cpDatabase';
+import { resolveRelevantYoutubeVideo } from './src/lib/youtubeLibrary';
 
 function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -33,7 +34,14 @@ function parseJsonSafely(text: string) {
 
 // Resilient Gemini Generation with Model Fallback
 async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
-  const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  const models = [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.8-flash',
+    'gemini-flash-latest'
+  ];
   let lastError: any = null;
 
   for (const model of models) {
@@ -55,17 +63,17 @@ async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
         console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err.message);
         lastError = err;
         const isUnavailable = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE') || err?.message?.includes('high demand');
-        const isRateLimit = err?.status === 429 || err?.message?.includes('429');
+        const isQuotaOrRateLimit = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase()?.includes('quota') || err?.message?.toLowerCase()?.includes('resource_exhausted');
 
         if (isUnavailable) {
-          // Model is experiencing high demand (503). Retrying after short delay before moving to next model.
           if (attempt === 0) {
             await new Promise((resolve) => setTimeout(resolve, 800));
             continue;
           }
           break;
-        } else if (isRateLimit) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+        } else if (isQuotaOrRateLimit) {
+          // Quota exhausted on this model, immediately try next available model
+          break;
         } else {
           break;
         }
@@ -292,6 +300,12 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
 }`;
 
       const parsedData = await generateContentWithFallback(ai, prompt);
+      if (parsedData && typeof parsedData === 'object') {
+        const resolved = resolveRelevantYoutubeVideo(subject, topic, parsedData.videoUrl);
+        parsedData.videoUrl = resolved.videoUrl;
+        if (!parsedData.videoTitle) parsedData.videoTitle = resolved.videoTitle;
+        if (!parsedData.videoChannel) parsedData.videoChannel = resolved.videoChannel;
+      }
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating material:', error);
@@ -517,6 +531,20 @@ ATURAN KHUSUS METODE PEMBELAJARAN & SINTAKS PER PERTEMUAN:
 Setiap pertemuan di array "pertemuan" HARUS memiliki metode tersendiri sesuai pilihan guru di atas:
 ${meetingMethods.map((m, idx) => `- Pertemuan ${idx + 1}: Wajib menerapkan sintaks resmi dari metode "${m}" pada Kegiatan Inti.`).join('\n')}
 
+ATURAN KRUSIAL & WAJIB: KEGIATAN INTI & AKTIVITAS GURU (HARUS SANGAT DETAIL & MENGACU PADA MATERI SPESIFIK):
+Pada bagian "kegiatanInti", setiap pertemuan memuat array "sintaks" sesuai metode yang digunakan.
+Untuk SETIAP tahap sintaks:
+1. DESKRIPSI "aktivitasGuru" HARUS SANGAT DETAIL (MINIMAL 3-5 KALIMAT KOMPREHENSIF) DAN MENGACU LANGSUNG PADA SUB-MATERI SPESIFIK:
+   - DILARANG KERAS menggunakan kalimat generik/singkat seperti "Guru memfasilitasi diskusi", "Guru membimbing siswa", "Guru menjelaskan materi", atau "Guru memberikan LKPD".
+   - Guru HARUS menguraikan secara konkret dan kontekstual:
+     a) Konsep esensial sub-materi apa yang dipaparkan atau dimodelkan guru (sebutkan istilah teknis ilmiah, dalil/teori/rumus/prinsip/studi kasus nyata yang relevan dengan topik mata pelajaran "${subject}" dan CP "${cp}").
+     b) Pertanyaan penuntun mendalam (scaffolding question) apa yang dilontarkan guru untuk menuntun alur berpikir logis peserta didik dan mencegah miskonsepsi pada materi tersebut.
+     c) Langkah konkret guru saat mendemonstrasikan fenomena materi, menampilkan stimulus visual/data/studi kasus, atau membagikan bahan ajar terkait topik tersebut.
+     d) Bagaimana guru berkeliling membimbing kelompok yang mengalami kesulitan (diferensiasi proses), mengecek pemahaman, serta memberikan konfirmasi dan penguatan konsep materi secara ilmiah.
+2. DESKRIPSI "aktivitasSiswa" HARUS MENGGAMBARKAN AKSI EKSPLORATIF NYATA SISWA TERHADAP MATERI:
+   - Menjabarkan secara operasional (minimal 3-4 kalimat) bagaimana siswa menganalisis data materi, berdiskusi membedah kasus materi dalam kelompok, menguji hipotesis konsep, dan menyusun solusi atau kesimpulan materi.
+3. "fokusMendalam": Tuliskan fokus dimensi Deep Learning yang dicapai (misal: Mindful Critical Inquiry, Meaningful Conceptual Understanding, Joyful Collaboration, atau Diferensiasi Konten/Proses).
+
 ATURAN RINCIAN KEGIATAN PENDAHULUAN DAN PENUTUP (WAJIB DIJABARKAN LENGKAP PADA SETIAP PERTEMUAN):
 Kegiatan pendahuluan dan penutup pada setiap pertemuan HARUS dijabarkan secara rinci dan operasional, dengan langkah-langkah konkret:
 - Pada "kegiatanPendahuluan" (durasi: 15 Menit):
@@ -638,33 +666,33 @@ Gunakan struktur JSON berikut:
         "sintaks": [
           {
             "tahap": "Tahap 1 sesuai sintaks ${meetingMethods[0] || methodChosen}",
-            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
-            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
-            "fokusMendalam": "Aspek Deep Learning (Mindful/Meaningful/Joyful/Diferensiasi)"
+            "aktivitasGuru": "Guru menayangkan video kontekstual/studi kasus nyata mengenai fenomena [sub-materi topik], kemudian memaparkan konsep kunci dan terminologi materi secara interaktif. Guru melontarkan pertanyaan penuntun (scaffolding): '[Pertanyaan mendalam guru terkait konsep materi]', membimbing siswa mencermati variabel permasalahan, serta membagikan LKPD terstruktur seraya memitigasi miskonsepsi awal pada materi tersebut.",
+            "aktivitasSiswa": "Peserta didik mengamati tayangan stimulus materi dengan saksama (Mindful), mencatat data/fakta kunci, merespons pertanyaan penuntun guru dengan nalar kritis, dan berdiskusi awal bersama anggota kelompok untuk merumuskan masalah utama.",
+            "fokusMendalam": "Mindful Critical Inquiry & Kontekstualisasi Materi"
           },
           {
             "tahap": "Tahap 2 sesuai sintaks ${meetingMethods[0] || methodChosen}",
-            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
-            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
-            "fokusMendalam": "Aspek Deep Learning"
+            "aktivitasGuru": "Guru mengorganisasikan peserta didik ke dalam kelompok belajar heterogen, menjelaskan pembagian peran, dan memberikan pengarahan langkah investigasi pada LKPD [topik materi]. Guru memfasilitasi kelompok yang memerlukan pendampingan khusus (diferensiasi proses) dan memastikan tiap kelompok memahami alur eksplorasi konsep materi.",
+            "aktivitasSiswa": "Peserta didik berkumpul dalam kelompok, membagi peran kerja tim, membaca literatur materi dari buku teks dan modul digital, serta menyusun rencana penyelidikan masalah materi secara kolaboratif.",
+            "fokusMendalam": "Joyful Collaboration & Diferensiasi Proses"
           },
           {
             "tahap": "Tahap 3 sesuai sintaks ${meetingMethods[0] || methodChosen}",
-            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
-            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
-            "fokusMendalam": "Aspek Deep Learning"
+            "aktivitasGuru": "Guru berkeliling memantau jalannya diskusi kelompok, mengajukan pertanyaan penuntun saat siswa mengolah data/analisis kasus materi, memberikan bimbingan proporsional agar siswa mampu mengaitkan teori materi dengan temuan data, serta mengecek ketelitian penalaran konsep tiap kelompok.",
+            "aktivitasSiswa": "Peserta didik melakukan penyelidikan, mengolah data materi pada LKPD, mendiskusikan hubungan sebab-akibat antar-konsep, memvalidasi temuan dengan teori rujukan, dan merumuskan solusi alternatif atas masalah materi.",
+            "fokusMendalam": "Meaningful Problem Solving & Penalaran Kritis"
           },
           {
             "tahap": "Tahap 4 sesuai sintaks ${meetingMethods[0] || methodChosen}",
-            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
-            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
-            "fokusMendalam": "Aspek Deep Learning"
+            "aktivitasGuru": "Guru mengundi atau menentukan urutan presentasi karya, menetapkan tata tertib forum diskusi kelas, memfasilitasi jalannya sesi tanya jawab antar-kelompok, serta mencatat poin-poin argumen dan pertanyaan penting siswa terkait pemahaman konsep materi.",
+            "aktivitasSiswa": "Perwakilan kelompok mempresentasikan hasil analisis studi kasus materi di depan kelas secara percaya diri, sedangkan peserta didik dari kelompok lain menyimak aktif, memberikan tanggapan konstruktif, dan mengajukan pertanyaan kritis.",
+            "fokusMendalam": "Komunikasi Efektif & Kolaborasi Reflektif"
           },
           {
             "tahap": "Tahap 5 sesuai sintaks ${meetingMethods[0] || methodChosen}",
-            "aktivitasGuru": "Aktivitas fasilitasi konkret yang dilakukan guru",
-            "aktivitasSiswa": "Aktivitas eksplorasi aktif mendalam yang dilakukan peserta didik",
-            "fokusMendalam": "Aspek Deep Learning"
+            "aktivitasGuru": "Guru membimbing peserta didik mengonfirmasi kesahihan analisis materi dari tiap kelompok, meluruskan miskonsepsi yang sempat muncul selama presentasi, memberikan penguatan ilmiah komprehensif atas dalil/konsep kunci materi, serta memvalidasi kesimpulan akhir pembelajaran.",
+            "aktivitasSiswa": "Peserta didik menyimak penguatan konsep materi dari guru, menyelaraskan catatan hasil investigasi dengan konsep ilmiah yang benar, merefleksikan proses penyelidikan kelompok, dan menyepakati rumusan simpulan bersama.",
+            "fokusMendalam": "Penguatan Konseptual & Metakognisi Mendalam"
           }
         ]
       },

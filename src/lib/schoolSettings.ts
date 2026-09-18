@@ -107,3 +107,116 @@ export function getDetailedPenutup(existing?: string[]): string[] {
   return STANDAR_KEGIATAN_PENUTUP;
 }
 
+export const STORAGE_KEY_TTD_KEPSEK = 'sman21_ttd_kepsek';
+export const STORAGE_KEY_CAP_SEKOLAH = 'sman21_cap_sekolah';
+export const STORAGE_KEY_USE_AUTO_STAMP = 'sman21_use_auto_stamp';
+
+export function getStoredTtdKepsek(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      return localStorage.getItem(STORAGE_KEY_TTD_KEPSEK) || '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+export function setStoredTtdKepsek(val: string): void {
+  if (typeof window !== 'undefined') {
+    try {
+      if (val) {
+        localStorage.setItem(STORAGE_KEY_TTD_KEPSEK, val);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_TTD_KEPSEK);
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export function getStoredCapSekolah(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      return localStorage.getItem(STORAGE_KEY_CAP_SEKOLAH) || '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+export function setStoredCapSekolah(val: string): void {
+  if (typeof window !== 'undefined') {
+    try {
+      if (val) {
+        localStorage.setItem(STORAGE_KEY_CAP_SEKOLAH, val);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_CAP_SEKOLAH);
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// Generate realistic SVG official circular wet stamp for SMAN 21 Garut
+export function getDefaultOfficialStampSvg(schoolName: string = 'SMAN 21 GARUT'): string {
+  const cleanSchool = schoolName.toUpperCase().replace(/^SMA NEGERI\s*/i, 'SMAN ').trim();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+    <defs>
+      <path id="topArc" d="M 30,120 A 90,90 0 0,1 210,120" fill="none" />
+      <path id="bottomArc" d="M 210,120 A 90,90 0 0,1 30,120" fill="none" />
+      <filter id="inkRough" x="-5%" y="-5%" width="110%" height="110%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.5" />
+      </filter>
+    </defs>
+    <g filter="url(#inkRough)" stroke="#3730a3" fill="#3730a3" opacity="0.88">
+      <!-- Outer Double Ring -->
+      <circle cx="120" cy="120" r="108" fill="none" stroke="#3730a3" stroke-width="4.5" />
+      <circle cx="120" cy="120" r="99" fill="none" stroke="#3730a3" stroke-width="1.8" />
+      
+      <!-- Inner Ring -->
+      <circle cx="120" cy="120" r="68" fill="none" stroke="#3730a3" stroke-width="1.8" />
+      <circle cx="120" cy="120" r="64" fill="none" stroke="#3730a3" stroke-width="3" />
+
+      <!-- Curved Text Top -->
+      <text font-family="'Times New Roman', Georgia, serif" font-size="12.5" font-weight="bold" letter-spacing="1.5">
+        <textPath href="#topArc" startOffset="50%" text-anchor="middle">
+          PEMERINTAH DAERAH PROVINSI JABAR
+        </textPath>
+      </text>
+
+      <!-- Curved Text Bottom -->
+      <text font-family="'Times New Roman', Georgia, serif" font-size="12" font-weight="bold" letter-spacing="1.5">
+        <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">
+          CABANG DINAS WILAYAH XI
+        </textPath>
+      </text>
+
+      <!-- Side Stars -->
+      <text x="26" y="124" font-size="14" text-anchor="middle">★</text>
+      <text x="214" y="124" font-size="14" text-anchor="middle">★</text>
+
+      <!-- Center School Name -->
+      <g text-anchor="middle">
+        <text x="120" y="106" font-family="'Arial Black', Impact, sans-serif" font-size="15" font-weight="900" letter-spacing="0.5">
+          ${cleanSchool}
+        </text>
+        <line x1="68" y1="114" x2="172" y2="114" stroke="#3730a3" stroke-width="2" />
+        <text x="120" y="127" font-family="'Times New Roman', serif" font-size="10.5" font-weight="bold" letter-spacing="1">
+          KABUPATEN GARUT
+        </text>
+        <line x1="68" y1="133" x2="172" y2="133" stroke="#3730a3" stroke-width="2" />
+        <text x="120" y="145" font-family="Arial, sans-serif" font-size="9" font-weight="bold" letter-spacing="0.5">
+          DISDIK JABAR
+        </text>
+      </g>
+    </g>
+  </svg>`;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+

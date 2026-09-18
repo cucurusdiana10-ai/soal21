@@ -892,6 +892,17 @@ export default function ModulAjarEditor({
                 className="w-full p-2.5 bg-white border border-gray-300 rounded-xl font-mono text-sm"
               />
             </div>
+            <div className="md:col-span-2 p-3 bg-white/90 border border-indigo-200 rounded-xl flex items-center justify-between gap-2">
+              <div className="text-xs">
+                <span className="font-semibold text-indigo-950">Tanda Tangan & Cap Sekolah Resmi: </span>
+                <span className="text-gray-600">
+                  Dokumen cetak dan ekspor Word otomatis menyertakan tanda tangan digital Kepala Sekolah dan stempel basah presisi dari pengaturan <strong>Kelola Aplikasi</strong>.
+                </span>
+              </div>
+              <span className="shrink-0 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                Aktif & Presisi
+              </span>
+            </div>
           </div>
         </section>
 

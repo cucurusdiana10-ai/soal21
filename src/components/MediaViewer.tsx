@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
-import { Image, Video, Upload, ExternalLink, Play, Film, Sparkles } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Image, Video, Upload, ExternalLink, Play, Film, Sparkles, Youtube, Search, CheckCircle2 } from 'lucide-react';
 import { getYouTubeEmbedUrl, isDirectVideoUrl } from '../lib/mediaUtils';
+import { resolveRelevantYoutubeVideo, EducationalVideo } from '../lib/youtubeLibrary';
 
 interface MediaViewerProps {
   imageUrl?: string;
   videoUrl?: string;
   mediaType?: 'image' | 'video' | 'both' | string;
   title?: string;
+  subject?: string;
   isEditing?: boolean;
   onImageUrlChange?: (url: string) => void;
   onVideoUrlChange?: (url: string) => void;
@@ -19,19 +21,29 @@ export default function MediaViewer({
   videoUrl,
   mediaType = 'both',
   title,
+  subject = '',
   isEditing = false,
   onImageUrlChange,
   onVideoUrlChange,
   onMediaTypeChange,
   className = ''
 }: MediaViewerProps) {
+  // Resolve relevant educational video if provided URL is empty or rickroll
+  const youtubeMatch = useMemo(() => {
+    return resolveRelevantYoutubeVideo(subject, title || '', videoUrl);
+  }, [subject, title, videoUrl]);
+
+  const effectiveVideoUrl = videoUrl && !videoUrl.includes('dQw4w9WgXcQ') 
+    ? videoUrl 
+    : youtubeMatch.videoUrl;
+
   const [activeTab, setActiveTab] = useState<'video' | 'image'>(
-    videoUrl ? 'video' : 'image'
+    effectiveVideoUrl ? 'video' : 'image'
   );
 
-  const youtubeEmbed = videoUrl ? getYouTubeEmbedUrl(videoUrl) : null;
-  const isDirectVideo = videoUrl ? isDirectVideoUrl(videoUrl) : false;
-  const hasVideo = Boolean(videoUrl && (youtubeEmbed || isDirectVideo));
+  const youtubeEmbed = effectiveVideoUrl ? getYouTubeEmbedUrl(effectiveVideoUrl) : null;
+  const isDirectVideo = effectiveVideoUrl ? isDirectVideoUrl(effectiveVideoUrl) : false;
+  const hasVideo = Boolean(effectiveVideoUrl && (youtubeEmbed || isDirectVideo));
   const hasImage = Boolean(imageUrl);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,8 +117,16 @@ export default function MediaViewer({
         <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200 space-y-3">
           <div className="flex items-center justify-between">
             <h5 className="font-bold text-amber-950 text-xs flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-amber-600" /> Pengaturan Media Bahan Ajar (Gambar / Video)
+              <Sparkles className="w-4 h-4 text-amber-600" /> Pengaturan Media Bahan Ajar (Gambar / Video YouTube)
             </h5>
+            <a
+              href={youtubeMatch.youtubeSearchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs transition"
+            >
+              <Youtube className="w-3.5 h-3.5" /> Cari di YouTube <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
 
           <div className="grid md:grid-cols-2 gap-3">
@@ -120,11 +140,35 @@ export default function MediaViewer({
                   type="text"
                   value={videoUrl || ''}
                   onChange={(e) => onVideoUrlChange && onVideoUrlChange(e.target.value)}
-                  placeholder="Contoh: https://www.youtube.com/watch?v=... atau https://youtu.be/..."
+                  placeholder={`Contoh: ${youtubeMatch.videoUrl}`}
                   className="w-full p-2 bg-white border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-red-500 font-medium"
                 />
               </div>
               <p className="text-[11px] text-gray-500">Mendukung link YouTube standar, youtu.be, Shorts, atau direct video.</p>
+              
+              {/* Quick suggestions */}
+              {youtubeMatch.alternativeVideos && youtubeMatch.alternativeVideos.length > 0 && onVideoUrlChange && (
+                <div className="pt-1.5 space-y-1">
+                  <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider block">
+                    Pilihan Cepat Video Edukasi:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {youtubeMatch.alternativeVideos.map((alt) => (
+                      <button
+                        key={alt.id}
+                        type="button"
+                        onClick={() => onVideoUrlChange(alt.url)}
+                        className="text-[11px] px-2 py-1 bg-white hover:bg-red-50 text-gray-700 hover:text-red-700 border border-gray-200 hover:border-red-300 rounded-lg text-left transition flex items-center gap-1 shadow-2xs"
+                        title={alt.title}
+                      >
+                        <Play className="w-2.5 h-2.5 text-red-600 shrink-0" />
+                        <span className="truncate max-w-[170px]">{alt.title}</span>
+                        <span className="text-[9px] text-gray-400">({alt.channel})</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Image Input */}
@@ -153,31 +197,75 @@ export default function MediaViewer({
 
       {/* Main Display: Video View */}
       {activeTab === 'video' && hasVideo ? (
-        <div className="relative rounded-2xl overflow-hidden border border-gray-300 bg-black shadow-md aspect-video max-h-[440px] w-full">
-          {youtubeEmbed ? (
-            <iframe
-              src={youtubeEmbed}
-              title={title || "Video Pembelajaran"}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              className="w-full h-full border-0"
-            />
-          ) : isDirectVideo ? (
-            <video
-              src={videoUrl}
-              controls
-              className="w-full h-full object-contain bg-black"
-            >
-              Browser Anda tidak mendukung tag video.
-            </video>
-          ) : null}
+        <div className="space-y-2">
+          <div className="relative rounded-2xl overflow-hidden border border-gray-300 bg-black shadow-md aspect-video max-h-[440px] w-full">
+            {youtubeEmbed ? (
+              <iframe
+                src={youtubeEmbed}
+                title={title || youtubeMatch.videoTitle || "Video Pembelajaran"}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="w-full h-full border-0"
+              />
+            ) : isDirectVideo ? (
+              <video
+                src={effectiveVideoUrl}
+                controls
+                className="w-full h-full object-contain bg-black"
+              >
+                Browser Anda tidak mendukung tag video.
+              </video>
+            ) : null}
+          </div>
+
+          {/* YouTube Video Details & Exploration bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="px-2 py-0.5 bg-red-100 text-red-700 font-bold rounded-md flex items-center gap-1 shrink-0">
+                <Youtube className="w-3.5 h-3.5 text-red-600" />
+                {youtubeMatch.videoChannel || 'YouTube Edukasi'}
+              </span>
+              <span className="text-gray-700 font-medium truncate">
+                {title || youtubeMatch.videoTitle}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <a
+                href={effectiveVideoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-gray-600 hover:text-red-600 font-medium transition"
+              >
+                <span>Buka di YouTube</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <span className="text-gray-300">|</span>
+              <a
+                href={youtubeMatch.youtubeSearchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-bold transition"
+              >
+                <Search className="w-3 h-3" />
+                <span>Cari Video Serupa</span>
+              </a>
+            </div>
+          </div>
         </div>
       ) : activeTab === 'video' && !hasVideo ? (
-        <div className="p-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-300 space-y-2">
+        <div className="p-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-300 space-y-3">
           <Film className="w-8 h-8 text-gray-400 mx-auto" />
-          <p className="text-sm font-semibold text-gray-600">Belum ada URL video yang disematkan.</p>
+          <p className="text-sm font-semibold text-gray-600">Belum ada video yang disematkan untuk materi ini.</p>
+          <a
+            href={youtubeMatch.youtubeSearchUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition"
+          >
+            <Youtube className="w-4 h-4" /> Cari Video Materi Ini di YouTube <ExternalLink className="w-3.5 h-3.5" />
+          </a>
           {isEditing && (
-            <p className="text-xs text-indigo-600 font-medium">Masukkan link YouTube pada form di atas untuk menampilkan video.</p>
+            <p className="text-xs text-indigo-600 font-medium">Salin link video dari YouTube dan tempelkan pada kolom URL Video di atas.</p>
           )}
         </div>
       ) : null}

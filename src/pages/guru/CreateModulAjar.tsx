@@ -29,7 +29,14 @@ import {
 import { generateModulAjarApi } from '../../lib/aiService';
 import { exportModulAjarToDocx } from '../../lib/modulDocxGenerator';
 import ModulAjarEditor, { DELAPAN_DIMENSI_LULUSAN } from './ModulAjarEditor';
-import { parseKepsek, getDetailedPendahuluan, getDetailedPenutup } from '../../lib/schoolSettings';
+import {
+  parseKepsek,
+  getDetailedPendahuluan,
+  getDetailedPenutup,
+  getStoredTtdKepsek,
+  getStoredCapSekolah
+} from '../../lib/schoolSettings';
+import OfficialSignatureStamp from '../../components/OfficialSignatureStamp';
 import { getTeacherSavedCps, SavedCpItem } from '../../lib/cpStorage';
 
 export function extractMateriTitleFromModule(mod: {
@@ -198,7 +205,9 @@ export default function CreateModulAjar() {
     tahun_pelajaran: '2026/2027',
     semester: 'Ganjil',
     nama_kepsek: 'Agus Supriatna, S.Pd., M.Si.',
-    nip_kepsek: ''
+    nip_kepsek: '',
+    ttd_kepsek: getStoredTtdKepsek(),
+    cap_sekolah: getStoredCapSekolah()
   });
 
   const [teacherSubjects, setTeacherSubjects] = useState<string[]>([]);
@@ -257,6 +266,8 @@ export default function CreateModulAjar() {
       const { data } = await supabase.from('app_settings').select('*').limit(1).single();
       if (data) {
         const kepsek = parseKepsek(data.nama_kepsek);
+        const ttd = data.ttd_kepsek || getStoredTtdKepsek();
+        const cap = data.cap_sekolah || getStoredCapSekolah();
         setSchoolSettings({
           nama_sekolah: data.nama_sekolah || 'SMAN 21 Garut',
           npsn: data.npsn || '20209194',
@@ -264,7 +275,9 @@ export default function CreateModulAjar() {
           tahun_pelajaran: data.tahun_pelajaran || '2026/2027',
           semester: data.semester || 'Ganjil',
           nama_kepsek: kepsek.nama,
-          nip_kepsek: kepsek.nip
+          nip_kepsek: kepsek.nip,
+          ttd_kepsek: ttd,
+          cap_sekolah: cap
         });
       }
     } catch (err) {
@@ -372,6 +385,9 @@ export default function CreateModulAjar() {
       if (!data.titimangsa) {
         data.titimangsa = `Garut, ${formatIndoDate(formData.tanggalCetak)}`;
       }
+      if (!data.identitas) data.identitas = {};
+      if (!data.identitas.ttdKepsek) data.identitas.ttdKepsek = schoolSettings.ttd_kepsek;
+      if (!data.identitas.capSekolah) data.identitas.capSekolah = schoolSettings.cap_sekolah;
       setResult(data);
 
       // Auto-save modul ajar to database
@@ -487,10 +503,21 @@ export default function CreateModulAjar() {
     if (!dataToExport) return;
     setExportingDocx(true);
     try {
-      const subject = dataToExport.identitas?.mataPelajaran || selectedSubjectFinal || 'Modul_Ajar';
+      const exportPayload = {
+        ...dataToExport,
+        identitas: {
+          ...(dataToExport.identitas || {}),
+          ttdKepsek: dataToExport.identitas?.ttdKepsek || schoolSettings.ttd_kepsek,
+          capSekolah: dataToExport.identitas?.capSekolah || schoolSettings.cap_sekolah,
+          namaSekolah: dataToExport.identitas?.namaSekolah || schoolSettings.nama_sekolah,
+          namaKepsek: dataToExport.identitas?.namaKepsek || schoolSettings.nama_kepsek,
+          nipKepsek: dataToExport.identitas?.nipKepsek || schoolSettings.nip_kepsek
+        }
+      };
+      const subject = exportPayload.identitas?.mataPelajaran || selectedSubjectFinal || 'Modul_Ajar';
       const cleanSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
       const filename = `Modul_Ajar_${cleanSubject}_SMAN21Garut.docx`;
-      await exportModulAjarToDocx(dataToExport, filename);
+      await exportModulAjarToDocx(exportPayload, filename);
     } catch (err: any) {
       alert(err.message || 'Gagal mengekspor file Word (.docx).');
     } finally {
@@ -1433,8 +1460,13 @@ export default function CreateModulAjar() {
                     <div>
                       <p>Mengetahui,</p>
                       <p className="font-bold">Kepala Sekolah {result.identitas?.namaSekolah || schoolSettings.nama_sekolah}</p>
-                      <div className="h-24 flex items-center justify-center">
-                        {/* Space for signature */}
+                      <div className="flex items-center justify-center my-1 min-h-[96px]">
+                        <OfficialSignatureStamp
+                          ttdUrl={result.identitas?.ttdKepsek || schoolSettings.ttd_kepsek}
+                          capUrl={result.identitas?.capSekolah || schoolSettings.cap_sekolah}
+                          schoolName={result.identitas?.namaSekolah || schoolSettings.nama_sekolah}
+                          showStamp={true}
+                        />
                       </div>
                       <p className="font-bold underline text-gray-900">
                         {result.identitas?.namaKepsek || schoolSettings.nama_kepsek}
@@ -1450,7 +1482,7 @@ export default function CreateModulAjar() {
                       </p>
                       <p className="font-bold">Guru Mata Pelajaran,</p>
                       <div className="h-24 flex items-center justify-center">
-                        {/* Space for signature */}
+                        {/* Ruang TTD Manual Guru */}
                       </div>
                       <p className="font-bold underline text-gray-900">
                         {result.identitas?.namaGuru || user?.name}
