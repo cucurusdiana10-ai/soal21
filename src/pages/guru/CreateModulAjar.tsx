@@ -1460,12 +1460,12 @@ export default function CreateModulAjar() {
                     <div>
                       <p>Mengetahui,</p>
                       <p className="font-bold">Kepala Sekolah {result.identitas?.namaSekolah || schoolSettings.nama_sekolah}</p>
-                      <div className="flex items-center justify-center my-1 min-h-[96px]">
+                      <div className="flex items-center justify-center my-1 min-h-[112px] md:min-h-[128px]">
                         <OfficialSignatureStamp
                           ttdUrl={result.identitas?.ttdKepsek || schoolSettings.ttd_kepsek}
                           capUrl={result.identitas?.capSekolah || schoolSettings.cap_sekolah}
                           schoolName={result.identitas?.namaSekolah || schoolSettings.nama_sekolah}
-                          showStamp={true}
+                          showStamp={false}
                         />
                       </div>
                       <p className="font-bold underline text-gray-900">
@@ -1481,7 +1481,7 @@ export default function CreateModulAjar() {
                         {result.titimangsa || `Garut, ${formatIndoDate(result.tanggalCetak || formData.tanggalCetak)}`}
                       </p>
                       <p className="font-bold">Guru Mata Pelajaran,</p>
-                      <div className="h-24 flex items-center justify-center">
+                      <div className="h-28 md:h-32 flex items-center justify-center min-h-[112px] md:min-h-[128px]">
                         {/* Ruang TTD Manual Guru */}
                       </div>
                       <p className="font-bold underline text-gray-900">

@@ -14,7 +14,7 @@ export default function OfficialSignatureStamp({
   ttdUrl,
   capUrl,
   schoolName = 'SMAN 21 GARUT',
-  showStamp = true,
+  showStamp = false,
   className = '',
   scale = 1
 }: OfficialSignatureStampProps) {
@@ -24,17 +24,16 @@ export default function OfficialSignatureStamp({
 
   return (
     <div
-      className={`relative h-24 w-60 mx-auto flex items-center justify-center select-none overflow-visible ${className}`}
-      style={{ minHeight: '96px' }}
+      className={`relative min-h-[112px] md:min-h-[128px] w-full max-w-[280px] mx-auto flex items-center justify-center select-none overflow-visible ${className}`}
     >
-      {/* Official School Stamp (Cap Stempel Basah) */}
+      {/* Optional Separate Stamp (Only shown when explicitly enabled and no double stamp) */}
       {showStamp && (
         <div
-          className="absolute left-1 md:left-3 top-1/2 -translate-y-1/2 pointer-events-none z-0 transition-transform"
+          className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 pointer-events-none z-0 transition-transform"
           style={{
             transform: 'translateY(-50%) rotate(-8deg)',
-            width: '84px',
-            height: '84px'
+            width: '92px',
+            height: '92px'
           }}
           title="Cap Stempel Resmi Sekolah"
         >
@@ -47,22 +46,22 @@ export default function OfficialSignatureStamp({
         </div>
       )}
 
-      {/* Manual Signature (Tanda Tangan Manual Kepala Sekolah) */}
+      {/* Manual Signature from Kelola Aplikasi (Ukuran Diperbesar Sesuai TTD Biasa) */}
       {hasTtd ? (
-        <div className="relative z-10 flex items-center justify-center w-full h-full">
+        <div className="relative z-10 flex items-center justify-center w-full h-full py-1">
           <img
             src={ttdUrl!}
             alt="Tanda Tangan Kepala Sekolah"
-            className="max-h-20 max-w-[200px] object-contain mix-blend-multiply contrast-125 transition-transform"
+            className="max-h-28 md:max-h-32 w-auto max-w-[260px] md:max-w-[280px] object-contain mix-blend-multiply contrast-110 drop-shadow-2xs transition-transform"
             style={{
-              filter: 'contrast(1.15) brightness(0.98)'
+              filter: 'contrast(1.1) brightness(0.98)'
             }}
           />
         </div>
       ) : (
-        <div className="relative z-10 h-full flex flex-col items-center justify-center text-slate-300">
+        <div className="relative z-10 h-28 md:h-32 flex flex-col items-center justify-center text-slate-300">
           <span className="text-[10px] font-mono tracking-wider italic text-slate-400">
-            [ Ruang Tanda Tangan & Cap ]
+            [ Ruang Tanda Tangan ]
           </span>
         </div>
       )}

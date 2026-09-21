@@ -778,13 +778,13 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
                       new ImageRun({
                         type: 'png',
                         data: ttdBytes,
-                        transformation: { width: 130, height: 55 }
+                        transformation: { width: 195, height: 85 }
                       })
                     ],
-                    spacing: { before: 80, after: 80 }
+                    spacing: { before: 100, after: 100 }
                   })
                 ) : (
-                  new Paragraph({ spacing: { after: 700 } })
+                  new Paragraph({ spacing: { after: 850 } })
                 ),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,

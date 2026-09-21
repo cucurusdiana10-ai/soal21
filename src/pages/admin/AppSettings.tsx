@@ -331,7 +331,7 @@ export default function AppSettings() {
                         ttdUrl={settings.ttd_kepsek}
                         capUrl={settings.cap_sekolah}
                         schoolName={settings.nama_sekolah || 'SMAN 21 GARUT'}
-                        showStamp={true}
+                        showStamp={false}
                       />
                     </div>
 
