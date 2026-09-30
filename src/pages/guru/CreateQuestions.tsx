@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { 
   FileText, Sparkles, Loader2, Send, Trash2, Eye, X, CheckCircle2, 
   PlusCircle, Edit2, AlertCircle, Save, Check, ArrowUp, ArrowDown, 
-  Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle
+  Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar
 } from 'lucide-react';
 import { generateQuestionsApi } from '../../lib/aiService';
 
@@ -19,6 +19,15 @@ export default function CreateQuestions() {
   const [customTopic, setCustomTopic] = useState(false);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [autoPublish, setAutoPublish] = useState(false);
+  
+  // Waktu Diterbitkan ke Siswa States
+  const [scheduleType, setScheduleType] = useState<'NOW' | 'SCHEDULED'>('NOW');
+  const [scheduledAt, setScheduledAt] = useState<string>(() => {
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    d.setMinutes(0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
   
   const [form, setForm] = useState({
     class_id: '',
@@ -190,6 +199,15 @@ export default function CreateQuestions() {
 
     setSaving(true);
     try {
+      const effectivePublishTime = scheduleType === 'SCHEDULED' && scheduledAt
+        ? new Date(scheduledAt).toISOString()
+        : new Date().toISOString();
+
+      const questionsWithSchedule = questionsToPublish.map(q => ({
+        ...q,
+        published_at: effectivePublishTime
+      }));
+
       if (meta.class_id === 'ALL_GRADE') {
         const inserts = classes.map(c => ({
           guru_id: user.id,
@@ -197,13 +215,19 @@ export default function CreateQuestions() {
           subject_name: meta.subject_name,
           title: meta.title,
           type: meta.type,
-          content: questionsToPublish
+          content: questionsWithSchedule
         }));
 
         const { error } = await supabase.from('tasks').insert(inserts);
         if (error) throw error;
 
-        alert(`✅ Sukses! ${questionsToPublish.length} butir soal telah berhasil diterbitkan ke ${inserts.length} kelas.`);
+        const isFuture = new Date(effectivePublishTime).getTime() > Date.now();
+        const formattedTime = new Date(effectivePublishTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
+        if (isFuture) {
+          alert(`✅ Sukses! ${questionsToPublish.length} butir soal telah dijadwalkan terbit ke ${inserts.length} kelas pada ${formattedTime} WIB.`);
+        } else {
+          alert(`✅ Sukses! ${questionsToPublish.length} butir soal telah berhasil diterbitkan ke ${inserts.length} kelas.`);
+        }
       } else {
         const { error } = await supabase.from('tasks').insert([{
           guru_id: user.id,
@@ -211,11 +235,18 @@ export default function CreateQuestions() {
           subject_name: meta.subject_name,
           title: meta.title,
           type: meta.type,
-          content: questionsToPublish
+          content: questionsWithSchedule
         }]);
 
         if (error) throw error;
-        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil diterbitkan dan siap dikerjakan siswa.`);
+
+        const isFuture = new Date(effectivePublishTime).getTime() > Date.now();
+        const formattedTime = new Date(effectivePublishTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
+        if (isFuture) {
+          alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil dijadwalkan dan akan otomatis dibuka untuk siswa pada ${formattedTime} WIB.`);
+        } else {
+          alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil diterbitkan dan siap dikerjakan siswa.`);
+        }
       }
 
       // Clear draft after publish
@@ -536,6 +567,80 @@ export default function CreateQuestions() {
                 <span>⚡ Langsung terbitkan ke siswa (tanpa review draf)</span>
               </label>
             </div>
+          </div>
+
+          {/* Pilihan Waktu Diterbitkan ke Siswa */}
+          <div className="p-4 bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-slate-50 rounded-2xl border border-blue-200/80 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-blue-600" />
+                Pilihan Waktu Diterbitkan ke Siswa
+              </label>
+              <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                scheduleType === 'NOW'
+                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                  : 'bg-amber-100 text-amber-900 border-amber-300'
+              }`}>
+                {scheduleType === 'NOW' ? '⚡ Langsung Terbit (Seketika)' : '🕒 Terjadwal Otomatis'}
+              </span>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-center gap-3 ${
+                scheduleType === 'NOW' ? 'bg-white border-blue-600 shadow-sm ring-1 ring-blue-300' : 'bg-white/70 border-gray-200 hover:bg-white'
+              }`}>
+                <input
+                  type="radio"
+                  name="scheduleType"
+                  checked={scheduleType === 'NOW'}
+                  onChange={() => setScheduleType('NOW')}
+                  className="text-blue-600 focus:ring-blue-500 w-4 h-4"
+                />
+                <div>
+                  <p className="text-xs font-bold text-gray-900 flex items-center gap-1">
+                    <span>🚀 Terbitkan Sekarang</span>
+                  </p>
+                  <p className="text-[11px] text-gray-500">Soal langsung tampil dan dapat dikerjakan siswa kelas target</p>
+                </div>
+              </label>
+
+              <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-center gap-3 ${
+                scheduleType === 'SCHEDULED' ? 'bg-white border-blue-600 shadow-sm ring-1 ring-blue-300' : 'bg-white/70 border-gray-200 hover:bg-white'
+              }`}>
+                <input
+                  type="radio"
+                  name="scheduleType"
+                  checked={scheduleType === 'SCHEDULED'}
+                  onChange={() => setScheduleType('SCHEDULED')}
+                  className="text-blue-600 focus:ring-blue-500 w-4 h-4"
+                />
+                <div>
+                  <p className="text-xs font-bold text-gray-900 flex items-center gap-1">
+                    <span>📅 Jadwalkan Waktu Tertentu</span>
+                  </p>
+                  <p className="text-[11px] text-gray-500">Soal terkunci dan otomatis dibuka saat tanggal/jam tiba</p>
+                </div>
+              </label>
+            </div>
+
+            {scheduleType === 'SCHEDULED' && (
+              <div className="pt-2 p-3 bg-white rounded-xl border border-blue-200 flex flex-col sm:flex-row items-start sm:items-center gap-3 animate-fadeIn">
+                <label className="text-xs font-bold text-gray-800 flex items-center gap-1 shrink-0">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                  Pilih Tanggal & Waktu Rilis:
+                </label>
+                <input
+                  type="datetime-local"
+                  required={scheduleType === 'SCHEDULED'}
+                  value={scheduledAt}
+                  onChange={e => setScheduledAt(e.target.value)}
+                  className="p-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                />
+                <span className="text-[11px] text-blue-700 font-medium">
+                  🕒 Siswa baru dapat membuka soal mulai waktu yang ditentukan (WIB).
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -905,9 +1010,32 @@ export default function CreateQuestions() {
 
           {/* Sticky Bottom Publish Button */}
           <div className="bg-gray-100 p-4 border-t border-gray-200 flex justify-between items-center flex-wrap gap-3">
-            <span className="text-sm font-semibold text-gray-700">
-              Total {generatedQuestions.length} Butir Soal Terbentuk (Draf)
-            </span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-semibold text-gray-700">
+                Total {generatedQuestions.length} Butir Soal Terbentuk (Draf)
+              </span>
+              <div className="flex items-center gap-2 text-xs bg-white px-3 py-1.5 rounded-xl border border-gray-300">
+                <Clock className="w-3.5 h-3.5 text-blue-600" />
+                <span className="font-semibold text-gray-700">Waktu Rilis:</span>
+                <select
+                  value={scheduleType}
+                  onChange={e => setScheduleType(e.target.value as any)}
+                  className="font-bold text-gray-900 bg-transparent text-xs cursor-pointer focus:outline-none"
+                >
+                  <option value="NOW">⚡ Sekarang</option>
+                  <option value="SCHEDULED">📅 Terjadwal</option>
+                </select>
+                {scheduleType === 'SCHEDULED' && (
+                  <input
+                    type="datetime-local"
+                    value={scheduledAt}
+                    onChange={e => setScheduledAt(e.target.value)}
+                    className="p-1 border border-gray-300 rounded text-xs font-bold bg-amber-50"
+                  />
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -919,10 +1047,24 @@ export default function CreateQuestions() {
               <button
                 onClick={handlePublishTask}
                 disabled={saving}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md transition flex items-center disabled:opacity-50 text-sm"
+                className={`px-6 py-2.5 text-white font-extrabold rounded-xl shadow-md transition flex items-center disabled:opacity-50 text-sm ${
+                  scheduleType === 'SCHEDULED'
+                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
               >
-                {saving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Send className="w-5 h-5 mr-2" />}
-                {saving ? 'Sedang Menerbitkan...' : '🚀 Terbitkan ke Siswa Sekarang'}
+                {saving ? (
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                ) : scheduleType === 'SCHEDULED' ? (
+                  <Calendar className="w-5 h-5 mr-2" />
+                ) : (
+                  <Send className="w-5 h-5 mr-2" />
+                )}
+                {saving
+                  ? 'Sedang Memproses...'
+                  : scheduleType === 'SCHEDULED'
+                  ? '📅 Jadwalkan Terbit Soal'
+                  : '🚀 Terbitkan ke Siswa Sekarang'}
               </button>
             </div>
           </div>
@@ -954,6 +1096,8 @@ export default function CreateQuestions() {
             {tasks.map((task) => {
               const questionCount = Array.isArray(task.content) ? task.content.length : 0;
               const className = getClassName(task.class_id);
+              const pubTime = task.content?.[0]?.published_at || task.created_at;
+              const isFuture = pubTime && new Date(pubTime).getTime() > Date.now();
 
               return (
                 <div key={task.id} className="py-4 flex items-center justify-between gap-4 hover:bg-gray-50/80 px-2 rounded-xl transition-colors">
@@ -969,6 +1113,17 @@ export default function CreateQuestions() {
                       <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 font-bold rounded-full">
                         {questionCount} Soal
                       </span>
+                      {isFuture ? (
+                        <span className="text-xs px-2.5 py-0.5 bg-amber-100 text-amber-900 font-bold rounded-full border border-amber-300 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-700" />
+                          Terjadwal: {new Date(pubTime).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })} WIB
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full border border-emerald-200 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          Terbit Aktif
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500">
                       Mata Pelajaran: {task.subject_name || '-'} • Dibuat: {new Date(task.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -1023,6 +1178,29 @@ export default function CreateQuestions() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              {/* Publication Status Notice */}
+              {(() => {
+                const pubTime = selectedTask.content?.[0]?.published_at || selectedTask.created_at;
+                const isFuture = pubTime && new Date(pubTime).getTime() > Date.now();
+                return (
+                  <div className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+                    isFuture ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  }`}>
+                    <div className="flex items-center gap-2.5">
+                      <Clock className={`w-4 h-4 shrink-0 ${isFuture ? 'text-amber-600' : 'text-emerald-600'}`} />
+                      <div>
+                        <p className="font-bold">
+                          {isFuture ? 'Status: Terjadwal (Belum Dibuka untuk Siswa)' : 'Status: Terbit Aktif (Dapat Dikerjakan Siswa)'}
+                        </p>
+                        <p className="text-[11px] opacity-80 mt-0.5">
+                          Waktu Rilis: <strong>{new Date(pubTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' })} WIB</strong>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {Array.isArray(selectedTask.content) && selectedTask.content.map((q: any, idx: number) => (
                 <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm">
                   <p className="font-bold text-gray-900 mb-2">{idx + 1}. {q.question}</p>
@@ -1106,6 +1284,44 @@ export default function CreateQuestions() {
                       <option key={c.id} value={c.id}>Kelas {c.name}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              {/* Scheduled Publish Time Option in Edit Modal */}
+              <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">
+                <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-700" />
+                  Waktu Diterbitkan ke Siswa (Jadwal Buka Soal)
+                </label>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <input
+                    type="datetime-local"
+                    value={(() => {
+                      const pubTime = editingExistingTask.content?.[0]?.published_at || editingExistingTask.created_at;
+                      if (!pubTime) return '';
+                      const d = new Date(pubTime);
+                      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                    })()}
+                    onChange={e => {
+                      const iso = e.target.value ? new Date(e.target.value).toISOString() : new Date().toISOString();
+                      const updatedContent = (editingExistingTask.content || []).map((q: any) => ({
+                        ...q,
+                        published_at: iso
+                      }));
+                      setEditingExistingTask({ ...editingExistingTask, content: updatedContent });
+                    }}
+                    className="p-2 border border-amber-300 bg-white rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-amber-500"
+                  />
+                  <span className="text-[11px] text-amber-800">
+                    {(() => {
+                      const pubTime = editingExistingTask.content?.[0]?.published_at;
+                      if (!pubTime) return 'Terbit otomatis segera.';
+                      const isFuture = new Date(pubTime).getTime() > Date.now();
+                      return isFuture 
+                        ? '⏳ Soal terkunci dan akan aktif otomatis pada waktu di atas.' 
+                        : '✅ Waktu terbit telah lewat / soal aktif sekarang.';
+                    })()}
+                  </span>
                 </div>
               </div>
 

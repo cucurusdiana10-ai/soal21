@@ -1686,8 +1686,8 @@ export default function CreateModulAjar() {
                         </div>
 
                         {/* Action buttons */}
-                        <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5">
+                        <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <button
                               type="button"
                               onClick={() => {
@@ -1695,14 +1695,21 @@ export default function CreateModulAjar() {
                                 setCurrentSavedId(m.id);
                                 setActiveTab('create');
                               }}
-                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm"
+                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm"
                             >
                               <Eye className="w-3.5 h-3.5" /> Buka Modul
                             </button>
+                            <Link
+                              to={`/dashboard/bahan-ajar?modulId=${m.id}`}
+                              className="px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold flex items-center gap-1 transition border border-indigo-200"
+                              title="Buat Bahan Ajar Interaktif berbasis modul ini"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-indigo-600" /> Buat Bahan Ajar
+                            </Link>
                             <button
                               type="button"
                               onClick={() => handleDownloadDocx(m.content_json)}
-                              className="px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                              className="px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-xs font-bold flex items-center gap-1 transition"
                             >
                               <FileDown className="w-3.5 h-3.5" /> Word (.docx)
                             </button>

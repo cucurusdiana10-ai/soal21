@@ -653,6 +653,72 @@ export default function InteractiveBahanAjar({
           </div>
         </div>
       )}
+
+      {/* SECTION 4: SESI PERTEMUAN MODUL AJAR */}
+      {pertemuanMateri && pertemuanMateri.length > 0 && (
+        <div className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-900 border border-indigo-200">
+                <BookOpen className="w-3 h-3 text-indigo-600" />
+                Rangkaian Sesi Pembelajaran ({pertemuanMateri.length} Pertemuan)
+              </div>
+              <h3 className="text-base font-black text-gray-900">
+                Alur & Materi Per Pertemuan
+              </h3>
+            </div>
+            <span className="text-xs text-indigo-700 font-semibold bg-indigo-50 px-3 py-1 rounded-full">
+              Kurikulum Merdeka SMAN 21 Garut
+            </span>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            {pertemuanMateri.map((pm: any, pIdx: number) => (
+              <div
+                key={pIdx}
+                className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-xs font-black">
+                    Pertemuan {pm.pertemuanKe || pIdx + 1}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">
+                    {pm.alokasiWaktu || '2 x 45 Menit'}
+                  </span>
+                </div>
+
+                <h4 className="text-sm font-bold text-gray-900 leading-snug">
+                  {pm.topik || pm.nama || `Sesi Pembelajaran ${pIdx + 1}`}
+                </h4>
+
+                {pm.tujuan && (
+                  <p className="text-xs text-gray-600">
+                    <strong>Tujuan:</strong> {pm.tujuan}
+                  </p>
+                )}
+
+                {pm.ringkasanMateri && (
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs text-gray-700 leading-relaxed">
+                    <p>{pm.ringkasanMateri}</p>
+                  </div>
+                )}
+
+                {pm.gamifikasi && (
+                  <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <span>{pm.gamifikasi.badgeIcon || '🎯'}</span>
+                      {pm.gamifikasi.misiSiswa || 'Misi Sesi Ini'}
+                    </span>
+                    <span className="px-2 py-0.5 bg-amber-200 text-amber-950 rounded-md font-bold text-[10px]">
+                      +{pm.gamifikasi.xpReward || 50} XP
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, CheckCircle2, Clock, Search, FileText, Send, Loader2, X } from 'lucide-react';
+import { BookOpen, CheckCircle2, Clock, Search, FileText, Send, Loader2, X, Lock, Calendar } from 'lucide-react';
 import SiswaMateri from './SiswaMateri';
 import SiswaNilai from './SiswaNilai';
 
@@ -56,7 +56,26 @@ function SiswaTugas() {
     setLoading(false);
   }
 
+  const getTaskPublishTime = (task: any): string | null => {
+    if (Array.isArray(task.content) && task.content.length > 0 && task.content[0]?.published_at) {
+      return task.content[0].published_at;
+    }
+    return task.created_at || null;
+  };
+
+  const isTaskLocked = (task: any): boolean => {
+    const pubTime = getTaskPublishTime(task);
+    if (!pubTime) return false;
+    return new Date(pubTime).getTime() > Date.now();
+  };
+
   const openTaskModal = (task: any) => {
+    if (isTaskLocked(task)) {
+      const pubTime = getTaskPublishTime(task);
+      const formatted = pubTime ? new Date(pubTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' }) : '';
+      alert(`Mohon maaf, tugas ini belum dapat dibuka karena baru dijadwalkan terbit pada: ${formatted} WIB.`);
+      return;
+    }
     setActiveTask(task);
     setAnswers({});
   };
@@ -159,13 +178,17 @@ function SiswaTugas() {
           {filteredTasks.map((task) => {
             const sub = submissions[task.id];
             const isCompleted = !!sub;
+            const pubTime = getTaskPublishTime(task);
+            const isLocked = isTaskLocked(task);
 
             return (
               <div key={task.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 hover:border-blue-300 transition-colors flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-center gap-3">
-                      <div className={`p-3 rounded-xl ${isCompleted ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                      <div className={`p-3 rounded-xl ${
+                        isCompleted ? 'bg-green-50 text-green-600' : isLocked ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'
+                      }`}>
                         <BookOpen className="w-6 h-6" />
                       </div>
                       <div>
@@ -178,6 +201,10 @@ function SiswaTugas() {
                       <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full flex items-center">
                         <CheckCircle2 className="w-3 h-3 mr-1" /> Selesai
                       </span>
+                    ) : isLocked ? (
+                      <span className="px-3 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-full flex items-center border border-amber-300">
+                        <Lock className="w-3 h-3 mr-1 text-amber-700" /> Terjadwal
+                      </span>
                     ) : (
                       <span className="px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full flex items-center">
                         <Clock className="w-3 h-3 mr-1" /> Belum
@@ -185,7 +212,7 @@ function SiswaTugas() {
                     )}
                   </div>
 
-                  <p className="text-gray-600 text-sm mb-6 capitalize">
+                  <p className="text-gray-600 text-sm mb-4 capitalize">
                     Jenis Soal: {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'} • Jumlah: {task.content?.length || 0} Soal
                   </p>
                 </div>
@@ -197,10 +224,28 @@ function SiswaTugas() {
                       {sub.score !== null ? sub.score : 'Menunggu Koreksi Guru'}
                     </span>
                   </div>
+                ) : isLocked ? (
+                  <div className="space-y-2">
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">Soal Belum Dibuka</p>
+                        <p className="text-[11px] text-amber-800 mt-0.5">
+                          Tugas ini dijadwalkan terbit pada: <strong>{new Date(pubTime!).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' })} WIB</strong>.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      disabled
+                      className="w-full py-2.5 bg-gray-100 text-gray-400 font-semibold rounded-xl cursor-not-allowed text-xs flex items-center justify-center gap-1.5 border border-gray-200"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-gray-400" /> Menunggu Waktu Terbit
+                    </button>
+                  </div>
                 ) : (
                   <button
                     onClick={() => openTaskModal(task)}
-                    className="w-full py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition"
+                    className="w-full py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-sm"
                   >
                     Mulai Kerjakan Soal
                   </button>

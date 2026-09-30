@@ -54,6 +54,25 @@ function MaterialGenerator() {
     if (data) setClasses(data);
   }
 
+  // Helper for safe formatting of kegiatan inti (supports string or object)
+  const formatKegiatanIntiSummary = (kegiatanInti: any): string => {
+    if (!kegiatanInti) return '-';
+    if (typeof kegiatanInti === 'string') {
+      return kegiatanInti.slice(0, 180) + (kegiatanInti.length > 180 ? '...' : '');
+    }
+    if (typeof kegiatanInti === 'object') {
+      if (Array.isArray(kegiatanInti.sintaks) && kegiatanInti.sintaks.length > 0) {
+        return kegiatanInti.sintaks
+          .map((s: any) => `${s.tahap || 'Tahap'}: ${s.aktivitasSiswa || s.aktivitasGuru || ''}`)
+          .filter(Boolean)
+          .join('; ')
+          .slice(0, 200) + '...';
+      }
+      if (kegiatanInti.deskripsi) return String(kegiatanInti.deskripsi).slice(0, 180);
+    }
+    return String(kegiatanInti).slice(0, 180);
+  };
+
   async function fetchSavedModules() {
     if (!user) return;
     try {
@@ -65,11 +84,67 @@ function MaterialGenerator() {
 
       if (data && data.length > 0) {
         setSavedModules(data);
+
+        // Check if modulId is present in URL search params to auto-select
+        const params = new URLSearchParams(window.location.search);
+        const mId = params.get('modulId');
+        if (mId) {
+          const matched = data.find(m => m.id === mId);
+          if (matched) {
+            setTimeout(() => {
+              setSelectedModuleId(mId);
+              setSelectedMeetingIndex('ALL');
+              applyModuleSelection(matched, 'ALL');
+            }, 100);
+          }
+        }
       }
     } catch (err) {
       console.warn('Gagal memuat daftar modul ajar:', err);
     }
   }
+
+  const applyModuleSelection = (mod: any, meetingIdxStr: string = 'ALL') => {
+    // Normalize grade
+    let gradeVal = '10';
+    const rawGrade = (mod.grade || '').toUpperCase();
+    if (rawGrade.includes('XII') || rawGrade.includes('12')) gradeVal = '12';
+    else if (rawGrade.includes('XI') || rawGrade.includes('11')) gradeVal = '11';
+    else if (rawGrade.includes('X') || rawGrade.includes('10')) gradeVal = '10';
+
+    const subjectVal = mod.subject_name || form.subject;
+    const materiTitle = extractMateriTitleFromModule(mod);
+    const cleanTitle = materiTitle || (mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name);
+
+    const cJson = mod.content_json || {};
+    const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
+
+    if (meetingIdxStr === 'ALL') {
+      let topicVal = cleanTitle;
+      const descVal = `Bahan Ajar ini mengacu pada Modul Ajar Kurikulum Merdeka:\n• Dokumen / Materi: ${cleanTitle}\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model Pembelajaran: ${mod.metode || 'Problem-Based Learning'}\n• Alokasi Waktu: ${mod.alokasi_waktu || '2 x 45 Menit'}\nSajikan bahan ajar menyeluruh yang selaras dengan seluruh alur pertemuan pada modul tersebut.`;
+
+      setForm(prev => ({
+        ...prev,
+        subject: subjectVal,
+        grade: gradeVal,
+        topic: topicVal,
+        description: descVal
+      }));
+    } else {
+      const idx = parseInt(meetingIdxStr, 10);
+      const meeting = pertemuanList[idx] || pertemuanList[0];
+      const meetingName = meeting?.nama || `Pertemuan ${idx + 1}`;
+      const intiSummary = formatKegiatanIntiSummary(meeting?.kegiatanInti);
+
+      setForm(prev => ({
+        ...prev,
+        subject: subjectVal,
+        grade: gradeVal,
+        topic: `${cleanTitle} - ${meetingName}`,
+        description: `Bahan ajar khusus untuk ${meetingName} pada Modul Ajar: "${cleanTitle}".\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model Pembelajaran: ${meeting?.metode || mod.metode || 'Problem-Based Learning'}\n• Alokasi: ${meeting?.alokasiWaktu || mod.alokasi_waktu || '2 x 45 Menit'}\n• Sintaks/Kegiatan Inti: ${intiSummary}`
+      }));
+    }
+  };
 
   const handleSelectModule = (moduleId: string) => {
     setSelectedModuleId(moduleId);
@@ -84,34 +159,7 @@ function MaterialGenerator() {
     const mod = savedModules.find(m => m.id === moduleId);
     if (!mod) return;
 
-    // Normalize grade
-    let gradeVal = 'X';
-    const rawGrade = (mod.grade || '').toUpperCase();
-    if (rawGrade.includes('XII') || rawGrade.includes('12')) gradeVal = 'XII';
-    else if (rawGrade.includes('XI') || rawGrade.includes('11')) gradeVal = 'XI';
-    else if (rawGrade.includes('X') || rawGrade.includes('10')) gradeVal = 'X';
-
-    const subjectVal = mod.subject_name || form.subject;
-    const materiTitle = extractMateriTitleFromModule(mod);
-    const cleanTitle = materiTitle || (mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name);
-
-    const cJson = mod.content_json || {};
-    const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
-
-    let topicVal = cleanTitle;
-    if (pertemuanList.length > 0 && pertemuanList[0]?.nama) {
-      topicVal = `${cleanTitle} - ${pertemuanList[0].nama}`;
-    }
-
-    const descVal = `Bahan Ajar ini mengacu pada Modul Ajar Kurikulum Merdeka:\n• Dokumen / Materi: ${cleanTitle}\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model Pembelajaran: ${mod.metode || 'Problem-Based Learning'}\n• Alokasi Waktu: ${mod.alokasi_waktu || '2 x 45 Menit'}\nSajikan bahan ajar yang selaras dengan alur pembelajaran dan capaian pada modul tersebut.`;
-
-    setForm(prev => ({
-      ...prev,
-      subject: subjectVal,
-      grade: gradeVal,
-      topic: topicVal,
-      description: descVal
-    }));
+    applyModuleSelection(mod, 'ALL');
   };
 
   const handleSelectMeeting = (meetingIdxStr: string) => {
@@ -119,29 +167,7 @@ function MaterialGenerator() {
     const mod = savedModules.find(m => m.id === selectedModuleId);
     if (!mod) return;
 
-    const materiTitle = extractMateriTitleFromModule(mod);
-    const cleanTitle = materiTitle || (mod.title ? mod.title.replace(/^Modul Ajar:\s*/i, '') : mod.subject_name);
-    const cJson = mod.content_json || {};
-    const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
-
-    if (meetingIdxStr === 'ALL') {
-      setForm(prev => ({
-        ...prev,
-        topic: cleanTitle,
-        description: `Bahan Ajar rangkuman menyeluruh untuk Modul Ajar: "${cleanTitle}". Capaian Pembelajaran: ${mod.cp || '-'}. Model: ${mod.metode || 'PBL'}.`
-      }));
-    } else {
-      const idx = parseInt(meetingIdxStr, 10);
-      const meeting = pertemuanList[idx];
-      if (meeting) {
-        const meetingName = meeting.nama || `Pertemuan ${idx + 1}`;
-        setForm(prev => ({
-          ...prev,
-          topic: `${cleanTitle} (${meetingName})`,
-          description: `Bahan ajar khusus untuk ${meetingName} pada Modul Ajar: "${cleanTitle}".\n• Capaian Pembelajaran: ${mod.cp || '-'}\n• Model: ${mod.metode || 'PBL'}\n• Sintaks/Kegiatan Inti: ${meeting.kegiatanInti ? meeting.kegiatanInti.slice(0, 180) + '...' : '-'}`
-        }));
-      }
-    }
+    applyModuleSelection(mod, meetingIdxStr);
   };
 
   async function fetchTeacherSubjects() {
@@ -185,11 +211,18 @@ function MaterialGenerator() {
     setLoading(true);
     setIsEditing(false);
     try {
+      const selectedMod = savedModules.find(m => m.id === selectedModuleId);
+      const cJson = selectedMod?.content_json || {};
+      const pertemuanList = Array.isArray(cJson.pertemuan) ? cJson.pertemuan : [];
+
       const data = await generateMaterialApi({
         subject: form.subject,
         grade: form.grade,
         topic: form.topic,
-        description: form.description
+        description: form.description,
+        pertemuanList,
+        pertemuanCount: pertemuanList.length,
+        selectedMeetingIndex
       });
       
       // Ensure image fallback if missing

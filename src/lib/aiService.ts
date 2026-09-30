@@ -116,6 +116,7 @@ async function clientFallbackGenerateMaterial(
   const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
   const meetings = Array.isArray(pertemuanList) ? pertemuanList : [];
   const hasMultiple = meetings.length > 0 && selectedMeetingIndex === 'ALL';
+  const isSpecificMeeting = meetings.length > 0 && selectedMeetingIndex !== undefined && selectedMeetingIndex !== 'ALL';
 
   let prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif, joyful & mindful learning, serta gamifikasi edukatif untuk siswa SMA di SMAN 21 Garut:
 Mata Pelajaran: ${subject}
@@ -124,10 +125,18 @@ Capaian Pembelajaran / Topik: "${fullTopic}"
 `;
 
   if (hasMultiple) {
-    prompt += `\nJUMLAH PERTEMUAN:
+    prompt += `\nJUMLAH PERTEMUAN MODUL:
 Bahan Ajar mengacu pada Modul Ajar dengan ${meetings.length} Pertemuan:
 ${meetings.map((m: any, idx: number) => `* Pertemuan ${idx + 1}: ${m.nama || `Pertemuan ${idx + 1}`}`).join('\n')}
 Wajib buat array "pertemuanMateri" dengan TEPAT ${meetings.length} item sesuai pertemuan di atas!
+`;
+  } else if (isSpecificMeeting) {
+    const sIdx = parseInt(selectedMeetingIndex, 10);
+    const targetMeet = meetings[sIdx] || meetings[0];
+    prompt += `\nBAHAN AJAR KHUSUS PERTEMUAN KE-${sIdx + 1}:
+Bahan Ajar difokuskan secara tuntas HANYA untuk Pertemuan ${sIdx + 1}: "${targetMeet.nama || `Pertemuan ${sIdx + 1}`}".
+Model/Metode: ${targetMeet.metode || 'Sintaks Pembelajaran'}
+Wajib buat bahan ajar yang detail, aplikatif, dan terfokus untuk sesi ini, serta sertakan array "pertemuanMateri" dengan 1 item untuk Pertemuan ${sIdx + 1}!
 `;
   }
 

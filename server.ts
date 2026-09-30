@@ -152,17 +152,39 @@ Jenjang / Tingkat: SMA Kelas ${grade}
 Capaian Pembelajaran / Topik: "${fullTopic}"
 `;
 
+      const formatIntiForPrompt = (kegiatan: any): string => {
+        if (!kegiatan) return 'Sintaks Pembelajaran';
+        if (typeof kegiatan === 'string') return kegiatan.slice(0, 120);
+        if (typeof kegiatan === 'object') {
+          if (Array.isArray(kegiatan.sintaks) && kegiatan.sintaks.length > 0) {
+            return kegiatan.sintaks
+              .map((s: any) => `${s.tahap || 'Tahap'}: ${s.aktivitasSiswa || s.aktivitasGuru || ''}`)
+              .filter(Boolean)
+              .join('; ')
+              .slice(0, 140);
+          }
+          if (kegiatan.deskripsi) return String(kegiatan.deskripsi).slice(0, 120);
+        }
+        return 'Sintaks Pembelajaran Terstruktur';
+      };
+
       if (hasMultipleMeetings) {
         prompt += `\nPERHATIAN KHUSUS - JUMLAH PERTEMUAN MODUL AJAR:
-Bahan Ajar ini mengacu langsung pada Modul Ajar yang memiliki TEpat ${effectiveMeetings.length} PERTEMUAN:
-${effectiveMeetings.map((m: any, idx: number) => `* Pertemuan ${idx + 1}: ${m.nama || `Pertemuan ${idx + 1}`} (Kegiatan: ${m.kegiatanInti ? m.kegiatanInti.slice(0, 100) + '...' : 'Sintaks Pembelajaran'})`).join('\n')}
+Bahan Ajar ini mengacu langsung pada Modul Ajar yang memiliki TEPAT ${effectiveMeetings.length} PERTEMUAN:
+${effectiveMeetings.map((m: any, idx: number) => `* Pertemuan ${idx + 1}: ${m.nama || `Pertemuan ${idx + 1}`} (Kegiatan: ${formatIntiForPrompt(m.kegiatanInti)})`).join('\n')}
 Anda WAJIB menstrukturkan bahan ajar ke dalam array "pertemuanMateri" dengan TEPAT ${effectiveMeetings.length} item sesuai rincian pertemuan modul di atas!
 `;
       } else if (selectedMeetingIndex !== undefined && selectedMeetingIndex !== 'ALL' && effectiveMeetings.length > 0) {
         const mIdx = parseInt(selectedMeetingIndex, 10);
         const specificMeet = effectiveMeetings[mIdx] || effectiveMeetings[0];
-        prompt += `\nPERHATIAN KHUSUS - PERTEMUAN SPESIFIK:
-Bahan Ajar ini difokuskan mendalam untuk Pertemuan ${mIdx + 1}: "${specificMeet.nama || `Pertemuan ${mIdx + 1}`}".
+        prompt += `\nPERHATIAN KHUSUS - BAHAN AJAR KHUSUS PERTEMUAN KE-${mIdx + 1}:
+Bahan Ajar ini difokuskan mendalam secara spesifik HANYA untuk Pertemuan ${mIdx + 1}: "${specificMeet.nama || `Pertemuan ${mIdx + 1}`}".
+Rincian Alur Pertemuan:
+- Model/Metode Pembelajaran: ${specificMeet.metode || 'Sintaks Pembelajaran Aktif'}
+- Alokasi Waktu: ${specificMeet.alokasiWaktu || '2 x 45 Menit'}
+- Fokus Sintaks / Kegiatan: ${formatIntiForPrompt(specificMeet.kegiatanInti)}
+WAJIB: Sajikan materi pembelajaran yang fokus, tuntas, dan mendalam untuk sesi Pertemuan ${mIdx + 1} ini. 
+Sertakan juga array "pertemuanMateri" dengan 1 item yang merepresentasikan Pertemuan ${mIdx + 1} ini secara komprehensif!
 `;
       }
 
