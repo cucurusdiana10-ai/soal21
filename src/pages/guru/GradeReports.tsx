@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download, KeyRound } from 'lucide-react';
+import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download, KeyRound, RotateCcw, Edit2, Calculator } from 'lucide-react';
 import { gradeEssayApi } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
 
@@ -14,6 +14,10 @@ export default function GradeReports() {
   const [gradingModal, setGradingModal] = useState<any | null>(null);
   const [gradingScore, setGradingScore] = useState<number>(0);
   const [gradingFeedback, setGradingFeedback] = useState<string>('');
+  const [gradingStatus, setGradingStatus] = useState<'graded' | 'submitted'>('graded');
+  const [editingAnswers, setEditingAnswers] = useState<Record<number, string>>({});
+  const [isEditingExamAnswers, setIsEditingExamAnswers] = useState<boolean>(false);
+  const [resettingId, setResettingId] = useState<string | null>(null);
   const [aiGradingLoading, setAiGradingLoading] = useState(false);
   const [savingGrade, setSavingGrade] = useState(false);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -74,17 +78,117 @@ export default function GradeReports() {
     setLoading(false);
   }
 
-  const openGradingModal = (item: any) => {
+  const openGradingModal = (item: any, startInEditMode: boolean = false) => {
     const sub = item.submission;
+    const rawAnswers = sub?.answers || {};
+    const normalizedAnswers: Record<number, string> = {};
+    Object.keys(rawAnswers).forEach(k => {
+      normalizedAnswers[Number(k)] = String(rawAnswers[k] ?? '');
+    });
+
     setGradingModal(item);
-    setGradingScore(sub?.score || 0);
+    setGradingScore(sub?.score ?? 0);
     setGradingFeedback(sub?.feedback || '');
+    setGradingStatus(sub?.status === 'submitted' ? 'submitted' : 'graded');
+    setEditingAnswers(normalizedAnswers);
+    setIsEditingExamAnswers(startInEditMode);
+  };
+
+  const handleRecalculateFromEditedAnswers = () => {
+    if (!selectedTask) return;
+    const questions = Array.isArray(selectedTask.content) ? selectedTask.content : [];
+    if (questions.length === 0) return;
+
+    const pointsPerQuestion = 100 / questions.length;
+    let calculatedScore = 0;
+
+    questions.forEach((q: any, idx: number) => {
+      if (q.type === 'pg') {
+        const studentAns = editingAnswers[idx] || '';
+        const isCorrect = String(studentAns).trim().toLowerCase() === String(q.answer).trim().toLowerCase();
+        if (isCorrect) {
+          calculatedScore += pointsPerQuestion;
+        }
+      }
+    });
+
+    const rounded = Math.min(100, Math.round(calculatedScore));
+    setGradingScore(rounded);
+  };
+
+  const handleResetStudentExam = async (item: any) => {
+    const st = item.student;
+    const sub = item.submission;
+    if (!sub || !selectedTask) return;
+
+    if (
+      !confirm(
+        `Apakah Anda yakin ingin MERESET hasil ujian siswa "${st.name}"?\n\nSeluruh jawaban dan nilai siswa pada tugas ini akan dihapus sehingga siswa dapat mengerjakan ulang ujian dari awal.`
+      )
+    ) {
+      return;
+    }
+
+    setResettingId(st.id);
+    try {
+      const { error } = await supabase
+        .from('task_submissions')
+        .delete()
+        .eq('id', sub.id);
+
+      if (error) throw error;
+
+      if (gradingModal?.student?.id === st.id) {
+        setGradingModal(null);
+      }
+      await handleSelectTask(selectedTask);
+      alert(`✅ Hasil ujian siswa "${st.name}" berhasil direset. Siswa kini dapat mengerjakan ulang soal.`);
+    } catch (err: any) {
+      alert('Gagal mereset ujian siswa: ' + err.message);
+    } finally {
+      setResettingId(null);
+    }
+  };
+
+  const handleResetAllClassExams = async () => {
+    if (!selectedTask) return;
+    const submittedCount = submissions.filter(s => s.submission).length;
+    if (submittedCount === 0) {
+      alert('Belum ada siswa yang mengumpulkan ujian pada tugas ini.');
+      return;
+    }
+
+    if (
+      !confirm(
+        `PERINGATAN: Apakah Anda yakin ingin MERESET SEMUA hasil ujian (${submittedCount} siswa) pada tugas "${selectedTask.title}"?\n\nSemua siswa di kelas ini harus mengerjakan ulang dari awal.`
+      )
+    ) {
+      return;
+    }
+
+    setResettingId('ALL');
+    try {
+      const { error } = await supabase
+        .from('task_submissions')
+        .delete()
+        .eq('task_id', selectedTask.id);
+
+      if (error) throw error;
+
+      setGradingModal(null);
+      await handleSelectTask(selectedTask);
+      alert(`✅ Seluruh hasil ujian (${submittedCount} siswa) berhasil direset.`);
+    } catch (err: any) {
+      alert('Gagal mereset ujian kelas: ' + err.message);
+    } finally {
+      setResettingId(null);
+    }
   };
 
   const handleAiAutoGrade = async () => {
     if (!gradingModal || !selectedTask) return;
     const questions = Array.isArray(selectedTask.content) ? selectedTask.content : [];
-    const studentAnswers = gradingModal.submission?.answers || {};
+    const studentAnswers = editingAnswers;
 
     setAiGradingLoading(true);
 
@@ -144,29 +248,42 @@ export default function GradeReports() {
   const handleSaveGrade = async () => {
     if (!gradingModal || !selectedTask) return;
     const sub = gradingModal.submission;
-    if (!sub) {
-      alert('Siswa belum mengumpulkan tugas.');
-      return;
-    }
+    const st = gradingModal.student;
 
     setSavingGrade(true);
     try {
-      const { error } = await supabase
-        .from('task_submissions')
-        .update({
-          score: gradingScore,
-          status: 'graded',
-          feedback: gradingFeedback
-        })
-        .eq('id', sub.id);
+      if (sub) {
+        const { error } = await supabase
+          .from('task_submissions')
+          .update({
+            answers: editingAnswers,
+            score: gradingScore,
+            status: gradingStatus,
+            feedback: gradingFeedback
+          })
+          .eq('id', sub.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('task_submissions')
+          .insert([{
+            task_id: selectedTask.id,
+            student_id: st.id,
+            answers: editingAnswers,
+            score: gradingScore,
+            status: gradingStatus,
+            feedback: gradingFeedback || 'Diinput/diedit langsung oleh Guru.'
+          }]);
 
-      alert('Nilai dan umpan balik berhasil disimpan!');
+        if (error) throw error;
+      }
+
+      alert('✅ Perubahan ujian, jawaban, dan nilai siswa berhasil disimpan!');
       setGradingModal(null);
       handleSelectTask(selectedTask); // Refresh list
     } catch (err: any) {
-      alert('Gagal menyimpan nilai: ' + err.message);
+      alert('Gagal menyimpan perubahan ujian: ' + err.message);
     } finally {
       setSavingGrade(false);
     }
@@ -260,13 +377,32 @@ export default function GradeReports() {
               </p>
             </div>
 
-            <button
-              onClick={handleDownloadReport}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-2"
-              title="Unduh Hasil Perkelas (No, Nama, NISN, Nilai)"
-            >
-              <Download className="w-4 h-4" /> Download Perkelas (CSV/Excel)
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {submissions.some(s => s.submission) && (
+                <button
+                  type="button"
+                  onClick={handleResetAllClassExams}
+                  disabled={resettingId === 'ALL'}
+                  className="px-3.5 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs rounded-xl transition flex items-center gap-1.5 disabled:opacity-50"
+                  title="Reset semua hasil ujian siswa di kelas ini"
+                >
+                  {resettingId === 'ALL' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  )}
+                  Reset Semua Ujian Kelas
+                </button>
+              )}
+
+              <button
+                onClick={handleDownloadReport}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-2"
+                title="Unduh Hasil Perkelas (No, Nama, NISN, Nilai)"
+              >
+                <Download className="w-4 h-4" /> Download Perkelas (CSV/Excel)
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -324,16 +460,52 @@ export default function GradeReports() {
                             </span>
                           ) : '-'}
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-right whitespace-nowrap">
                           {sub ? (
-                            <button
-                              onClick={() => openGradingModal(item)}
-                              className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-semibold text-xs transition"
-                            >
-                              Periksa & Koreksi
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openGradingModal(item, false)}
+                                className="px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-semibold text-xs transition flex items-center gap-1"
+                                title="Periksa & Koreksi Nilai"
+                              >
+                                <Eye className="w-3.5 h-3.5" /> Koreksi
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openGradingModal(item, true)}
+                                className="px-2.5 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg font-semibold text-xs transition flex items-center gap-1"
+                                title="Edit Jawaban & Nilai Ujian Siswa"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" /> Edit Ujian
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResetStudentExam(item)}
+                                disabled={resettingId === st.id}
+                                className="px-2.5 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg font-semibold text-xs transition flex items-center gap-1 disabled:opacity-50"
+                                title="Reset Ujian Siswa (Siswa dapat mengerjakan ulang)"
+                              >
+                                {resettingId === st.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                )}
+                                Reset
+                              </button>
+                            </div>
                           ) : (
-                            <span className="text-xs text-gray-400 italic">Belum Mengumpulkan</span>
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="text-xs text-gray-400 italic">Belum Mengumpulkan</span>
+                              <button
+                                type="button"
+                                onClick={() => openGradingModal(item, true)}
+                                className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-amber-50 hover:text-amber-800 rounded-lg font-semibold text-xs transition flex items-center gap-1"
+                                title="Input / Edit Ujian Manual untuk Siswa Ini"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" /> Edit / Input
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -346,45 +518,149 @@ export default function GradeReports() {
         </div>
       )}
 
-      {/* Correction / Grading Modal */}
+      {/* Correction / Edit Student Exam Modal */}
       {gradingModal && selectedTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-slate-50">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Koreksi Lembar Jawaban</h3>
-                <p className="text-xs text-gray-500">Siswa: {gradingModal.student.name} • NISN: {gradingModal.student.username}</p>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-gray-900">
+                    {isEditingExamAnswers ? 'Edit Ujian & Jawaban Siswa' : 'Koreksi Lembar Jawaban Siswa'}
+                  </h3>
+                  <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md ${
+                    isEditingExamAnswers ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {isEditingExamAnswers ? 'Mode Edit Ujian' : 'Mode Koreksi'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Siswa: <strong className="text-gray-800">{gradingModal.student.name}</strong> • NISN: {gradingModal.student.username}
+                </p>
               </div>
-              <button 
-                onClick={() => setGradingModal(null)}
-                className="text-gray-400 hover:text-gray-600 p-2"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingExamAnswers(!isEditingExamAnswers)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border ${
+                    isEditingExamAnswers
+                      ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                      : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  {isEditingExamAnswers ? 'Selesai Edit Jawaban' : 'Edit Jawaban Siswa'}
+                </button>
+                <button 
+                  onClick={() => setGradingModal(null)}
+                  className="text-gray-400 hover:text-gray-600 p-2"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* Question & Answer Details */}
+              {/* Question & Answer Details (View or Interactive Edit Mode) */}
               <div className="space-y-4">
-                <h4 className="font-bold text-gray-900 text-sm border-b pb-2">Jawaban Siswa</h4>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <h4 className="font-bold text-gray-900 text-sm">
+                    {isEditingExamAnswers ? 'Edit Butir Jawaban Ujian Siswa' : 'Daftar Jawaban Siswa'}
+                  </h4>
+                  {isEditingExamAnswers && (
+                    <button
+                      type="button"
+                      onClick={handleRecalculateFromEditedAnswers}
+                      className="px-3 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                    >
+                      <Calculator className="w-3.5 h-3.5" /> Hitung Ulang Skor PG Otomatis
+                    </button>
+                  )}
+                </div>
+
                 {selectedTask.content?.map((q: any, idx: number) => {
-                  const studentAns = gradingModal.submission?.answers?.[idx] || gradingModal.submission?.answers?.[String(idx)] || '-';
+                  const studentAns = editingAnswers[idx] ?? '';
                   return (
-                    <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm space-y-2">
-                      <p className="font-bold text-gray-900">Soal #{idx + 1}: {q.question}</p>
+                    <div key={idx} className={`p-4 rounded-xl border text-sm space-y-2.5 ${
+                      isEditingExamAnswers ? 'bg-amber-50/40 border-amber-200' : 'bg-gray-50 border-gray-200'
+                    }`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-bold text-gray-900">Soal #{idx + 1}: {q.question}</p>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-600 shrink-0">
+                          {q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'}
+                        </span>
+                      </div>
                       
                       {q.type === 'pg' && (
-                        <div className="text-xs space-y-1">
-                          <p className="text-gray-700">Jawaban Siswa: <span className="font-bold text-blue-700">{studentAns}</span></p>
-                          <p className="text-gray-500">Kunci Jawaban: <span className="font-bold text-green-700">{q.answer}</span></p>
-                        </div>
+                        isEditingExamAnswers ? (
+                          <div className="space-y-2 pt-1">
+                            <p className="text-xs font-semibold text-amber-900">Pilih/Ubah Jawaban Pilihan Ganda Siswa:</p>
+                            <div className="grid sm:grid-cols-2 gap-2">
+                              {q.options?.map((opt: string, oIdx: number) => {
+                                const letter = String.fromCharCode(65 + oIdx);
+                                const isSelected = studentAns === letter || studentAns === opt;
+                                const isKey = q.answer === letter || q.answer === opt;
+                                return (
+                                  <button
+                                    key={oIdx}
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingAnswers(prev => ({ ...prev, [idx]: letter }));
+                                    }}
+                                    className={`p-2.5 rounded-lg border text-left text-xs transition flex items-center justify-between ${
+                                      isSelected
+                                        ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-2xs'
+                                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                                    }`}
+                                  >
+                                    <span><strong>{letter}.</strong> {opt}</span>
+                                    {isKey && (
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                        isSelected ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-700'
+                                      }`}>
+                                        Kunci
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-xs space-y-1">
+                            <p className="text-gray-700">
+                              Jawaban Siswa: <span className={`font-bold ${
+                                String(studentAns).trim().toLowerCase() === String(q.answer).trim().toLowerCase()
+                                  ? 'text-emerald-700'
+                                  : 'text-red-600'
+                              }`}>{studentAns || '-'}</span>
+                            </p>
+                            <p className="text-gray-500">Kunci Jawaban: <span className="font-bold text-green-700">{q.answer}</span></p>
+                          </div>
+                        )
                       )}
 
                       {q.type === 'essay' && (
-                        <div className="text-xs space-y-2 bg-white p-3 rounded-lg border border-gray-200">
-                          <p className="text-gray-800 font-medium"><span className="text-gray-500 font-normal">Jawaban Siswa:</span> "{studentAns}"</p>
-                          <p className="text-emerald-800 font-medium"><span className="text-gray-500 font-normal">Kunci Jawaban Guru:</span> "{q.answerKey || q.answer}"</p>
-                        </div>
+                        isEditingExamAnswers ? (
+                          <div className="space-y-1.5 pt-1">
+                            <label className="block text-xs font-semibold text-amber-900">Edit Jawaban Esai Siswa:</label>
+                            <textarea
+                              rows={2}
+                              value={studentAns}
+                              onChange={e => setEditingAnswers(prev => ({ ...prev, [idx]: e.target.value }))}
+                              placeholder="Ketik atau perbaiki jawaban esai siswa..."
+                              className="w-full p-2.5 bg-white border border-amber-300 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
+                            />
+                            <p className="text-[11px] text-emerald-800">
+                              <strong>Kunci Jawaban Guru:</strong> "{q.answerKey || q.answer}"
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="text-xs space-y-2 bg-white p-3 rounded-lg border border-gray-200">
+                            <p className="text-gray-800 font-medium"><span className="text-gray-500 font-normal">Jawaban Siswa:</span> "{studentAns || '-'}"</p>
+                            <p className="text-emerald-800 font-medium"><span className="text-gray-500 font-normal">Kunci Jawaban Guru:</span> "{q.answerKey || q.answer}"</p>
+                          </div>
+                        )
                       )}
                     </div>
                   );
@@ -392,36 +668,49 @@ export default function GradeReports() {
               </div>
 
               {/* AI Auto Grade Button */}
-              <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-between">
+              <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <h4 className="font-bold text-indigo-900 text-sm flex items-center">
                     <Sparkles className="w-4 h-4 mr-1 text-indigo-600" /> Koreksi Otomatis dengan AI
                   </h4>
-                  <p className="text-xs text-indigo-700">Gunakan Gemini AI untuk memeriksa jawaban esai dan menghitung total nilai.</p>
+                  <p className="text-xs text-indigo-700">Gunakan AI untuk memeriksa jawaban siswa saat ini dan menghitung total nilai.</p>
                 </div>
                 <button
                   type="button"
                   onClick={handleAiAutoGrade}
                   disabled={aiGradingLoading}
-                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-xl text-xs hover:bg-indigo-700 transition flex items-center disabled:opacity-50"
+                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-xl text-xs hover:bg-indigo-700 transition flex items-center disabled:opacity-50 shrink-0"
                 >
                   {aiGradingLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Sparkles className="w-4 h-4 mr-1" />}
                   {aiGradingLoading ? 'Mengkoreksi...' : 'Jalankan Koreksi AI'}
                 </button>
               </div>
 
-              {/* Manual Grade Adjustment */}
+              {/* Manual Grade & Status Adjustment */}
               <div className="space-y-4 pt-2">
-                <div>
-                  <label className="block text-sm font-bold text-gray-900 mb-1">Nilai Akhir (0 - 100)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={gradingScore}
-                    onChange={e => setGradingScore(Number(e.target.value))}
-                    className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-bold text-lg text-blue-600 focus:ring-2 focus:ring-blue-500"
-                  />
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-900 mb-1">Nilai Akhir (0 - 100)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={gradingScore}
+                      onChange={e => setGradingScore(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-bold text-lg text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-900 mb-1">Status Ujian Siswa</label>
+                    <select
+                      value={gradingStatus}
+                      onChange={e => setGradingStatus(e.target.value as 'graded' | 'submitted')}
+                      className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-semibold text-sm text-gray-800 focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="graded">✅ Sudah Dinilai (Selesai)</option>
+                      <option value="submitted">⏳ Perlu Periksa / Koreksi Ulang</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div>
@@ -430,30 +719,45 @@ export default function GradeReports() {
                     rows={3}
                     value={gradingFeedback}
                     onChange={e => setGradingFeedback(e.target.value)}
-                    placeholder="Berikan umpan balik atau apresiasi kepada siswa..."
+                    placeholder="Berikan umpan balik atau catatan hasil ujian kepada siswa..."
                     className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="p-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50">
-              <button
-                type="button"
-                onClick={() => setGradingModal(null)}
-                className="px-4 py-2 text-gray-600 font-semibold hover:bg-gray-200 rounded-xl text-sm transition"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveGrade}
-                disabled={savingGrade}
-                className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-xl text-sm hover:bg-blue-700 transition flex items-center disabled:opacity-50"
-              >
-                {savingGrade ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Save className="w-4 h-4 mr-1" />}
-                {savingGrade ? 'Menyimpan...' : 'Simpan Penilaian'}
-              </button>
+            <div className="p-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
+              <div>
+                {gradingModal.submission && (
+                  <button
+                    type="button"
+                    onClick={() => handleResetStudentExam(gradingModal)}
+                    disabled={resettingId === gradingModal.student.id}
+                    className="px-3.5 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-semibold rounded-xl text-xs transition flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset Ujian Siswa Ini
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGradingModal(null)}
+                  className="px-4 py-2 text-gray-600 font-semibold hover:bg-gray-200 rounded-xl text-sm transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveGrade}
+                  disabled={savingGrade}
+                  className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-xl text-sm hover:bg-blue-700 transition flex items-center disabled:opacity-50 shadow-sm"
+                >
+                  {savingGrade ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Save className="w-4 h-4 mr-1" />}
+                  {savingGrade ? 'Menyimpan...' : 'Simpan Perubahan Ujian'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
