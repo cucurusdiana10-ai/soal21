@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Search, Eye, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle, Film, Image, Trophy, Sparkles } from 'lucide-react';
+import { BookOpen, Search, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle, Film, Image, Layers, Calendar, User } from 'lucide-react';
 import MediaViewer from '../../components/MediaViewer';
 import InteractiveBahanAjar from '../../components/InteractiveBahanAjar';
 
@@ -10,6 +10,7 @@ export default function SiswaMateri() {
   const [materials, setMaterials] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('ALL');
   const [selectedMaterial, setSelectedMaterial] = useState<any | null>(null);
   const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
 
@@ -39,81 +40,167 @@ export default function SiswaMateri() {
     setLoading(false);
   }
 
-  const filtered = materials.filter(m => 
-    m.title?.toLowerCase().includes(search.toLowerCase()) ||
-    m.topic?.toLowerCase().includes(search.toLowerCase()) ||
-    m.subject_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const uniqueSubjects = Array.from(new Set(materials.map(m => m.subject_name).filter(Boolean)));
+
+  const filtered = materials.filter(m => {
+    const matchesSearch =
+      m.title?.toLowerCase().includes(search.toLowerCase()) ||
+      m.topic?.toLowerCase().includes(search.toLowerCase()) ||
+      m.subject_name?.toLowerCase().includes(search.toLowerCase());
+    const matchesSubject = subjectFilter === 'ALL' || m.subject_name === subjectFilter;
+    return matchesSearch && matchesSubject;
+  });
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Bahan Ajar & Materi Pembelajaran</h1>
-          <p className="text-gray-500">Pelajari materi interaktif, fun fact, dan kuis pemantik seru dari guru Anda.</p>
+      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Bahan Ajar & Materi Pembelajaran</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Pelajari materi interaktif, peta konsep, studi kasus, dan kuis pemantik dari guru pengampu kelas Anda.
+            </p>
+          </div>
+
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Cari judul materi atau topik..."
+              className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 transition"
+            />
+          </div>
         </div>
 
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Cari materi / topik..."
-            className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+        {/* Subject Filter Segmented Bar */}
+        {uniqueSubjects.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={() => setSubjectFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                subjectFilter === 'ALL'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+              }`}
+            >
+              Semua Mapel ({materials.length})
+            </button>
+            {uniqueSubjects.map((sub: any, idx: number) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setSubjectFilter(sub)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  subjectFilter === sub
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+              >
+                {sub}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading ? (
         <div className="text-center py-12 text-gray-500">Memuat bahan ajar...</div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white p-8 text-center rounded-2xl border border-gray-200 text-gray-500">
-          Belum ada materi pembelajaran yang diterbitkan untuk kelas Anda.
+        <div className="bg-white p-10 text-center rounded-2xl border border-gray-200 text-gray-500">
+          <BookOpen className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+          <p className="font-semibold text-gray-700">Belum ada materi pembelajaran yang ditemukan.</p>
+          <p className="text-xs text-gray-400 mt-1">Materi yang diterbitkan oleh Guru untuk kelas Anda akan tampil di sini.</p>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 gap-6">
-          {filtered.map(mat => (
-            <div key={mat.id} className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm hover:border-blue-300 transition flex flex-col justify-between">
-              <div>
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="px-3 py-1 bg-blue-50 text-blue-700 font-bold text-xs rounded-full border border-blue-100">
-                      {mat.subject_name || 'Mata Pelajaran'}
+        <div className="grid md:grid-cols-2 gap-5">
+          {filtered.map((mat, idx) => {
+            const subCount = Array.isArray(mat.content_json?.materials) ? mat.content_json.materials.length : 0;
+            const quizCount = Array.isArray(mat.content_json?.interactiveQuestions) ? mat.content_json.interactiveQuestions.length : 0;
+            const dateStr = new Date(mat.created_at).toLocaleDateString('id-ID', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric'
+            });
+
+            return (
+              <div
+                key={mat.id}
+                className="group bg-white p-6 rounded-2xl border border-gray-200 shadow-xs hover:border-blue-300 hover:shadow-md transition-all flex flex-col justify-between"
+              >
+                <div>
+                  {/* Quiet Metadata Kicker */}
+                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-2">
+                    <div className="flex items-center gap-1.5 font-medium truncate">
+                      <span className="font-bold text-blue-700">{mat.subject_name || 'Mata Pelajaran'}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>Kelas {mat.class?.name || mat.grade}</span>
+                    </div>
+                    <span className="text-[11px] text-slate-400 shrink-0 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" /> {dateStr}
+                    </span>
+                  </div>
+
+                  {/* Primary Title & Topic */}
+                  <h3 className="font-bold text-gray-900 text-lg leading-snug group-hover:text-blue-950 transition-colors mb-1.5 line-clamp-2">
+                    {idx + 1}. {mat.title || mat.topic}
+                  </h3>
+
+                  {mat.topic && mat.topic !== mat.title && (
+                    <p className="text-xs text-gray-600 mb-2 line-clamp-1">
+                      Topik: <span className="font-medium text-gray-800">{mat.topic}</span>
+                    </p>
+                  )}
+
+                  <p className="text-xs text-gray-500 flex items-center gap-1.5 mb-4">
+                    <User className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Pengampu: <strong className="text-gray-700">{mat.guru?.name || 'Guru Mata Pelajaran'}</strong></span>
+                  </p>
+
+                  {/* Structured Content Indicators */}
+                  <div className="py-2.5 px-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600 mb-5">
+                    <span className="flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5 text-blue-600" />
+                      {subCount} Sub-Materi
+                    </span>
+                    <span aria-hidden="true" className="text-slate-300">·</span>
+                    <span className="flex items-center gap-1">
+                      <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      {quizCount} Kuis Interaktif
                     </span>
                     {mat.content_json?.videoUrl && (
-                      <span className="px-2 py-0.5 bg-red-50 text-red-700 font-bold text-[11px] rounded-md border border-red-100 flex items-center gap-1">
-                        <Film className="w-3 h-3" /> Video
-                      </span>
+                      <>
+                        <span aria-hidden="true" className="text-slate-300">·</span>
+                        <span className="flex items-center gap-1 text-red-700 font-medium">
+                          <Film className="w-3.5 h-3.5" /> Video
+                        </span>
+                      </>
                     )}
                     {mat.content_json?.imageUrl && (
-                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-bold text-[11px] rounded-md border border-indigo-100 flex items-center gap-1">
-                        <Image className="w-3 h-3" /> Gambar
-                      </span>
+                      <>
+                        <span aria-hidden="true" className="text-slate-300">·</span>
+                        <span className="flex items-center gap-1 text-indigo-700 font-medium">
+                          <Image className="w-3.5 h-3.5" /> Ilustrasi
+                        </span>
+                      </>
                     )}
                   </div>
-                  <span className="text-xs text-gray-400">
-                    {new Date(mat.created_at).toLocaleDateString('id-ID')}
-                  </span>
                 </div>
 
-                <h3 className="font-bold text-gray-900 text-lg mb-2">{mat.title}</h3>
-                <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-                  Guru: {mat.guru?.name || 'Guru Pengampu'} • Topik: {mat.topic}
-                </p>
+                <button
+                  onClick={() => {
+                    setQuizAnswers({});
+                    setSelectedMaterial(mat);
+                  }}
+                  className="w-full py-2.5 px-4 bg-blue-600 text-white font-semibold text-sm rounded-xl hover:bg-blue-700 transition flex items-center justify-center shadow-xs"
+                >
+                  <BookOpen className="w-4 h-4 mr-2" /> Buka & Pelajari Materi
+                </button>
               </div>
-
-              <button
-                onClick={() => {
-                  setQuizAnswers({});
-                  setSelectedMaterial(mat);
-                }}
-                className="w-full py-2.5 bg-blue-50 text-blue-700 font-semibold text-sm rounded-xl hover:bg-blue-100 transition flex items-center justify-center"
-              >
-                <BookOpen className="w-4 h-4 mr-2" /> Buka & Pelajari Materi
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

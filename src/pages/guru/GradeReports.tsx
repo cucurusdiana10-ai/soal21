@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download } from 'lucide-react';
+import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download, KeyRound } from 'lucide-react';
 import { gradeEssayApi } from '../../lib/aiService';
+import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
 
 export default function GradeReports() {
   const { user } = useAuth();
@@ -15,6 +16,12 @@ export default function GradeReports() {
   const [gradingFeedback, setGradingFeedback] = useState<string>('');
   const [aiGradingLoading, setAiGradingLoading] = useState(false);
   const [savingGrade, setSavingGrade] = useState(false);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     fetchTasks();
@@ -22,13 +29,17 @@ export default function GradeReports() {
 
   async function fetchTasks() {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('tasks')
       .select('*, class:classes(name)')
       .eq('guru_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (data) setTasks(data);
+    if (!error && data) {
+      setTasks(data.filter((t: any) => t.guru_id === user.id));
+    } else {
+      setTasks([]);
+    }
   }
 
   async function handleSelectTask(task: any) {
@@ -217,9 +228,15 @@ export default function GradeReports() {
               }`}
             >
               <div>
-                <span className="text-xs px-2.5 py-0.5 bg-blue-100 text-blue-800 font-bold rounded-full">
-                  Kelas {task.class?.name || '-'}
-                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs px-2.5 py-0.5 bg-blue-100 text-blue-800 font-bold rounded-md">
+                    Kelas {task.class?.name || '-'}
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 flex items-center gap-1" title="Token Ujian Aktif (Berubah tiap 30 menit)">
+                    <KeyRound className="w-3 h-3 text-indigo-600" />
+                    {generateTaskToken(task.id, nowMs)} ({getTokenTimeRemaining(nowMs).formatted})
+                  </span>
+                </div>
                 <h3 className="font-bold text-gray-900 text-base mt-2">{task.title}</h3>
                 <p className="text-xs text-gray-500">{task.subject_name}</p>
               </div>

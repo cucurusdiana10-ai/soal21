@@ -4,9 +4,11 @@ import { supabase } from '../../lib/supabase';
 import { 
   FileText, Sparkles, Loader2, Send, Trash2, Eye, X, CheckCircle2, 
   PlusCircle, Edit2, AlertCircle, Save, Check, ArrowUp, ArrowDown, 
-  Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar
+  Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar,
+  KeyRound, ShieldCheck
 } from 'lucide-react';
 import { generateQuestionsApi } from '../../lib/aiService';
+import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
 
 export default function CreateQuestions() {
   const { user } = useAuth();
@@ -55,6 +57,23 @@ export default function CreateQuestions() {
   const [selectedTask, setSelectedTask] = useState<any | null>(null);
   const [editingExistingTask, setEditingExistingTask] = useState<any | null>(null);
   const [savingEditTask, setSavingEditTask] = useState(false);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleCopyToken = (taskId: string, token: string) => {
+    navigator.clipboard?.writeText(token);
+    setCopiedTokenId(taskId);
+    setTimeout(() => {
+      setCopiedTokenId(prev => (prev === taskId ? null : prev));
+    }, 2000);
+  };
 
   useEffect(() => {
     fetchClasses();
@@ -105,25 +124,21 @@ export default function CreateQuestions() {
   async function fetchTasks() {
     if (!user) return;
     try {
-      let { data, error } = await supabase
+      const { data, error } = await supabase
         .from('tasks')
         .select('*')
         .eq('guru_id', user.id)
         .order('created_at', { ascending: false });
       
-      if (error || !data || data.length === 0) {
-        const { data: allData } = await supabase
-          .from('tasks')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (allData) data = allData;
-      }
-      
-      if (data) {
-        setTasks(data);
+      if (!error && data) {
+        const ownTasks = data.filter((t: any) => t.guru_id === user.id);
+        setTasks(ownTasks);
+      } else {
+        setTasks([]);
       }
     } catch (err) {
       console.error('Error fetching tasks:', err);
+      setTasks([]);
     }
   }
 
@@ -1073,23 +1088,31 @@ export default function CreateQuestions() {
 
       {/* Published Tasks List */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <div>
             <h2 className="text-lg font-bold text-gray-900 flex items-center">
-              <FileText className="w-5 h-5 mr-2 text-blue-600" /> Daftar Soal & Tugas Terbit
+              <FileText className="w-5 h-5 mr-2 text-blue-600" /> Daftar Soal & Tugas Terbit (Akun Anda)
             </h2>
-            <p className="text-xs text-gray-500">Soal-soal yang aktif dan dapat dikerjakan langsung oleh siswa kelas target.</p>
+            <p className="text-xs text-gray-500">
+              Menampilkan daftar soal yang Anda buat. Bagikan <strong>Token Ujian</strong> (otomatis berganti setiap 30 menit) kepada siswa saat ujian dimulai.
+            </p>
           </div>
-          <span className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full border border-blue-100">
-            Total: {tasks.length} Paket Soal
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 flex items-center gap-1.5">
+              <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+              Rotasi Token: {getTokenTimeRemaining(nowMs).formatted}
+            </span>
+            <span className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100">
+              Total: {tasks.length} Paket Soal
+            </span>
+          </div>
         </div>
 
         {tasks.length === 0 ? (
           <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200">
             <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-            <p className="text-gray-600 font-medium text-sm">Belum ada paket soal yang diterbitkan.</p>
-            <p className="text-gray-400 text-xs mt-1">Gunakan form di atas untuk membuat soal dengan AI dan klik tombol "Terbitkan".</p>
+            <p className="text-gray-600 font-medium text-sm">Anda belum menerbitkan paket soal pada akun ini.</p>
+            <p className="text-gray-400 text-xs mt-1">Gunakan form di atas untuk meracik soal dengan AI dan klik tombol "Terbitkan".</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -1098,60 +1121,91 @@ export default function CreateQuestions() {
               const className = getClassName(task.class_id);
               const pubTime = task.content?.[0]?.published_at || task.created_at;
               const isFuture = pubTime && new Date(pubTime).getTime() > Date.now();
+              const currentToken = generateTaskToken(task.id, nowMs);
+              const tokenTimer = getTokenTimeRemaining(nowMs);
+              const isCopied = copiedTokenId === task.id;
 
               return (
-                <div key={task.id} className="py-4 flex items-center justify-between gap-4 hover:bg-gray-50/80 px-2 rounded-xl transition-colors">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="font-bold text-gray-900">{task.title}</span>
-                      <span className="text-xs px-2.5 py-0.5 bg-blue-50 text-blue-700 font-semibold rounded-full border border-blue-100">
-                        Kelas: {className}
+                <div key={task.id} className="py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-gray-50/80 px-3 rounded-xl transition-colors">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-gray-900 text-base">{task.title}</span>
+                      <span className="text-xs px-2.5 py-0.5 bg-blue-50 text-blue-700 font-semibold rounded-md border border-blue-100">
+                        Kelas {className}
                       </span>
-                      <span className="text-xs px-2.5 py-0.5 bg-gray-100 text-gray-700 capitalize rounded-full">
-                        {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'}
-                      </span>
-                      <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 font-bold rounded-full">
-                        {questionCount} Soal
+                      <span className="text-xs text-gray-600 font-medium">
+                        · {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'} ({questionCount} Soal)
                       </span>
                       {isFuture ? (
-                        <span className="text-xs px-2.5 py-0.5 bg-amber-100 text-amber-900 font-bold rounded-full border border-amber-300 flex items-center gap-1">
+                        <span className="text-xs px-2.5 py-0.5 bg-amber-100 text-amber-900 font-bold rounded-md border border-amber-300 flex items-center gap-1">
                           <Clock className="w-3 h-3 text-amber-700" />
                           Terjadwal: {new Date(pubTime).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })} WIB
                         </span>
                       ) : (
-                        <span className="text-xs px-2.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full border border-emerald-200 flex items-center gap-1">
+                        <span className="text-xs px-2.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md border border-emerald-200 flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                           Terbit Aktif
                         </span>
                       )}
                     </div>
                     <p className="text-xs text-gray-500">
-                      Mata Pelajaran: {task.subject_name || '-'} • Dibuat: {new Date(task.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      Mata Pelajaran: <strong className="text-gray-700">{task.subject_name || '-'}</strong> · Dibuat oleh Anda pada {new Date(task.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => setSelectedTask({ ...task, className })}
-                      className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                      title="Lihat Soal"
-                    >
-                      <Eye className="w-3.5 h-3.5" /> Lihat
-                    </button>
-                    <button 
-                      onClick={() => setEditingExistingTask(JSON.parse(JSON.stringify(task)))}
-                      className="px-3 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                      title="Edit Paket Soal"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" /> Edit
-                    </button>
-                    <button 
-                      onClick={() => handleDeleteTask(task.id)}
-                      className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
-                      title="Hapus Tugas"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Rotating 30-Minute Exam Token Box */}
+                    <div className="flex items-center gap-2 bg-indigo-50/90 border border-indigo-200 px-3 py-1.5 rounded-xl">
+                      <KeyRound className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Token:</span>
+                          <span className="font-mono font-black text-sm tracking-widest text-indigo-950 bg-white px-2 py-0.5 rounded border border-indigo-200">
+                            {currentToken}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-indigo-600 font-medium">
+                          Berganti dlm <strong>{tokenTimer.formatted}</strong> (30 mnt)
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyToken(task.id, currentToken)}
+                        className={`ml-1 px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                          isCopied
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-white text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                        }`}
+                        title="Salin Token untuk dibagikan ke Siswa"
+                      >
+                        {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        {isCopied ? 'Tersalin' : 'Salin'}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button 
+                        onClick={() => setSelectedTask({ ...task, className })}
+                        className="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                        title="Lihat Soal & Token"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Lihat
+                      </button>
+                      <button 
+                        onClick={() => setEditingExistingTask(JSON.parse(JSON.stringify(task)))}
+                        className="px-3 py-2 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                        title="Edit Paket Soal"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" /> Edit
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                        title="Hapus Tugas"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -1178,6 +1232,51 @@ export default function CreateQuestions() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              {/* Token Ujian 30 Menit Banner in Modal */}
+              {(() => {
+                const modalToken = generateTaskToken(selectedTask.id, nowMs);
+                const modalTimer = getTokenTimeRemaining(nowMs);
+                const isModalCopied = copiedTokenId === `modal_${selectedTask.id}`;
+                return (
+                  <div className="p-4 bg-gradient-to-r from-indigo-900 via-blue-900 to-indigo-950 text-white rounded-2xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <KeyRound className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-indigo-200">
+                          Token Ujian Siswa (Berubah Otomatis Setiap 30 Menit)
+                        </span>
+                      </div>
+                      <p className="text-xs text-indigo-200">
+                        Berikan token ini kepada siswa agar mereka dapat membuka dan mengerjakan soal.
+                      </p>
+                      <div className="flex items-center gap-2 text-[11px] text-amber-300 font-semibold pt-0.5">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Dilengkapi Sistem Anti-Buka Aplikasi Lain & Alarm Ujian</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 bg-white/10 border border-white/20 px-4 py-2.5 rounded-xl shrink-0">
+                      <div className="text-center">
+                        <div className="font-mono text-2xl font-black tracking-widest text-amber-300">
+                          {modalToken}
+                        </div>
+                        <div className="text-[10px] text-indigo-200">
+                          Reset dlm <strong>{modalTimer.formatted}</strong>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyToken(`modal_${selectedTask.id}`, modalToken)}
+                        className="px-3 py-2 bg-white text-indigo-950 hover:bg-indigo-50 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                      >
+                        {isModalCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                        {isModalCopied ? 'Tersalin' : 'Salin'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Publication Status Notice */}
               {(() => {
                 const pubTime = selectedTask.content?.[0]?.published_at || selectedTask.created_at;

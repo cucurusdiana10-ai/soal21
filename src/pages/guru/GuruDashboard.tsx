@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink, FileText, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink, FileText, CheckCircle2, Search, LayoutGrid, List, Calendar, Layers, HelpCircle } from 'lucide-react';
 import { generateMaterialApi } from '../../lib/aiService';
 import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
@@ -26,6 +26,12 @@ function MaterialGenerator() {
 
   const [editingSavedMaterial, setEditingSavedMaterial] = useState<any | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Filter & Tampilan Daftar Bahan Ajar States
+  const [materialSearch, setMaterialSearch] = useState('');
+  const [materialSubjectFilter, setMaterialSubjectFilter] = useState('ALL');
+  const [materialClassFilter, setMaterialClassFilter] = useState('ALL');
+  const [materialViewMode, setMaterialViewMode] = useState<'grid' | 'table'>('grid');
 
   // Modul Ajar Acuan States
   const [savedModules, setSavedModules] = useState<any[]>([]);
@@ -196,13 +202,17 @@ function MaterialGenerator() {
 
   async function fetchSavedMaterials() {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('teaching_materials')
       .select('*, class:classes(name)')
       .eq('guru_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (data) setSavedMaterials(data);
+    if (!error && data) {
+      setSavedMaterials(data.filter((m: any) => m.guru_id === user.id));
+    } else {
+      setSavedMaterials([]);
+    }
   }
 
   const handleGenerate = async () => {
@@ -745,113 +755,325 @@ function MaterialGenerator() {
         </div>
       )}
 
-      {/* Saved Materials Section - Table View */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 overflow-hidden">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+      {/* Saved Materials Section - Redesigned Clean & Structured View */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 overflow-hidden space-y-5">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-100 pb-4">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 flex items-center">
-              <BookOpen className="w-5 h-5 mr-2 text-indigo-600" /> Daftar Bahan Ajar Terbit untuk Siswa
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-indigo-600" />
+              <span>Daftar Bahan Ajar Terbit</span>
+              <span className="text-xs font-semibold text-gray-500 font-normal">
+                · {savedMaterials.length} Materi Tersimpan
+              </span>
             </h2>
-            <p className="text-xs text-gray-500">Materi pembelajaran AI yang telah disimpan dan dapat diakses oleh siswa.</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Kelola materi pembelajaran interaktif yang telah Anda terbitkan untuk siswa per kelas.
+            </p>
           </div>
-          <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100">
-            Total: {savedMaterials.length} Bahan Ajar
-          </span>
+
+          {/* View Mode Segmented Control */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200 self-end md:self-auto">
+            <button
+              type="button"
+              onClick={() => setMaterialViewMode('grid')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                materialViewMode === 'grid'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" /> Kartu Rapih
+            </button>
+            <button
+              type="button"
+              onClick={() => setMaterialViewMode('table')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                materialViewMode === 'table'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" /> Tabel Ringkas
+            </button>
+          </div>
         </div>
 
-        {savedMaterials.length === 0 ? (
-          <p className="text-gray-500 text-sm py-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
-            Belum ada bahan ajar yang disimpan & dibagikan.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-gray-600 border-collapse">
-              <thead className="bg-gray-100/80 text-gray-700 font-semibold border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3">No</th>
-                  <th className="px-4 py-3">Judul & Topik</th>
-                  <th className="px-4 py-3">Media</th>
-                  <th className="px-4 py-3">Mata Pelajaran</th>
-                  <th className="px-4 py-3">Target Kelas</th>
-                  <th className="px-4 py-3">Tanggal Terbit</th>
-                  <th className="px-4 py-3 text-right">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {savedMaterials.map((mat, idx) => (
-                  <tr key={mat.id} className="hover:bg-indigo-50/40 transition">
-                    <td className="px-4 py-3 font-medium text-gray-900">{idx + 1}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-bold text-gray-900">{mat.title || mat.topic}</div>
-                      <div className="text-xs text-indigo-600">{mat.topic}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        {mat.content_json?.videoUrl && (
-                          <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-md text-[11px] font-bold border border-red-100 flex items-center gap-1" title="Terdapat Video">
-                            <Film className="w-3 h-3" /> Video
-                          </span>
-                        )}
-                        {mat.content_json?.imageUrl && (
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[11px] font-bold border border-blue-100 flex items-center gap-1" title="Terdapat Gambar">
-                            <Image className="w-3 h-3" /> Gambar
-                          </span>
-                        )}
-                        {!mat.content_json?.videoUrl && !mat.content_json?.imageUrl && (
-                          <span className="text-xs text-gray-400">-</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-semibold text-gray-800">{mat.subject_name || '-'}</span>
-                      <div className="text-xs text-gray-500">Tingkat {mat.grade || '-'}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-lg border border-indigo-100 inline-block">
-                        Kelas {mat.class?.name || mat.grade}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                      {new Date(mat.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1">
-                        <button 
-                          onClick={() => setSelectedMaterial(mat)}
-                          className="px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                          title="Lihat Detail"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> Lihat
-                        </button>
-                        <button 
-                          onClick={() => setFullscreenMaterial(mat)}
-                          className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                          title="Modus Fullscreen"
-                        >
-                          <Maximize2 className="w-3.5 h-3.5" /> Fullscreen
-                        </button>
-                        <button 
-                          onClick={() => setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)))}
-                          className="px-2.5 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                          title="Edit Bahan Ajar"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" /> Edit
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteMaterial(mat.id)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
-                          title="Hapus"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+        {/* Search & Filter Toolbar */}
+        {savedMaterials.length > 0 && (() => {
+          const uniqueSubjects = Array.from(new Set(savedMaterials.map(m => m.subject_name).filter(Boolean)));
+          const uniqueClasses = Array.from(new Set(savedMaterials.map(m => m.class?.name || m.grade).filter(Boolean)));
+
+          return (
+            <div className="grid sm:grid-cols-3 gap-3 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80">
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={materialSearch}
+                  onChange={e => setMaterialSearch(e.target.value)}
+                  placeholder="Cari judul atau topik bahan ajar..."
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <select
+                value={materialSubjectFilter}
+                onChange={e => setMaterialSubjectFilter(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="ALL">Semua Mata Pelajaran ({uniqueSubjects.length})</option>
+                {uniqueSubjects.map((sub: any, idx: number) => (
+                  <option key={idx} value={sub}>{sub}</option>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              </select>
+
+              <select
+                value={materialClassFilter}
+                onChange={e => setMaterialClassFilter(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="ALL">Semua Kelas Target ({uniqueClasses.length})</option>
+                {uniqueClasses.map((cls: any, idx: number) => (
+                  <option key={idx} value={cls}>Kelas {cls}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })()}
+
+        {(() => {
+          const filteredMaterials = savedMaterials.filter(mat => {
+            const matchesSearch =
+              !materialSearch ||
+              (mat.title || '').toLowerCase().includes(materialSearch.toLowerCase()) ||
+              (mat.topic || '').toLowerCase().includes(materialSearch.toLowerCase()) ||
+              (mat.subject_name || '').toLowerCase().includes(materialSearch.toLowerCase());
+
+            const matchesSubject =
+              materialSubjectFilter === 'ALL' || mat.subject_name === materialSubjectFilter;
+
+            const clsName = mat.class?.name || mat.grade;
+            const matchesClass =
+              materialClassFilter === 'ALL' || String(clsName) === String(materialClassFilter);
+
+            return matchesSearch && matchesSubject && matchesClass;
+          });
+
+          if (savedMaterials.length === 0) {
+            return (
+              <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                <BookOpen className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-700 font-semibold text-sm">Belum ada bahan ajar yang diterbitkan.</p>
+                <p className="text-gray-400 text-xs mt-1">Gunakan generator Bahan Ajar AI di atas untuk meracik dan membagikan materi ke kelas.</p>
+              </div>
+            );
+          }
+
+          if (filteredMaterials.length === 0) {
+            return (
+              <div className="text-center py-10 bg-gray-50 rounded-xl border border-gray-200 text-gray-500 text-xs">
+                Tidak ada bahan ajar yang cocok dengan pencarian / filter yang dipilih.
+              </div>
+            );
+          }
+
+          if (materialViewMode === 'grid') {
+            return (
+              <div className="grid md:grid-cols-2 gap-4">
+                {filteredMaterials.map((mat, idx) => {
+                  const subCount = Array.isArray(mat.content_json?.materials) ? mat.content_json.materials.length : 0;
+                  const quizCount = Array.isArray(mat.content_json?.interactiveQuestions) ? mat.content_json.interactiveQuestions.length : 0;
+                  const hasVideo = Boolean(mat.content_json?.videoUrl);
+                  const hasImage = Boolean(mat.content_json?.imageUrl);
+                  const dateFormatted = new Date(mat.created_at).toLocaleDateString('id-ID', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                  });
+
+                  return (
+                    <div
+                      key={mat.id}
+                      className="group bg-white rounded-xl border border-gray-200 hover:border-indigo-300 shadow-xs hover:shadow-md transition-all flex flex-col justify-between p-5"
+                    >
+                      <div>
+                        {/* Quiet Metadata Header Line */}
+                        <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-2">
+                          <div className="flex items-center gap-1.5 font-medium truncate">
+                            <span className="font-bold text-indigo-700">{mat.subject_name || 'Mata Pelajaran'}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="text-slate-700 font-semibold">Kelas {mat.class?.name || mat.grade}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>Tingkat {mat.grade || '-'}</span>
+                          </div>
+                          <span className="text-[11px] text-slate-400 shrink-0 flex items-center gap-1">
+                            <Calendar className="w-3 h-3" /> {dateFormatted}
+                          </span>
+                        </div>
+
+                        {/* Title & Topic */}
+                        <h3 className="font-bold text-gray-900 text-base leading-snug group-hover:text-indigo-950 transition-colors line-clamp-2">
+                          {idx + 1}. {mat.title || mat.topic}
+                        </h3>
+                        {mat.topic && mat.topic !== mat.title && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-1">
+                            Topik: <span className="text-gray-700 font-medium">{mat.topic}</span>
+                          </p>
+                        )}
+
+                        {/* Clean Unboxed Content Summary Line */}
+                        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                          <span className="flex items-center gap-1">
+                            <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                            {subCount} Sub-Materi
+                          </span>
+                          <span aria-hidden="true" className="text-slate-300">·</span>
+                          <span className="flex items-center gap-1">
+                            <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            {quizCount} Kuis Pemantik
+                          </span>
+                          {hasVideo && (
+                            <>
+                              <span aria-hidden="true" className="text-slate-300">·</span>
+                              <span className="flex items-center gap-1 text-red-700 font-medium">
+                                <Film className="w-3.5 h-3.5" /> Video
+                              </span>
+                            </>
+                          )}
+                          {hasImage && (
+                            <>
+                              <span aria-hidden="true" className="text-slate-300">·</span>
+                              <span className="flex items-center gap-1 text-blue-700 font-medium">
+                                <Image className="w-3.5 h-3.5" /> Visual
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Footer */}
+                      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMaterial(mat)}
+                            className="px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-2xs"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Buka Materi
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFullscreenMaterial(mat)}
+                            className="px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                            title="Layar Penuh Presentasi"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" /> Presentasi
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)))}
+                            className="px-2.5 py-1.5 text-amber-800 hover:bg-amber-50 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                            title="Edit Bahan Ajar"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMaterial(mat.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                            title="Hapus Bahan Ajar"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          }
+
+          return (
+            <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <table className="w-full text-left text-sm text-gray-600 border-collapse">
+                <thead className="bg-slate-50 text-slate-700 text-xs uppercase tracking-wider font-bold border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 w-10">No</th>
+                    <th className="px-4 py-3">Judul & Topik Bahan Ajar</th>
+                    <th className="px-4 py-3">Mata Pelajaran & Kelas</th>
+                    <th className="px-4 py-3">Kelengkapan</th>
+                    <th className="px-4 py-3">Terbit</th>
+                    <th className="px-4 py-3 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredMaterials.map((mat, idx) => {
+                    const subCount = Array.isArray(mat.content_json?.materials) ? mat.content_json.materials.length : 0;
+                    return (
+                      <tr key={mat.id} className="hover:bg-slate-50/80 transition">
+                        <td className="px-4 py-3.5 font-semibold text-gray-500 text-xs">{idx + 1}</td>
+                        <td className="px-4 py-3.5 max-w-xs">
+                          <div className="font-bold text-gray-900 line-clamp-1">{mat.title || mat.topic}</div>
+                          <div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{mat.topic}</div>
+                        </td>
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <div className="font-semibold text-gray-900 text-xs">{mat.subject_name || '-'}</div>
+                          <div className="text-xs text-indigo-700 font-medium mt-0.5">
+                            Kelas {mat.class?.name || mat.grade} · Tingkat {mat.grade || '-'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">
+                          <span>{subCount} Sub-Materi</span>
+                          {mat.content_json?.videoUrl && <span> · Video</span>}
+                          {mat.content_json?.imageUrl && <span> · Visual</span>}
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">
+                          {new Date(mat.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setSelectedMaterial(mat)}
+                              className="px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                              title="Lihat Detail"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> Lihat
+                            </button>
+                            <button
+                              onClick={() => setFullscreenMaterial(mat)}
+                              className="px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                              title="Modus Presentasi"
+                            >
+                              <Maximize2 className="w-3.5 h-3.5" /> Presentasi
+                            </button>
+                            <button
+                              onClick={() => setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)))}
+                              className="px-2.5 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                              title="Edit Bahan Ajar"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" /> Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMaterial(mat.id)}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                              title="Hapus"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Material Detail Modal */}
