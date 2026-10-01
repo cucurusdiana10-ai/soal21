@@ -83,8 +83,8 @@ function SiswaTugas() {
     // Send browser notification if permitted
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification('🚨 PERINGATAN UJIAN SMAN 21 GARUT!', {
-          body: `${reason}. Segera kembali ke aplikasi ujian!`,
+        new Notification('🚨 Anda Keluar Aplikasi Ujian!', {
+          body: `${reason}. Segera tutup aplikasi lain / floating app dan kembali ke ujian!`,
           requireInteraction: true
         });
       } catch {
@@ -93,7 +93,7 @@ function SiswaTugas() {
     }
   }, []);
 
-  // Anti-open-other-app listeners while activeTask is open
+  // Anti-open-other-app, new tab & mobile floating app listeners while activeTask is open
   useEffect(() => {
     if (!activeTask) {
       antiCheatAlarm.stopAlarm();
@@ -102,32 +102,56 @@ function SiswaTugas() {
       return;
     }
 
+    const initialScreenWidth = window.screen?.availWidth || window.innerWidth;
+    const initialInnerWidth = window.innerWidth;
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        triggerViolation('Terdeteksi berpindah tab atau membuka aplikasi lain di luar halaman ujian');
+        triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka tab baru atau berpindah aplikasi');
       }
     };
 
     const handleWindowBlur = () => {
-      triggerViolation('Terdeteksi keluar dari fokus aplikasi ujian (Membuka aplikasi / jendela lain)');
+      triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka floating aplikasi atau keluar dari jendela ujian');
     };
 
     const handleFullscreenChange = () => {
       if (document.fullscreenElement) {
         hadFullscreenRef.current = true;
       } else if (hadFullscreenRef.current) {
-        triggerViolation('Terdeteksi keluar dari mode layar penuh (Fullscreen) saat mengerjakan soal');
+        triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi keluar dari mode layar penuh (Fullscreen)');
       }
     };
+
+    // Detect mobile split-screen or floating app window resize
+    const handleResizeOrViewport = () => {
+      const activeTag = document.activeElement?.tagName?.toLowerCase();
+      const isTyping = activeTag === 'input' || activeTag === 'textarea';
+      // If width shrinks significantly (split-screen / floating window mode on phone)
+      if (window.innerWidth < initialInnerWidth * 0.82 || (initialScreenWidth > 0 && window.innerWidth < initialScreenWidth * 0.72)) {
+        if (!isTyping) {
+          triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi menggunakan fitur Split-Screen / Floating Aplikasi pada HP');
+        }
+      }
+    };
+
+    // Poll document.hasFocus() every 600ms to catch mobile floating apps (overlay windows) that steal focus silently
+    const focusPollTimer = window.setInterval(() => {
+      if (document.hidden) {
+        triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka tab baru atau aplikasi lain');
+      } else if (!document.hasFocus()) {
+        triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi menggunakan fitur Floating Aplikasi pada handphone / layar');
+      }
+    }, 600);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         e.key === 'PrintScreen' ||
-        ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'p', 'u'].includes(e.key.toLowerCase())) ||
+        ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'p', 'u', 't', 'n'].includes(e.key.toLowerCase())) ||
         (e.altKey && e.key === 'Tab')
       ) {
         e.preventDefault();
-        setCopyWarning('Fitur salin/tempel & pintasan sistem dinonaktifkan selama ujian berlangsung.');
+        setCopyWarning('Fitur buka tab baru, salin/tempel & pintasan sistem dinonaktifkan selama ujian.');
         setTimeout(() => setCopyWarning(null), 3000);
       }
     };
@@ -135,12 +159,17 @@ function SiswaTugas() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    window.addEventListener('resize', handleResizeOrViewport);
+    window.visualViewport?.addEventListener('resize', handleResizeOrViewport);
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      clearInterval(focusPollTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('resize', handleResizeOrViewport);
+      window.visualViewport?.removeEventListener('resize', handleResizeOrViewport);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [activeTask, triggerViolation]);
@@ -234,6 +263,9 @@ function SiswaTugas() {
       );
       return;
     }
+
+    // Unlock mobile audio & voice synthesis on direct user gesture
+    antiCheatAlarm.warmUpAudioAndVoice();
 
     // Request browser notification permission for anti-cheat alerts
     if ('Notification' in window && Notification.permission === 'default') {
@@ -540,8 +572,8 @@ function SiswaTugas() {
                   Peraturan Pengawas Ujian (Anti-Buka Aplikasi Lain)
                 </div>
                 <ul className="list-disc pl-4 space-y-1 text-red-800/90 leading-relaxed">
-                  <li>Selama mengerjakan soal, Anda <strong>dilarang berpindah tab atau membuka aplikasi lain</strong>.</li>
-                  <li>Jika membuka aplikasi lain, sistem akan otomatis membunyikan <strong>Alarm Peringatan Keras</strong>, menampilkan notifikasi pelanggaran, dan mencatatnya ke laporan Guru.</li>
+                  <li>Selama mengerjakan soal, Anda <strong>dilarang membuka tab baru atau menggunakan fitur Floating Aplikasi / Split-Screen</strong> pada handphone.</li>
+                  <li>Jika terdeteksi, sistem otomatis mengeluarkan notifikasi suara <strong>"Anda Keluar Aplikasi Ujian"</strong> serta mencatat pelanggaran ke Guru.</li>
                 </ul>
                 <div className="pt-1 flex items-center justify-between border-t border-red-200/70">
                   <span className="text-[11px] text-red-700 font-medium">Pastikan suara perangkat aktif:</span>
@@ -795,15 +827,15 @@ function SiswaTugas() {
                 </div>
 
                 <span className="px-3 py-1 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-md border border-red-400 mb-2">
-                  🚨 ALARM PENGAWAS UJIAN BERBUNYI
+                  🔊 NOTIFIKASI SUARA: "ANDA KELUAR APLIKASI UJIAN"
                 </span>
 
                 <h2 className="text-2xl sm:text-3xl font-black text-white max-w-xl">
-                  PERINGATAN! DILARANG MEMBUKA APLIKASI LAIN!
+                  ANDA KELUAR APLIKASI UJIAN!
                 </h2>
 
                 <p className="text-red-200 text-sm sm:text-base max-w-lg mt-2 leading-relaxed">
-                  {latestViolationReason || 'Sistem mendeteksi Anda keluar dari halaman ujian atau membuka aplikasi lain.'}
+                  {latestViolationReason || 'Sistem mendeteksi Anda membuka tab baru atau menggunakan fitur floating aplikasi pada handphone.'}
                 </p>
 
                 <div className="my-5 p-4 bg-red-900/80 border border-red-500/60 rounded-2xl max-w-md w-full text-left space-y-1.5">

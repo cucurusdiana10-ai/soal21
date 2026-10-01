@@ -353,10 +353,15 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
         return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
       }
 
-      const { topic, type, count } = req.body || {};
+      const { topic, type, count, optionCount } = req.body || {};
       if (!topic || !type || !count) {
         return res.status(400).json({ error: 'Missing required fields: topic, type, count' });
       }
+
+      const numOptions = Math.min(5, Math.max(3, Number(optionCount) || 4));
+      const optionLabels = Array.from({ length: numOptions }, (_, i) => String.fromCharCode(65 + i));
+      const optionLabelsText = optionLabels.join(', ');
+      const sampleOptionsJson = JSON.stringify(optionLabels.map(l => `Teks pilihan ${l}`));
 
       const ai = new GoogleGenAI({
         apiKey,
@@ -369,13 +374,14 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
       
       let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
       prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
-      prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
+      prompt += `Jenis soal: ${type === 'pg' ? `Semua Pilihan Ganda (PG) dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText})` : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : `Kombinasi Campuran (Pilihan Ganda dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText}) & Esai)`}.\n`;
+      prompt += `PENTING: Untuk setiap soal bertipe "pg", array "options" WAJIB berisi TEPAT ${numOptions} pilihan jawaban (${optionLabelsText}) tanpa awalan huruf di dalam teksnya.\n`;
       prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
       prompt += `[\n`;
       prompt += `  {\n`;
       prompt += `    "type": "pg",\n`;
       prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
-      prompt += `    "options": ["Teks pilihan A", "Teks pilihan B", "Teks pilihan C", "Teks pilihan D"],\n`;
+      prompt += `    "options": ${sampleOptionsJson},\n`;
       prompt += `    "answer": "A",\n`;
       prompt += `    "explanation": "Penjelasan singkat jawaban yang tepat."\n`;
       prompt += `  },\n`;

@@ -1,4 +1,4 @@
-// Utility for 30-minute rotating exam tokens and Anti-Cheat Web Audio Alarm
+// Utility for 30-minute rotating exam tokens and Anti-Cheat Web Audio + Voice Alarm
 
 export const TOKEN_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes in milliseconds
 
@@ -12,7 +12,6 @@ export function generateTaskToken(taskId: string, timestampMs: number = Date.now
   const timeSlot = Math.floor(timestampMs / TOKEN_INTERVAL_MS);
   const rawInput = `${taskId}::SMAN21_EXAM_TOKEN::${timeSlot}`;
 
-  // FNV-1a inspired multiple-pass hash for uniform distribution
   let h1 = 0x811c9dc5;
   let h2 = 0x01000193;
   for (let i = 0; i < rawInput.length; i++) {
@@ -70,15 +69,68 @@ export function getTokenTimeRemaining(timestampMs: number = Date.now()): {
 }
 
 /**
- * Web Audio API Anti-Cheat Siren Alarm Controller
+ * Web Audio API + Voice Notification ("Anda Keluar Aplikasi Ujian") Controller
  */
 class AntiCheatAlarmController {
   private audioCtx: AudioContext | null = null;
   private intervalId: number | null = null;
+  private speechIntervalId: number | null = null;
   private isPlaying = false;
 
+  /**
+   * Call during a direct user gesture (e.g. clicking "Mulai Ujian") so mobile browsers
+   * (Android Chrome / iOS Safari) unlock AudioContext & speechSynthesis for background events.
+   */
+  public warmUpAudioAndVoice() {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!this.audioCtx && AudioContextClass) {
+        this.audioCtx = new AudioContextClass();
+      }
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.getVoices();
+        const silentUtterance = new SpeechSynthesisUtterance('');
+        silentUtterance.volume = 0;
+        window.speechSynthesis.speak(silentUtterance);
+      }
+    } catch {
+      // Ignore warmup errors
+    }
+  }
+
+  private speakExitWarning() {
+    if (!('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance('Anda Keluar Aplikasi Ujian');
+      utterance.lang = 'id-ID';
+      utterance.rate = 1.0;
+      utterance.pitch = 1.05;
+      utterance.volume = 1.0;
+
+      // Try to pick an Indonesian voice if available on the device
+      const voices = window.speechSynthesis.getVoices();
+      const idVoice = voices.find(v => v.lang?.toLowerCase().includes('id'));
+      if (idVoice) {
+        utterance.voice = idVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('Speech synthesis error:', e);
+    }
+  }
+
   public startAlarm() {
-    if (this.isPlaying) return;
+    if (this.isPlaying) {
+      // Even if already playing, trigger voice announcement immediately when a new event happens
+      this.speakExitWarning();
+      return;
+    }
     this.isPlaying = true;
 
     try {
@@ -101,36 +153,32 @@ class AntiCheatAlarmController {
           const gain = this.audioCtx.createGain();
 
           osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(highTone ? 960 : 620, this.audioCtx.currentTime);
+          osc.frequency.setValueAtTime(highTone ? 920 : 600, this.audioCtx.currentTime);
           highTone = !highTone;
 
-          gain.gain.setValueAtTime(0.35, this.audioCtx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.35);
+          gain.gain.setValueAtTime(0.28, this.audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.32);
 
           osc.connect(gain);
           gain.connect(this.audioCtx.destination);
 
           osc.start();
-          osc.stop(this.audioCtx.currentTime + 0.36);
+          osc.stop(this.audioCtx.currentTime + 0.34);
         } catch (e) {
           console.warn('Alarm beep error:', e);
         }
       };
 
       playBeep();
-      this.intervalId = window.setInterval(playBeep, 400);
+      this.intervalId = window.setInterval(playBeep, 450);
 
-      // Voice warning via Web Speech API if supported
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(
-          'Peringatan! Anda terdeteksi membuka aplikasi lain saat mengerjakan soal. Segera kembali ke halaman ujian!'
-        );
-        utterance.lang = 'id-ID';
-        utterance.rate = 1.05;
-        utterance.pitch = 1.1;
-        window.speechSynthesis.speak(utterance);
-      }
+      // Immediately speak "Anda Keluar Aplikasi Ujian" and repeat every 3.2 seconds while alarm is active
+      this.speakExitWarning();
+      this.speechIntervalId = window.setInterval(() => {
+        if (this.isPlaying) {
+          this.speakExitWarning();
+        }
+      }, 3200);
     } catch (err) {
       console.warn('Could not start audio alarm:', err);
     }
@@ -141,6 +189,10 @@ class AntiCheatAlarmController {
     if (this.intervalId !== null) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+    if (this.speechIntervalId !== null) {
+      clearInterval(this.speechIntervalId);
+      this.speechIntervalId = null;
     }
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();

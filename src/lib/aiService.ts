@@ -277,16 +277,22 @@ Kembalikan respon DALAM FORMAT JSON MURNI valid persis berikut:
 }
 
 // Client-side fallback for generating questions
-async function clientFallbackGenerateQuestions(topic: string, type: string, count: number) {
+async function clientFallbackGenerateQuestions(topic: string, type: string, count: number, optionCount: number = 4) {
+  const numOptions = Math.min(5, Math.max(3, Number(optionCount) || 4));
+  const optionLabels = Array.from({ length: numOptions }, (_, i) => String.fromCharCode(65 + i));
+  const optionLabelsText = optionLabels.join(', ');
+  const sampleOptionsJson = JSON.stringify(optionLabels.map(l => `Teks pilihan ${l}`));
+
   let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
   prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
-  prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
+  prompt += `Jenis soal: ${type === 'pg' ? `Semua Pilihan Ganda (PG) dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText})` : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : `Kombinasi Campuran (Pilihan Ganda dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText}) & Esai)`}.\n`;
+  prompt += `PENTING: Untuk setiap soal bertipe "pg", array "options" WAJIB berisi TEPAT ${numOptions} pilihan jawaban (${optionLabelsText}) tanpa awalan huruf di dalam teksnya.\n`;
   prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
   prompt += `[\n`;
   prompt += `  {\n`;
   prompt += `    "type": "pg",\n`;
   prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
-  prompt += `    "options": ["Teks pilihan A", "Teks pilihan B", "Teks pilihan C", "Teks pilihan D"],\n`;
+  prompt += `    "options": ${sampleOptionsJson},\n`;
   prompt += `    "answer": "A",\n`;
   prompt += `    "explanation": "Penjelasan singkat jawaban yang tepat."\n`;
   prompt += `  },\n`;
@@ -741,11 +747,11 @@ export async function generateMaterialApi(payload: GenerateMaterialPayload) {
   return result;
 }
 
-export async function generateQuestionsApi(payload: { topic: string; type: string; count: number }) {
+export async function generateQuestionsApi(payload: { topic: string; type: string; count: number; optionCount?: number }) {
   return postApiWithFallback(
     ['/api/generate-questions', '/api/questions', '/api/ai/questions'],
     payload,
-    () => clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count)
+    () => clientFallbackGenerateQuestions(payload.topic, payload.type, payload.count, payload.optionCount)
   );
 }
 

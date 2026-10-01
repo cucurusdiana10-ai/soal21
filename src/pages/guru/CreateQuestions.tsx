@@ -5,10 +5,15 @@ import {
   FileText, Sparkles, Loader2, Send, Trash2, Eye, X, CheckCircle2, 
   PlusCircle, Edit2, AlertCircle, Save, Check, ArrowUp, ArrowDown, 
   Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar,
-  KeyRound, ShieldCheck
+  KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered
 } from 'lucide-react';
 import { generateQuestionsApi } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
+import {
+  downloadWordQuestionTemplate,
+  extractTextFromWordFile,
+  parseQuestionsFromText
+} from '../../lib/wordQuestionHelper';
 
 export default function CreateQuestions() {
   const { user } = useAuth();
@@ -36,18 +41,31 @@ export default function CreateQuestions() {
     subject_name: '',
     title: '',
     type: 'pg', // 'pg', 'essay', 'mixed'
-    count: 5
+    count: 5,
+    optionCount: 5 // 3 (A-C), 4 (A-D), 5 (A-E)
   });
+
+  // Multi-select classes state (pilihan beberapa kelas)
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
+
+  // Import Soal Word Modal States
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importRawText, setImportRawText] = useState('');
+  const [importingFile, setImportingFile] = useState(false);
+  const [importFileName, setImportFileName] = useState('');
+  const [importMode, setImportMode] = useState<'replace' | 'append'>('replace');
 
   // Draft questions state - NOT saved to database until user publishes
   const [generatedQuestions, setGeneratedQuestions] = useState<any[] | null>(null);
   const [draftMetadata, setDraftMetadata] = useState<{
     class_id: string;
+    class_ids: string[];
     subject_name: string;
     title: string;
     type: string;
   }>({
     class_id: '',
+    class_ids: [],
     subject_name: '',
     title: '',
     type: 'pg'
@@ -142,10 +160,57 @@ export default function CreateQuestions() {
     }
   }
 
+  const toggleSelectClass = (classId: string) => {
+    setSelectedClassIds(prev => {
+      const exists = prev.includes(classId);
+      const next = exists ? prev.filter(id => id !== classId) : [...prev, classId];
+      setForm(f => ({ ...f, class_id: next[0] || '' }));
+      return next;
+    });
+  };
+
+  const handleSelectAllClasses = () => {
+    if (selectedClassIds.length === classes.length) {
+      setSelectedClassIds([]);
+      setForm(f => ({ ...f, class_id: '' }));
+    } else {
+      const allIds = classes.map(c => c.id);
+      setSelectedClassIds(allIds);
+      setForm(f => ({ ...f, class_id: 'ALL_GRADE' }));
+    }
+  };
+
+  const toggleDraftClass = (classId: string) => {
+    setDraftMetadata(prev => {
+      const current = prev.class_ids || [];
+      const exists = current.includes(classId);
+      const next = exists ? current.filter(id => id !== classId) : [...current, classId];
+      return {
+        ...prev,
+        class_ids: next,
+        class_id: next.length === classes.length ? 'ALL_GRADE' : (next[0] || '')
+      };
+    });
+  };
+
+  const buildDefaultOptions = (numOpts: number = form.optionCount) => {
+    const count = Math.min(5, Math.max(3, Number(numOpts) || 4));
+    return Array.from({ length: count }, (_, i) => `Pilihan ${String.fromCharCode(65 + i)}`);
+  };
+
+  const normalizeOptionsCount = (options: any[], targetCount: number) => {
+    const count = Math.min(5, Math.max(3, Number(targetCount) || 4));
+    const base = Array.isArray(options) ? [...options] : [];
+    while (base.length < count) {
+      base.push(`Pilihan ${String.fromCharCode(65 + base.length)}`);
+    }
+    return base.slice(0, count);
+  };
+
   const handleGenerateQuestions = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.class_id || !form.subject_name || !form.title) {
-      alert('Mohon lengkapi Target Kelas, Mata Pelajaran, dan Judul/Topik Soal!');
+    if (selectedClassIds.length === 0 || !form.subject_name || !form.title) {
+      alert('Mohon pilih minimal 1 Target Kelas, Mata Pelajaran, dan Judul/Topik Soal!');
       return;
     }
 
@@ -157,39 +222,49 @@ export default function CreateQuestions() {
       const data = await generateQuestionsApi({
         topic: `${form.subject_name} - ${form.title}`,
         type: form.type,
-        count: form.count
+        count: form.count,
+        optionCount: form.optionCount
       });
 
       if (!Array.isArray(data) || data.length === 0) {
         throw new Error('AI tidak mengembalikan butir soal yang valid.');
       }
 
-      // Normalise questions structure
-      const formatted = data.map((q: any) => ({
-        type: q.type || form.type || 'pg',
-        question: q.question || 'Pertanyaan...',
-        options: Array.isArray(q.options) && q.options.length > 0 ? q.options : ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'],
-        answer: q.answer || 'A',
-        answerKey: q.answerKey || q.answer || '',
-        explanation: q.explanation || ''
-      }));
+      // Normalise questions structure & enforce selected optionCount for PG
+      const formatted = data.map((q: any) => {
+        const qType = q.type || (form.type === 'essay' ? 'essay' : 'pg');
+        const normalizedOpts =
+          qType === 'pg'
+            ? normalizeOptionsCount(q.options, form.optionCount)
+            : [];
+        const maxLetter = String.fromCharCode(65 + normalizedOpts.length - 1);
+        const rawAns = String(q.answer || 'A').trim().toUpperCase().charAt(0);
+        const safeAns = qType === 'pg' && rawAns >= 'A' && rawAns <= maxLetter ? rawAns : 'A';
 
-      setGeneratedQuestions(formatted);
-      setDraftMetadata({
-        class_id: form.class_id,
+        return {
+          type: qType,
+          question: q.question || 'Pertanyaan...',
+          options: normalizedOpts,
+          answer: qType === 'pg' ? safeAns : (q.answer || ''),
+          answerKey: q.answerKey || q.answer || '',
+          explanation: q.explanation || ''
+        };
+      });
+
+      const nextMeta = {
+        class_id: selectedClassIds.length === classes.length ? 'ALL_GRADE' : selectedClassIds[0],
+        class_ids: [...selectedClassIds],
         subject_name: form.subject_name,
         title: form.title,
         type: form.type
-      });
+      };
+
+      setGeneratedQuestions(formatted);
+      setDraftMetadata(nextMeta);
 
       // If autoPublish is explicitly checked by user, publish directly
       if (autoPublish) {
-        await publishQuestionsDirectly(formatted, {
-          class_id: form.class_id,
-          subject_name: form.subject_name,
-          title: form.title,
-          type: form.type
-        });
+        await publishQuestionsDirectly(formatted, nextMeta);
       }
     } catch (err: any) {
       alert(err.message || 'Gagal meracik soal dari AI. Pastikan server aktif dan koneksi stabil.');
@@ -207,8 +282,17 @@ export default function CreateQuestions() {
       return;
     }
 
-    if (!meta.class_id || !meta.subject_name || !meta.title) {
-      alert('Mohon lengkapi Target Kelas, Mata Pelajaran, dan Judul Soal sebelum menerbitkan.');
+    const targetIds: string[] =
+      Array.isArray(meta.class_ids) && meta.class_ids.length > 0
+        ? meta.class_ids
+        : meta.class_id === 'ALL_GRADE'
+        ? classes.map(c => c.id)
+        : meta.class_id
+        ? [meta.class_id]
+        : [];
+
+    if (targetIds.length === 0 || !meta.subject_name || !meta.title) {
+      alert('Mohon pilih minimal 1 Target Kelas, Mata Pelajaran, dan Judul Soal sebelum menerbitkan.');
       return;
     }
 
@@ -223,51 +307,37 @@ export default function CreateQuestions() {
         published_at: effectivePublishTime
       }));
 
-      if (meta.class_id === 'ALL_GRADE') {
-        const inserts = classes.map(c => ({
-          guru_id: user.id,
-          class_id: c.id,
-          subject_name: meta.subject_name,
-          title: meta.title,
-          type: meta.type,
-          content: questionsWithSchedule
-        }));
+      const inserts = targetIds.map(cid => ({
+        guru_id: user.id,
+        class_id: cid,
+        subject_name: meta.subject_name,
+        title: meta.title,
+        type: meta.type,
+        content: questionsWithSchedule
+      }));
 
-        const { error } = await supabase.from('tasks').insert(inserts);
-        if (error) throw error;
+      const { error } = await supabase.from('tasks').insert(inserts);
+      if (error) throw error;
 
-        const isFuture = new Date(effectivePublishTime).getTime() > Date.now();
-        const formattedTime = new Date(effectivePublishTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
-        if (isFuture) {
-          alert(`✅ Sukses! ${questionsToPublish.length} butir soal telah dijadwalkan terbit ke ${inserts.length} kelas pada ${formattedTime} WIB.`);
-        } else {
-          alert(`✅ Sukses! ${questionsToPublish.length} butir soal telah berhasil diterbitkan ke ${inserts.length} kelas.`);
-        }
+      const targetNames = targetIds
+        .map(id => classes.find(c => c.id === id)?.name)
+        .filter(Boolean)
+        .map(n => `Kelas ${n}`)
+        .join(', ');
+
+      const isFuture = new Date(effectivePublishTime).getTime() > Date.now();
+      const formattedTime = new Date(effectivePublishTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
+      if (isFuture) {
+        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) telah dijadwalkan terbit ke ${inserts.length} kelas (${targetNames}) pada ${formattedTime} WIB.`);
       } else {
-        const { error } = await supabase.from('tasks').insert([{
-          guru_id: user.id,
-          class_id: meta.class_id,
-          subject_name: meta.subject_name,
-          title: meta.title,
-          type: meta.type,
-          content: questionsWithSchedule
-        }]);
-
-        if (error) throw error;
-
-        const isFuture = new Date(effectivePublishTime).getTime() > Date.now();
-        const formattedTime = new Date(effectivePublishTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
-        if (isFuture) {
-          alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil dijadwalkan dan akan otomatis dibuka untuk siswa pada ${formattedTime} WIB.`);
-        } else {
-          alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil diterbitkan dan siap dikerjakan siswa.`);
-        }
+        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil diterbitkan ke ${inserts.length} kelas (${targetNames}).`);
       }
 
       // Clear draft after publish
       setGeneratedQuestions(null);
       setEditingQuestionIdx(null);
-      setForm({ class_id: '', subject_name: teacherSubjects[0] || '', title: '', type: 'pg', count: 5 });
+      setForm(prev => ({ ...prev, class_id: '', subject_name: teacherSubjects[0] || '', title: '', type: 'pg', count: 5 }));
+      setSelectedClassIds([]);
       setCustomTopic(false);
       fetchTasks();
     } catch (err: any) {
@@ -323,11 +393,12 @@ export default function CreateQuestions() {
   };
 
   const addManualQuestion = () => {
+    const isEssayDefault = form.type === 'essay';
     const newQ = {
-      type: 'pg',
+      type: isEssayDefault ? 'essay' : 'pg',
       question: 'Tulis pertanyaan baru di sini...',
-      options: ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'],
-      answer: 'A',
+      options: isEssayDefault ? [] : buildDefaultOptions(form.optionCount),
+      answer: isEssayDefault ? '' : 'A',
       answerKey: '',
       explanation: 'Penjelasan jawaban'
     };
@@ -335,15 +406,89 @@ export default function CreateQuestions() {
       setGeneratedQuestions([...generatedQuestions, newQ]);
       setEditingQuestionIdx(generatedQuestions.length);
     } else {
+      const initialClassIds = selectedClassIds.length > 0
+        ? [...selectedClassIds]
+        : classes[0]?.id ? [classes[0].id] : [];
+      if (selectedClassIds.length === 0 && initialClassIds.length > 0) {
+        setSelectedClassIds(initialClassIds);
+      }
       setGeneratedQuestions([newQ]);
       setDraftMetadata({
-        class_id: form.class_id || (classes[0]?.id || ''),
+        class_id: initialClassIds[0] || '',
+        class_ids: initialClassIds,
         subject_name: form.subject_name || (teacherSubjects[0] || 'Mata Pelajaran'),
-        title: form.title || 'Paket Soal Baru',
+        title: form.title || 'Paket Soal Manual Baru',
         type: form.type || 'pg'
       });
       setEditingQuestionIdx(0);
     }
+  };
+
+  const handleDownloadWordTemplate = async () => {
+    try {
+      await downloadWordQuestionTemplate(
+        form.optionCount,
+        form.subject_name || teacherSubjects[0] || 'Mata Pelajaran',
+        form.title || 'Evaluasi Pembelajaran'
+      );
+    } catch (err: any) {
+      alert('Gagal mengunduh template Word: ' + err.message);
+    }
+  };
+
+  const handleWordFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportingFile(true);
+    setImportFileName(file.name);
+    try {
+      const extractedText = await extractTextFromWordFile(file);
+      setImportRawText(extractedText);
+    } catch (err: any) {
+      alert('Gagal membaca file Word: ' + (err.message || 'Format file tidak didukung'));
+    } finally {
+      setImportingFile(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleProcessWordImport = () => {
+    const parsed = parseQuestionsFromText(importRawText, form.optionCount);
+    if (parsed.length === 0) {
+      alert(
+        'Tidak ditemukan butir soal yang terdeteksi.\n\nPastikan setiap soal diawali nomor (1., 2., dst.), pilihan jawaban diawali huruf (A., B., C., dst.), dan terdapat baris "Kunci: A".'
+      );
+      return;
+    }
+
+    const initialClassIds = selectedClassIds.length > 0
+      ? [...selectedClassIds]
+      : classes[0]?.id ? [classes[0].id] : [];
+    if (selectedClassIds.length === 0 && initialClassIds.length > 0) {
+      setSelectedClassIds(initialClassIds);
+    }
+
+    const hasPg = parsed.some(q => q.type === 'pg');
+    const hasEssay = parsed.some(q => q.type === 'essay');
+    const detectedType = hasPg && hasEssay ? 'mixed' : hasEssay ? 'essay' : 'pg';
+
+    if (generatedQuestions && importMode === 'append') {
+      setGeneratedQuestions([...generatedQuestions, ...parsed]);
+    } else {
+      setGeneratedQuestions(parsed);
+      setDraftMetadata({
+        class_id: initialClassIds[0] || '',
+        class_ids: initialClassIds,
+        subject_name: form.subject_name || (teacherSubjects[0] || 'Mata Pelajaran'),
+        title: form.title || (importFileName ? importFileName.replace(/\.[^.]+$/, '') : 'Paket Soal Import Word'),
+        type: detectedType
+      });
+    }
+
+    setShowImportModal(false);
+    setImportRawText('');
+    setImportFileName('');
   };
 
   // Save changes to existing task
@@ -428,22 +573,55 @@ export default function CreateQuestions() {
 
         <form onSubmit={handleGenerateQuestions} className="space-y-6">
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Target Kelas / Rombel</label>
-              <select
-                required
-                value={form.class_id}
-                onChange={e => setForm({ ...form, class_id: e.target.value })}
-                className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium text-blue-900"
-              >
-                <option value="">-- Pilih Kelas --</option>
-                <option value="ALL_GRADE" className="font-bold text-blue-700 bg-blue-50">
-                  ✨ Semua Kelas
-                </option>
-                {classes.map(c => (
-                  <option key={c.id} value={c.id}>Kelas {c.name}</option>
-                ))}
-              </select>
+            {/* Multi-Select Target Kelas */}
+            <div className="md:col-span-2 lg:col-span-1">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-blue-600" />
+                  <span>Pilih Target Kelas ({selectedClassIds.length} Dipilih)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSelectAllClasses}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-800"
+                >
+                  {selectedClassIds.length === classes.length && classes.length > 0
+                    ? 'Reset Pilihan'
+                    : '✓ Pilih Semua Kelas'}
+                </button>
+              </div>
+              <div className="p-3 bg-gray-50 border border-gray-300 rounded-xl max-h-40 overflow-y-auto space-y-1.5">
+                {classes.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2 text-center">Belum ada daftar kelas.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {classes.map(c => {
+                      const isChecked = selectedClassIds.includes(c.id);
+                      return (
+                        <label
+                          key={c.id}
+                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border text-xs cursor-pointer transition ${
+                            isChecked
+                              ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-2xs'
+                              : 'bg-white hover:bg-blue-50/60 text-gray-700 border-gray-200 font-medium'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelectClass(c.id)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                          />
+                          <span className="truncate">Kelas {c.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Centang satu atau beberapa kelas sekaligus untuk membagikan paket soal ini.
+              </p>
             </div>
 
             <div>
@@ -557,8 +735,26 @@ export default function CreateQuestions() {
               </select>
             </div>
 
+            {/* Jumlah Pilihan Jawaban untuk Soal PG */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Jumlah Soal</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <ListOrdered className="w-4 h-4 text-blue-600" />
+                <span>Jumlah Pilihan Jawaban (PG)</span>
+              </label>
+              <select
+                value={form.optionCount}
+                disabled={form.type === 'essay'}
+                onChange={e => setForm({ ...form, optionCount: Number(e.target.value) })}
+                className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-bold text-gray-900 disabled:opacity-50"
+              >
+                <option value={3}>3 Pilihan Jawaban (A, B, C)</option>
+                <option value={4}>4 Pilihan Jawaban (A, B, C, D)</option>
+                <option value={5}>5 Pilihan Jawaban (A, B, C, D, E)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Jumlah Butir Soal (AI)</label>
               <input
                 type="number"
                 min={1}
@@ -571,7 +767,7 @@ export default function CreateQuestions() {
               />
             </div>
 
-            <div className="flex items-end">
+            <div className="md:col-span-2 lg:col-span-3">
               <label className="flex items-center gap-2 p-3 bg-blue-50/70 border border-blue-200 rounded-xl cursor-pointer w-full text-xs font-semibold text-blue-900 hover:bg-blue-100 transition">
                 <input 
                   type="checkbox"
@@ -579,7 +775,7 @@ export default function CreateQuestions() {
                   onChange={e => setAutoPublish(e.target.checked)}
                   className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
                 />
-                <span>⚡ Langsung terbitkan ke siswa (tanpa review draf)</span>
+                <span>⚡ Langsung terbitkan ke seluruh kelas terpilih setelah AI selesai meracik (tanpa review draf)</span>
               </label>
             </div>
           </div>
@@ -662,7 +858,7 @@ export default function CreateQuestions() {
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition flex items-center justify-center disabled:opacity-70 shadow-sm"
+              className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition flex items-center justify-center disabled:opacity-70 shadow-sm text-sm"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Sparkles className="w-5 h-5 mr-2" />}
               {loading ? 'AI Sedang Meracik Soal...' : 'Buatkan Soal dengan AI'}
@@ -674,6 +870,26 @@ export default function CreateQuestions() {
               className="px-4 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition flex items-center text-sm"
             >
               <PlusCircle className="w-4 h-4 mr-2 text-gray-600" /> + Tambah Soal Manual
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setImportMode(generatedQuestions ? 'append' : 'replace');
+                setShowImportModal(true);
+              }}
+              className="px-4 py-3 bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold rounded-xl hover:bg-indigo-100 transition flex items-center text-sm gap-2"
+            >
+              <Upload className="w-4 h-4 text-indigo-600" /> Import Soal dari Word
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadWordTemplate}
+              className="px-4 py-3 bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold rounded-xl hover:bg-emerald-100 transition flex items-center text-sm gap-2"
+              title="Download Template Format Microsoft Word (.docx) untuk Soal Manual"
+            >
+              <Download className="w-4 h-4 text-emerald-600" /> Template Format Word (.docx)
             </button>
           </div>
         </form>
@@ -708,6 +924,17 @@ export default function CreateQuestions() {
               <button
                 type="button"
                 onClick={() => {
+                  setImportMode('append');
+                  setShowImportModal(true);
+                }}
+                className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold backdrop-blur-sm transition flex items-center"
+              >
+                <Upload className="w-4 h-4 mr-1" /> + Import Word
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   if (confirm('Yakin ingin membuang draf soal ini?')) {
                     setGeneratedQuestions(null);
                     setEditingQuestionIdx(null);
@@ -729,38 +956,70 @@ export default function CreateQuestions() {
             </div>
           </div>
 
-          {/* Draft Metadata Customizer */}
-          <div className="p-4 bg-blue-50/60 border-b border-blue-200 grid sm:grid-cols-3 gap-3 text-xs">
-            <div>
-              <label className="block font-bold text-gray-700 mb-1">Judul Paket Soal</label>
-              <input
-                type="text"
-                value={draftMetadata.title}
-                onChange={e => setDraftMetadata({ ...draftMetadata, title: e.target.value })}
-                className="w-full p-2 bg-white border border-gray-300 rounded-lg font-bold text-gray-900"
-              />
+          {/* Draft Metadata Customizer (Supports Multiple Classes) */}
+          <div className="p-4 bg-blue-50/60 border-b border-blue-200 space-y-3 text-xs">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Judul Paket Soal</label>
+                <input
+                  type="text"
+                  value={draftMetadata.title}
+                  onChange={e => setDraftMetadata({ ...draftMetadata, title: e.target.value })}
+                  className="w-full p-2 bg-white border border-gray-300 rounded-lg font-bold text-gray-900"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Mata Pelajaran</label>
+                <input
+                  type="text"
+                  value={draftMetadata.subject_name}
+                  onChange={e => setDraftMetadata({ ...draftMetadata, subject_name: e.target.value })}
+                  className="w-full p-2 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900"
+                />
+              </div>
             </div>
+
             <div>
-              <label className="block font-bold text-gray-700 mb-1">Mata Pelajaran</label>
-              <input
-                type="text"
-                value={draftMetadata.subject_name}
-                onChange={e => setDraftMetadata({ ...draftMetadata, subject_name: e.target.value })}
-                className="w-full p-2 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-gray-700 mb-1">Target Kelas</label>
-              <select
-                value={draftMetadata.class_id}
-                onChange={e => setDraftMetadata({ ...draftMetadata, class_id: e.target.value })}
-                className="w-full p-2 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900"
-              >
-                <option value="ALL_GRADE">✨ Semua Kelas</option>
-                {classes.map(c => (
-                  <option key={c.id} value={c.id}>Kelas {c.name}</option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block font-bold text-gray-700">
+                  Target Kelas Penerima Soal ({draftMetadata.class_ids?.length || 0} Kelas Dipilih)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allSelected = (draftMetadata.class_ids?.length || 0) === classes.length;
+                    const nextIds = allSelected ? [] : classes.map(c => c.id);
+                    setDraftMetadata({
+                      ...draftMetadata,
+                      class_ids: nextIds,
+                      class_id: allSelected ? '' : 'ALL_GRADE'
+                    });
+                  }}
+                  className="text-xs font-bold text-blue-700 hover:underline"
+                >
+                  {(draftMetadata.class_ids?.length || 0) === classes.length ? 'Reset Pilihan Kelas' : '✓ Pilih Semua Kelas'}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {classes.map(c => {
+                  const isChecked = (draftMetadata.class_ids || []).includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => toggleDraftClass(c.id)}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 ${
+                        isChecked
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50'
+                      }`}
+                    >
+                      {isChecked && <Check className="w-3.5 h-3.5" />}
+                      <span>Kelas {c.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -873,22 +1132,48 @@ export default function CreateQuestions() {
 
                       {q.type === 'pg' && (
                         <div className="space-y-2.5 bg-white p-3.5 rounded-xl border border-gray-200">
-                          <div className="flex justify-between items-center mb-1">
+                          <div className="flex flex-wrap justify-between items-center gap-2 mb-1">
                             <label className="block text-xs font-bold text-gray-700">
-                              Pilihan Jawaban & Kunci (Klik huruf untuk menetapkan Kunci Jawaban)
+                              Pilihan Jawaban ({q.options?.length || 0} Opsi) & Kunci (Klik huruf untuk menetapkan Kunci)
                             </label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updated = [...generatedQuestions];
-                                const currentOpts = updated[idx].options || [];
-                                updated[idx].options = [...currentOpts, `Pilihan ${String.fromCharCode(65 + currentOpts.length)}`];
-                                setGeneratedQuestions(updated);
-                              }}
-                              className="text-xs font-bold text-blue-600 hover:text-blue-800"
-                            >
-                              + Tambah Opsi
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              {[3, 4, 5].map(num => (
+                                <button
+                                  key={num}
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = [...generatedQuestions];
+                                    updated[idx].options = normalizeOptionsCount(updated[idx].options, num);
+                                    const maxL = String.fromCharCode(65 + num - 1);
+                                    if (updated[idx].answer > maxL) {
+                                      updated[idx].answer = 'A';
+                                    }
+                                    setGeneratedQuestions(updated);
+                                  }}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-bold border transition ${
+                                    (q.options?.length || 0) === num
+                                      ? 'bg-blue-600 text-white border-blue-600'
+                                      : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                  }`}
+                                >
+                                  {num} Opsi (A-{String.fromCharCode(65 + num - 1)})
+                                </button>
+                              ))}
+                              {(q.options?.length || 0) < 5 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = [...generatedQuestions];
+                                    const currentOpts = updated[idx].options || [];
+                                    updated[idx].options = [...currentOpts, `Pilihan ${String.fromCharCode(65 + currentOpts.length)}`];
+                                    setGeneratedQuestions(updated);
+                                  }}
+                                  className="text-xs font-bold text-blue-600 hover:text-blue-800 ml-1"
+                                >
+                                  + Tambah Opsi
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           {q.options?.map((opt: string, oIdx: number) => {
@@ -1434,7 +1719,7 @@ export default function CreateQuestions() {
                       const newQ = {
                         type: 'pg',
                         question: 'Tulis pertanyaan baru...',
-                        options: ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'],
+                        options: buildDefaultOptions(form.optionCount),
                         answer: 'A'
                       };
                       setEditingExistingTask({
@@ -1481,7 +1766,35 @@ export default function CreateQuestions() {
 
                     {q.type === 'pg' && q.options && (
                       <div className="space-y-2 bg-white p-3 rounded-lg border border-gray-200">
-                        <label className="block text-xs font-bold text-gray-700">Pilihan Jawaban (Klik huruf untuk kunci):</label>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="block text-xs font-bold text-gray-700">
+                            Pilihan Jawaban ({q.options.length} Opsi - Klik huruf untuk kunci):
+                          </label>
+                          <div className="flex items-center gap-1">
+                            {[3, 4, 5].map(num => (
+                              <button
+                                key={num}
+                                type="button"
+                                onClick={() => {
+                                  const updated = [...editingExistingTask.content];
+                                  updated[qIdx].options = normalizeOptionsCount(updated[qIdx].options, num);
+                                  const maxL = String.fromCharCode(65 + num - 1);
+                                  if (updated[qIdx].answer > maxL) {
+                                    updated[qIdx].answer = 'A';
+                                  }
+                                  setEditingExistingTask({ ...editingExistingTask, content: updated });
+                                }}
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold border transition ${
+                                  q.options.length === num
+                                    ? 'bg-amber-600 text-white border-amber-600'
+                                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                {num} Opsi
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                         {q.options.map((opt: string, oIdx: number) => {
                           const letter = String.fromCharCode(65 + oIdx);
                           const isCorrect = q.answer === letter;
@@ -1554,6 +1867,141 @@ export default function CreateQuestions() {
               >
                 {savingEditTask ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 {savingEditTask ? 'Menyimpan...' : 'Simpan Perubahan Paket Soal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Import Soal dari Word & Template Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-gray-200">
+            <div className="p-6 bg-gradient-to-r from-indigo-900 to-blue-900 text-white flex items-center justify-between gap-4">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5" /> Import Soal Manual & Template Word
+                </span>
+                <h3 className="text-lg font-bold mt-1">Import Paket Soal dari Microsoft Word (.docx / .doc)</h3>
+                <p className="text-xs text-blue-200 mt-0.5">
+                  Unduh template Word siap pakai atau unggah file soal Word Anda untuk langsung masuk ke Draf Soal.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {/* Step 1: Download Template & Option Count */}
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h4 className="font-bold text-emerald-950 text-sm flex items-center gap-1.5">
+                    <Download className="w-4 h-4 text-emerald-600" />
+                    1. Belum Punya Format? Unduh Template Word (.docx)
+                  </h4>
+                  <p className="text-xs text-emerald-800 leading-relaxed">
+                    Template otomatis menyesuaikan pilihan ganda <strong>{form.optionCount} Opsi (A–{String.fromCharCode(65 + form.optionCount - 1)})</strong> beserta contoh soal PG & Esai.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadWordTemplate}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 shrink-0"
+                >
+                  <Download className="w-4 h-4" /> Download Template Word
+                </button>
+              </div>
+
+              {/* Step 2: Upload Word File */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
+                  2. Pilih File Microsoft Word (.docx / .doc / .txt)
+                </label>
+                <label className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-indigo-300 bg-indigo-50/50 hover:bg-indigo-50 rounded-xl cursor-pointer transition text-center">
+                  <Upload className="w-7 h-7 text-indigo-600 mb-2" />
+                  <span className="text-sm font-bold text-indigo-950">
+                    {importingFile
+                      ? 'Sedang membaca dokumen Word...'
+                      : importFileName
+                      ? `File Terbaca: ${importFileName}`
+                      : 'Klik untuk Pilih File Soal Word (.docx / .doc)'}
+                  </span>
+                  <span className="text-xs text-gray-500 mt-1">
+                    Mendukung file hasil edit dari Template Word SMAN 21 Garut maupun naskah soal Word standar.
+                  </span>
+                  <input
+                    type="file"
+                    accept=".docx,.doc,.txt"
+                    onChange={handleWordFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {/* Step 3: Preview / Paste Text */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
+                    3. Pratinjau Isi Teks Soal / Salin-Tempel Langsung dari Word
+                  </label>
+                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-200">
+                    Terdeteksi: {parseQuestionsFromText(importRawText, form.optionCount).length} Butir Soal
+                  </span>
+                </div>
+                <textarea
+                  rows={8}
+                  value={importRawText}
+                  onChange={e => setImportRawText(e.target.value)}
+                  placeholder={`Contoh Format Penulisan:\n1. Ibu kota provinsi Jawa Barat adalah...\nA. Bandung\nB. Garut\nC. Bogor\nD. Bekasi\nE. Cirebon\nKunci: A\nPembahasan: Bandung adalah ibu kota Jawa Barat.\n\n2. [ESAI] Jelaskan 3 faktor utama perubahan sosial!\nKunci: Faktor internal, eksternal, dan perkembangan ilmu pengetahuan.`}
+                  className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono leading-relaxed focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {generatedQuestions && generatedQuestions.length > 0 && (
+                <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                  <span className="font-bold text-gray-700">Mode Import ke Draf:</span>
+                  <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-gray-800">
+                    <input
+                      type="radio"
+                      name="importMode"
+                      checked={importMode === 'append'}
+                      onChange={() => setImportMode('append')}
+                      className="text-indigo-600"
+                    />
+                    <span>Tambahkan ke {generatedQuestions.length} soal draf saat ini</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-gray-800">
+                    <input
+                      type="radio"
+                      name="importMode"
+                      checked={importMode === 'replace'}
+                      onChange={() => setImportMode('replace')}
+                      className="text-indigo-600"
+                    />
+                    <span>Ganti dengan soal hasil import baru</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className="px-4 py-2 text-gray-600 font-semibold hover:bg-gray-200 rounded-xl text-sm transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleProcessWordImport}
+                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition flex items-center gap-2 shadow-sm"
+              >
+                <CheckCircle2 className="w-4 h-4" /> Proses & Masukkan ke Draf Soal
               </button>
             </div>
           </div>
