@@ -14,6 +14,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { getDetailedPendahuluan, getDetailedPenutup } from '../../lib/schoolSettings';
+import { getEnsuredKKTP, type KKTPItem } from '../../lib/kktpHelper';
 
 export const DELAPAN_DIMENSI_LULUSAN = [
   'Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa: Mengamalkan nilai spiritual dan integritas dalam proses belajar',
@@ -285,13 +286,129 @@ export default function ModulAjarEditor({
               ))}
             </div>
           </div>
+
+          {/* D. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP) */}
+          <div className="pt-4 border-t border-gray-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div>
+                <label className="block text-xs font-bold text-gray-900">
+                  D. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)
+                </label>
+                <p className="text-[11px] text-gray-500">
+                  Aspek penilaian operasional yang diturunkan dari masing-masing Tujuan Pembelajaran dengan rentang ketuntasan nilai (86-100, 71-85, 56-70, &lt;56).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const dynamicKKTP = getEnsuredKKTP(result);
+                    updateField(['kriteriaKetercapaianTujuanPembelajaran'], dynamicKKTP);
+                  }}
+                  className="px-2.5 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                  title="Sinkronkan KKTP otomatis berdasarkan butir Tujuan Pembelajaran saat ini"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> Sinkronkan dari TP
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => addArrayItem(['kriteriaKetercapaianTujuanPembelajaran'], {
+                    aspek: 'Indikator TP Baru: Mampu menjelaskan...',
+                    sangatMahir: 'Mampu menguasai secara komprehensif, orisinal, dan memecahkan masalah mandiri (86-100).',
+                    mahir: 'Mampu menguasai konsep dan menerapkan prosedur dengan tepat dan terstruktur (71-85).',
+                    berkembang: 'Cukup memahami konsep namun masih membutuhkan sedikit arahan atau bimbingan (56-70).',
+                    perluBimbingan: 'Belum mampu mencapai indikator dan memerlukan pendampingan intensif dari guru (<56).'
+                  })}
+                  className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Tambah KKTP
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {(
+                (Array.isArray(result.kriteriaKetercapaianTujuanPembelajaran) && result.kriteriaKetercapaianTujuanPembelajaran.length > 0)
+                  ? result.kriteriaKetercapaianTujuanPembelajaran
+                  : getEnsuredKKTP(result)
+              ).map((kktp: KKTPItem, kIdx: number) => (
+                <div key={kIdx} className="p-3.5 bg-slate-50 border border-slate-300 rounded-xl space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-blue-900 bg-blue-100 px-2 py-0.5 rounded text-[11px] shrink-0">
+                      Indikator {kIdx + 1}
+                    </span>
+                    <input
+                      type="text"
+                      value={kktp.aspek || ''}
+                      onChange={e => updateField(['kriteriaKetercapaianTujuanPembelajaran', kIdx, 'aspek'], e.target.value)}
+                      className="flex-1 p-1.5 font-bold border border-slate-300 rounded-lg bg-white"
+                      placeholder="Aspek / Indikator Penilaian (Sesuai TP)"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeArrayItem(['kriteriaKetercapaianTujuanPembelajaran'], kIdx)}
+                      className="text-red-500 hover:text-red-700 p-1"
+                      title="Hapus KKTP ini"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-2">
+                    <div>
+                      <label className="text-[11px] font-semibold text-emerald-800 block mb-0.5">Sangat Mahir (86-100)</label>
+                      <textarea
+                        rows={3}
+                        value={kktp.sangatMahir || ''}
+                        onChange={e => updateField(['kriteriaKetercapaianTujuanPembelajaran', kIdx, 'sangatMahir'], e.target.value)}
+                        className="w-full p-1.5 border border-emerald-300 rounded-lg bg-white text-xs leading-relaxed"
+                        placeholder="Deskripsi ketercapaian 86-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-blue-800 block mb-0.5">Mahir (71-85)</label>
+                      <textarea
+                        rows={3}
+                        value={kktp.mahir || ''}
+                        onChange={e => updateField(['kriteriaKetercapaianTujuanPembelajaran', kIdx, 'mahir'], e.target.value)}
+                        className="w-full p-1.5 border border-blue-300 rounded-lg bg-white text-xs leading-relaxed"
+                        placeholder="Deskripsi ketercapaian 71-85"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-amber-800 block mb-0.5">Berkembang (56-70)</label>
+                      <textarea
+                        rows={3}
+                        value={kktp.berkembang || ''}
+                        onChange={e => updateField(['kriteriaKetercapaianTujuanPembelajaran', kIdx, 'berkembang'], e.target.value)}
+                        className="w-full p-1.5 border border-amber-300 rounded-lg bg-white text-xs leading-relaxed"
+                        placeholder="Deskripsi ketercapaian 56-70"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-red-800 block mb-0.5">Perlu Bimbingan (&lt;56)</label>
+                      <textarea
+                        rows={3}
+                        value={kktp.perluBimbingan || ''}
+                        onChange={e => updateField(['kriteriaKetercapaianTujuanPembelajaran', kIdx, 'perluBimbingan'], e.target.value)}
+                        className="w-full p-1.5 border border-red-300 rounded-lg bg-white text-xs leading-relaxed"
+                        placeholder="Deskripsi ketercapaian <56"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
 
         {/* 3. TIGA PILAR DEEP LEARNING */}
         <section className="p-5 rounded-2xl border border-gray-200 bg-purple-50/20 space-y-4">
           <h4 className="text-sm font-bold uppercase tracking-wider text-purple-900 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-purple-700" />
-            D. Prinsip Pembelajaran Mendalam (Deep Learning Framework)
+            E. Prinsip Pembelajaran Mendalam (Deep Learning Framework)
           </h4>
           <div className="grid md:grid-cols-3 gap-3 text-xs">
             <div className="p-3 bg-purple-50 rounded-xl border border-purple-200">
@@ -324,7 +441,7 @@ export default function ModulAjarEditor({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-800 mb-1">E. Pemahaman Bermakna (Enduring Understanding)</label>
+            <label className="block text-xs font-bold text-gray-800 mb-1">F. Pemahaman Bermakna (Enduring Understanding)</label>
             <textarea
               rows={2}
               value={result.pemahamanBermakna || ''}
@@ -336,7 +453,7 @@ export default function ModulAjarEditor({
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-bold text-gray-800">
-                F. Pertanyaan Pemantik (Driving Questions)
+                G. Pertanyaan Pemantik (Driving Questions)
               </label>
               <button
                 type="button"
@@ -374,7 +491,7 @@ export default function ModulAjarEditor({
           <div className="flex items-center justify-between">
             <div>
               <h4 className="text-sm font-bold uppercase tracking-wider text-blue-900">
-                G. Dimensi Profil Lulusan (8 Dimensi Lulusan)
+                H. Dimensi Profil Lulusan (8 Dimensi Lulusan)
               </h4>
               <p className="text-xs text-gray-500">
                 8 dimensi kelulusan peserta didik yang terintegrasi dalam modul ajar.

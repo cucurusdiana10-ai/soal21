@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { 
   FileText, Sparkles, Loader2, Send, Trash2, Eye, X, CheckCircle2, 
   PlusCircle, Edit2, AlertCircle, Save, Check, ArrowUp, ArrowDown, 
   Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar,
-  KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered
+  KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered, Activity
 } from 'lucide-react';
 import { generateQuestionsApi } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
@@ -1469,6 +1470,13 @@ export default function CreateQuestions() {
                     </div>
 
                     <div className="flex items-center gap-1.5">
+                      <Link
+                        to={`/dashboard/monitoring?taskId=${task.id}`}
+                        className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                        title="Monitoring Ujian Siswa (Selesaikan Ujian & Reset Login)"
+                      >
+                        <Activity className="w-3.5 h-3.5" /> Monitoring
+                      </Link>
                       <button 
                         onClick={() => setSelectedTask({ ...task, className })}
                         className="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"

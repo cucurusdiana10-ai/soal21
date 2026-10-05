@@ -122,6 +122,20 @@ export default function Login() {
         throw new Error('Akun Anda sedang dinonaktifkan oleh administrator.');
       }
 
+      // Record login timestamp & device session token in users table
+      try {
+        const deviceToken = localStorage.getItem('sman21_exam_device_token') || 'DEV_LOGIN';
+        await supabase
+          .from('users')
+          .update({
+            active_session_token: deviceToken,
+            last_login_at: new Date().toISOString()
+          })
+          .eq('id', userProfile.id);
+      } catch {
+        // Non-blocking if column is still syncing
+      }
+
       login(userProfile);
       if (userProfile.role === 'guru') {
         navigate('/dashboard/cp');

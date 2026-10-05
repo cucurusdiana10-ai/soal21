@@ -106,6 +106,22 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  // Endpoint & startup hook to automatically sync any table column additions to Supabase
+  app.all('/api/sync-schema', async (_req, res) => {
+    try {
+      const { syncSupabaseSchema } = await import('./update_schema.js');
+      const result = await syncSupabaseSchema();
+      res.json(result);
+    } catch (err: any) {
+      res.status(200).json({ success: false, error: err?.message || 'Schema sync skipped' });
+    }
+  });
+
+  // Trigger non-blocking schema sync on server boot
+  import('./update_schema.js')
+    .then(m => m.syncSupabaseSchema?.())
+    .catch(() => {});
+
   // Handler for Material Generation
   const handleMaterialGen = async (req: express.Request, res: express.Response) => {
     if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
@@ -594,6 +610,16 @@ Kegiatan pendahuluan dan penutup pada setiap pertemuan HARUS dijabarkan secara r
   5. Tindak Lanjut & Informasi Pertemuan Berikutnya: Guru memberikan arahan tindak lanjut (remedial/pengayaan) serta menginformasikan persiapan materi/tugas untuk pertemuan berikutnya.
   6. Doa Penutup & Salam: Pembelajaran ditutup dengan doa bersama penuh syukur dan salam penutup yang santun.
 
+ATURAN KRUSIAL: KRITERIA KETERCAPAIAN TUJUAN PEMBELAJARAN (KKTP):
+Tepat di bawah "tujuanPembelajaran", buatkan "kriteriaKetercapaianTujuanPembelajaran" berupa array objek dengan rentang nilai yang selaras dengan Rubrik Penilaian Ketercapaian Pembelajaran Mendalam:
+1. Aspek Penilaian pada KKTP HARUS DISESUAIKAN LANGSUNG DENGAN MASING-MASING BUTIR TUJUAN PEMBELAJARAN (TP). Setiap butir TP pada array tujuanPembelajaran dibuatkan indikator/aspek ketercapaian operasionalnya.
+2. Kolom rentang penilaian KKTP mencakup 4 tingkatan rentang nilai:
+   - "aspek": Indikator/aspek ketercapaian yang diturunkan spesifik dari Tujuan Pembelajaran terkait.
+   - "sangatMahir": Kriteria capaian rentang Sangat Mahir (skor 86-100) untuk TP tersebut.
+   - "mahir": Kriteria capaian rentang Mahir (skor 71-85) untuk TP tersebut.
+   - "berkembang": Kriteria capaian rentang Berkembang (skor 56-70) untuk TP tersebut.
+   - "perluBimbingan": Kriteria capaian rentang Perlu Bimbingan (skor <56) untuk TP tersebut.
+
 ATURAN DIMENSI PROFIL LULUSAN (8 DIMENSI LULUSAN):
 Ganti dan hilangkan istilah "Dimensi Profil Pelajar Pancasila". Gunakan "Dimensi Profil Lulusan" yang wajib memuat 8 Dimensi Lulusan berikut secara lengkap dan kontekstual:
 1. Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa
@@ -633,6 +659,29 @@ Gunakan struktur JSON berikut:
     "TP operasional 1 terukur dengan KKO",
     "TP operasional 2 terukur dengan KKO",
     "TP operasional 3 terukur dengan KKO"
+  ],
+  "kriteriaKetercapaianTujuanPembelajaran": [
+    {
+      "aspek": "Aspek Ketercapaian TP 1 (konkret mengacu pada materi dan TP 1)",
+      "sangatMahir": "Deskripsi ketercapaian rentang Sangat Mahir (86-100) untuk TP 1",
+      "mahir": "Deskripsi ketercapaian rentang Mahir (71-85) untuk TP 1",
+      "berkembang": "Deskripsi ketercapaian rentang Berkembang (56-70) untuk TP 1",
+      "perluBimbingan": "Deskripsi ketercapaian rentang Perlu Bimbingan (<56) untuk TP 1"
+    },
+    {
+      "aspek": "Aspek Ketercapaian TP 2 (konkret mengacu pada materi dan TP 2)",
+      "sangatMahir": "Deskripsi ketercapaian rentang Sangat Mahir (86-100) untuk TP 2",
+      "mahir": "Deskripsi ketercapaian rentang Mahir (71-85) untuk TP 2",
+      "berkembang": "Deskripsi ketercapaian rentang Berkembang (56-70) untuk TP 2",
+      "perluBimbingan": "Deskripsi ketercapaian rentang Perlu Bimbingan (<56) untuk TP 2"
+    },
+    {
+      "aspek": "Aspek Ketercapaian TP 3 (konkret mengacu pada materi dan TP 3)",
+      "sangatMahir": "Deskripsi ketercapaian rentang Sangat Mahir (86-100) untuk TP 3",
+      "mahir": "Deskripsi ketercapaian rentang Mahir (71-85) untuk TP 3",
+      "berkembang": "Deskripsi ketercapaian rentang Berkembang (56-70) untuk TP 3",
+      "perluBimbingan": "Deskripsi ketercapaian rentang Perlu Bimbingan (<56) untuk TP 3"
+    }
   ],
   "pemahamanBermakna": "Intisari pemahaman bermakna yang bertahan lama dan relevan dengan kehidupan sehari-hari siswa SMA",
   "pertanyaanPemantik": [

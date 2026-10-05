@@ -411,6 +411,11 @@ ATURAN RINCIAN KEGIATAN PENDAHULUAN DAN PENUTUP:
   5. Tindak Lanjut (remedial/pengayaan) dan info pertemuan berikutnya.
   6. Doa Penutup & Salam penuh syukur.
 
+ATURAN KRUSIAL: KRITERIA KETERCAPAIAN TUJUAN PEMBELAJARAN (KKTP):
+Tepat di bawah "tujuanPembelajaran", sertakan "kriteriaKetercapaianTujuanPembelajaran" berupa array objek dengan rentang nilai yang selaras dengan Rubrik Penilaian Ketercapaian Pembelajaran Mendalam:
+- Aspek penilaian pada KKTP disesuaikan langsung dengan masing-masing butir Tujuan Pembelajaran (TP).
+- Memiliki 4 rentang nilai: "aspek", "sangatMahir" (86-100), "mahir" (71-85), "berkembang" (56-70), dan "perluBimbingan" (<56).
+
 ATURAN DIMENSI PROFIL LULUSAN (8 DIMENSI LULUSAN):
 Gunakan "Dimensi Profil Lulusan" yang wajib memuat 8 Dimensi Lulusan:
 1. Keimanan dan Ketakwaan terhadap Tuhan YME
@@ -447,6 +452,15 @@ WAJIB MENGEMBALIKAN RESPONS DALAM FORMAT JSON MURNI YANG VALID dengan struktur:
     "TP operasional 1 terukur dengan KKO",
     "TP operasional 2 terukur dengan KKO",
     "TP operasional 3 terukur dengan KKO"
+  ],
+  "kriteriaKetercapaianTujuanPembelajaran": [
+    {
+      "aspek": "Aspek Ketercapaian TP 1 (konkret mengacu pada materi dan TP 1)",
+      "sangatMahir": "Deskripsi ketercapaian rentang Sangat Mahir (86-100) untuk TP 1",
+      "mahir": "Deskripsi ketercapaian rentang Mahir (71-85) untuk TP 1",
+      "berkembang": "Deskripsi ketercapaian rentang Berkembang (56-70) untuk TP 1",
+      "perluBimbingan": "Deskripsi ketercapaian rentang Perlu Bimbingan (<56) untuk TP 1"
+    }
   ],
   "pemahamanBermakna": "Intisari pemahaman bermakna yang bertahan lama",
   "pertanyaanPemantik": [

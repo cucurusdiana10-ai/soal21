@@ -73,9 +73,18 @@ CREATE TABLE IF NOT EXISTS public.task_submissions (
   task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE,
   student_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
   answers JSONB DEFAULT '{}'::jsonb,
-  score NUMERIC DEFAULT 0,
+  score NUMERIC DEFAULT NULL,
   feedback TEXT,
-  status TEXT DEFAULT 'completed',
+  status TEXT DEFAULT 'in_progress',
+  session_token TEXT,
+  is_locked BOOLEAN DEFAULT FALSE,
+  login_reset_count INT DEFAULT 0,
+  login_reset_at TIMESTAMP WITH TIME ZONE,
+  violation_count INT DEFAULT 0,
+  violation_logs JSONB DEFAULT '[]'::jsonb,
+  started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(task_id, student_id)
 );
@@ -132,7 +141,22 @@ ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS content JSONB;
 
 ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS answers JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
-ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS score NUMERIC DEFAULT 0;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS score NUMERIC DEFAULT NULL;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'in_progress';
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS session_token TEXT;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS login_reset_count INT DEFAULT 0;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS login_reset_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS violation_count INT DEFAULT 0;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS violation_logs JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS active_session_token TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;
+
+NOTIFY pgrst, 'reload schema';
 
 -- Pastikan tabel modul_ajar dan capaian_pembelajaran siap digunakan
 CREATE TABLE IF NOT EXISTS public.modul_ajar (

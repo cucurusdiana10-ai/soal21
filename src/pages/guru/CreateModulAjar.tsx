@@ -101,6 +101,9 @@ export function extractMateriTitleFromModule(mod: {
   return 'Materi Pokok';
 }
 
+import { getEnsuredKKTP, type KKTPItem } from '../../lib/kktpHelper';
+export { getEnsuredKKTP, type KKTPItem };
+
 function formatIndoDate(dateStr?: string) {
   if (!dateStr) return '';
   try {
@@ -1166,10 +1169,62 @@ export default function CreateModulAjar() {
                     </ul>
                   </div>
 
+                  {/* Kriteria Ketercapaian Tujuan Pembelajaran (KKTP) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans">
+                        D. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)
+                      </h4>
+                      <span className="text-[11px] font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                        Pendekatan Rubrik Rentang Nilai
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 font-sans mb-2 leading-relaxed">
+                      Aspek penilaian berikut diturunkan secara langsung dari setiap butir Tujuan Pembelajaran (TP) untuk mengukur interval ketercapaian dan ketuntasan belajar peserta didik:
+                    </p>
+                    <div className="border border-gray-300 rounded-lg overflow-hidden font-sans text-xs shadow-2xs">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-800 text-white font-semibold">
+                            <th className="p-2.5 w-1/4 border-r border-slate-700">Aspek Penilaian (Sesuai TP)</th>
+                            <th className="p-2.5 w-[18.75%] border-r border-slate-700">Sangat Mahir (86-100)</th>
+                            <th className="p-2.5 w-[18.75%] border-r border-slate-700">Mahir (71-85)</th>
+                            <th className="p-2.5 w-[18.75%] border-r border-slate-700">Berkembang (56-70)</th>
+                            <th className="p-2.5 w-[18.75%]">Perlu Bimbingan (&lt;56)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getEnsuredKKTP(result).map((kktp: KKTPItem, kIdx: number) => (
+                            <tr key={kIdx} className="border-b border-gray-200 hover:bg-gray-50/70">
+                              <td className="p-2.5 font-bold text-gray-900 bg-gray-50 border-r border-gray-200 align-top leading-snug">
+                                <span className="inline-block px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-[10px] font-bold mr-1 mb-1">
+                                  Indikator {kIdx + 1}
+                                </span>
+                                <p>{kktp.aspek}</p>
+                              </td>
+                              <td className="p-2.5 text-gray-700 border-r border-gray-200 align-top leading-relaxed">
+                                {kktp.sangatMahir}
+                              </td>
+                              <td className="p-2.5 text-gray-700 border-r border-gray-200 align-top leading-relaxed">
+                                {kktp.mahir}
+                              </td>
+                              <td className="p-2.5 text-gray-700 border-r border-gray-200 align-top leading-relaxed">
+                                {kktp.berkembang}
+                              </td>
+                              <td className="p-2.5 text-gray-700 align-top leading-relaxed">
+                                {kktp.perluBimbingan}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                   {/* 3 Pilar Deep Learning */}
                   <div>
                     <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-2">
-                      D. Prinsip Pembelajaran Mendalam (Deep Learning Framework)
+                      E. Prinsip Pembelajaran Mendalam (Deep Learning Framework)
                     </h4>
                     <div className="grid md:grid-cols-3 gap-3 text-xs font-sans">
                       <div className="p-3 bg-purple-50 rounded-xl border border-purple-200">
@@ -1194,14 +1249,14 @@ export default function CreateModulAjar() {
                   </div>
 
                   <div>
-                    <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-1">E. Pemahaman Bermakna (Enduring Understanding)</h4>
+                    <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-1">F. Pemahaman Bermakna (Enduring Understanding)</h4>
                     <p className="text-xs md:text-sm italic font-sans text-gray-700 bg-gray-50 p-2.5 rounded-lg border border-gray-200">
                       "{result.pemahamanBermakna || '-'}"
                     </p>
                   </div>
 
                   <div>
-                    <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-1">F. Pertanyaan Pemantik (Driving Questions)</h4>
+                    <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-1">G. Pertanyaan Pemantik (Driving Questions)</h4>
                     <ul className="list-disc pl-5 space-y-1 text-xs md:text-sm font-sans text-gray-800">
                       {result.pertanyaanPemantik?.map((q: string, idx: number) => (
                         <li key={idx}>{q}</li>
@@ -1211,7 +1266,7 @@ export default function CreateModulAjar() {
 
                   <div>
                     <h4 className="text-xs md:text-sm font-bold text-gray-900 font-sans mb-1.5">
-                      G. Dimensi Profil Lulusan (8 Dimensi Lulusan)
+                      H. Dimensi Profil Lulusan (8 Dimensi Lulusan)
                     </h4>
                     <div className="grid sm:grid-cols-2 gap-2 font-sans">
                       {((Array.isArray(result.dimensiProfilLulusan) && result.dimensiProfilLulusan.length > 0)

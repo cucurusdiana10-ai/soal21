@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download, KeyRound, RotateCcw, Edit2, Calculator } from 'lucide-react';
+import { CheckSquare, Eye, Sparkles, Loader2, Save, X, CheckCircle2, Clock, AlertCircle, Download, KeyRound, RotateCcw, Edit2, Calculator, Activity, Unlock, Send } from 'lucide-react';
 import { gradeEssayApi } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
+import { countAnsweredQuestions, finishStudentExamByGuru, resetStudentLoginByGuru } from '../../lib/examMonitoring';
 
 export default function GradeReports() {
   const { user } = useAuth();
@@ -123,7 +125,7 @@ export default function GradeReports() {
 
     if (
       !confirm(
-        `Apakah Anda yakin ingin MERESET hasil ujian siswa "${st.name}"?\n\nSeluruh jawaban dan nilai siswa pada tugas ini akan dihapus sehingga siswa dapat mengerjakan ulang ujian dari awal.`
+        `Apakah Anda yakin ingin MERESET ULANG DARI 0 hasil ujian siswa "${st.name}"?\n\nCatatan: Jika siswa hanya terkendala jaringan, gunakan tombol "Reset Login" agar jawaban yang sudah dikerjakan tidak hilang.\n\nLanjutkan hapus semua jawaban siswa ini?`
       )
     ) {
       return;
@@ -142,9 +144,73 @@ export default function GradeReports() {
         setGradingModal(null);
       }
       await handleSelectTask(selectedTask);
-      alert(`✅ Hasil ujian siswa "${st.name}" berhasil direset. Siswa kini dapat mengerjakan ulang soal.`);
+      alert(`✅ Hasil ujian siswa "${st.name}" berhasil direset ke 0. Siswa kini dapat mengerjakan ulang soal dari awal.`);
     } catch (err: any) {
       alert('Gagal mereset ujian siswa: ' + err.message);
+    } finally {
+      setResettingId(null);
+    }
+  };
+
+  const handleResetLoginKeepAnswers = async (item: any) => {
+    if (!selectedTask) return;
+    const st = item.student;
+    const sub = item.submission;
+    const answeredCount = countAnsweredQuestions(sub?.answers);
+    const totalQuestions = Array.isArray(selectedTask.content) ? selectedTask.content.length : 0;
+
+    if (
+      !confirm(
+        `Reset Login untuk siswa "${st.name}"?\n\n✅ AMAN: ${answeredCount} dari ${totalQuestions} soal yang sudah dikerjakan TIDAK AKAN HILANG.\n🔓 Siswa dapat login kembali dan melanjutkan ujian.`
+      )
+    ) {
+      return;
+    }
+
+    setResettingId(`login_${st.id}`);
+    try {
+      const { error } = await resetStudentLoginByGuru({
+        taskId: selectedTask.id,
+        studentId: st.id,
+        existingSubmission: sub
+      });
+      if (error) throw error;
+      await handleSelectTask(selectedTask);
+      alert(`✅ Reset Login untuk "${st.name}" berhasil! ${answeredCount} jawaban siswa tetap tersimpan utuh.`);
+    } catch (err: any) {
+      alert('Gagal mereset login siswa: ' + err.message);
+    } finally {
+      setResettingId(null);
+    }
+  };
+
+  const handleForceFinishExam = async (item: any) => {
+    if (!selectedTask) return;
+    const st = item.student;
+    const sub = item.submission;
+    const answeredCount = countAnsweredQuestions(sub?.answers);
+    const totalQuestions = Array.isArray(selectedTask.content) ? selectedTask.content.length : 0;
+
+    if (
+      !confirm(
+        `Selesaikan ujian untuk siswa "${st.name}" sekarang?\n\nSiswa telah menjawab ${answeredCount} dari ${totalQuestions} soal. Jawaban yang sudah dikerjakan akan langsung disimpan dan dinilai.`
+      )
+    ) {
+      return;
+    }
+
+    setResettingId(`finish_${st.id}`);
+    try {
+      const { error } = await finishStudentExamByGuru({
+        task: selectedTask,
+        studentId: st.id,
+        existingSubmission: sub
+      });
+      if (error) throw error;
+      await handleSelectTask(selectedTask);
+      alert(`✅ Ujian siswa "${st.name}" berhasil diselesaikan dan dinilai!`);
+    } catch (err: any) {
+      alert('Gagal menyelesaikan ujian siswa: ' + err.message);
     } finally {
       setResettingId(null);
     }
@@ -378,6 +444,14 @@ export default function GradeReports() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to={`/dashboard/monitoring?taskId=${selectedTask.id}`}
+                className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-xs rounded-xl transition flex items-center gap-1.5"
+              >
+                <Activity className="w-3.5 h-3.5 text-indigo-600" />
+                Buka Monitoring Ujian Live
+              </Link>
+
               {submissions.some(s => s.submission) && (
                 <button
                   type="button"
@@ -431,7 +505,9 @@ export default function GradeReports() {
                     const st = item.student;
                     const sub = item.submission;
                     const isGraded = sub?.status === 'graded';
-                    const isSubmitted = sub && sub.status !== 'pending';
+                    const isInProgress = sub?.status === 'in_progress';
+                    const answeredCount = countAnsweredQuestions(sub?.answers);
+                    const totalQ = Array.isArray(selectedTask.content) ? selectedTask.content.length : 0;
 
                     return (
                       <tr key={st.id} className="hover:bg-gray-50">
@@ -442,6 +518,10 @@ export default function GradeReports() {
                           {!sub ? (
                             <span className="px-3 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded-full flex items-center w-max">
                               <Clock className="w-3 h-3 mr-1" /> Belum Mengumpulkan
+                            </span>
+                          ) : isInProgress ? (
+                            <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-full flex items-center w-max">
+                              <Activity className="w-3 h-3 mr-1 animate-pulse" /> Sedang Ujian ({answeredCount}/{totalQ} Soal)
                             </span>
                           ) : isGraded ? (
                             <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full flex items-center w-max">
@@ -454,7 +534,7 @@ export default function GradeReports() {
                           )}
                         </td>
                         <td className="px-6 py-4 font-black text-lg text-gray-900">
-                          {sub && sub.score !== null ? (
+                          {sub && sub.score !== null && !isInProgress ? (
                             <span className={sub.score >= 75 ? 'text-green-600' : 'text-amber-600'}>
                               {sub.score}
                             </span>
@@ -462,7 +542,37 @@ export default function GradeReports() {
                         </td>
                         <td className="px-6 py-4 text-right whitespace-nowrap">
                           {sub ? (
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {isInProgress && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleForceFinishExam(item)}
+                                  disabled={resettingId === `finish_${st.id}`}
+                                  className="px-2.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg font-bold text-xs transition flex items-center gap-1 shadow-2xs disabled:opacity-50"
+                                  title="Selesaikan ujian siswa jika siswa lupa menekan tombol selesai"
+                                >
+                                  {resettingId === `finish_${st.id}` ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Send className="w-3.5 h-3.5" />
+                                  )}
+                                  Selesaikan
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleResetLoginKeepAnswers(item)}
+                                disabled={resettingId === `login_${st.id}`}
+                                className="px-2.5 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 rounded-lg font-semibold text-xs transition flex items-center gap-1 disabled:opacity-50"
+                                title="Reset Login karena kendala jaringan (Jawaban yang sudah dikerjakan TIDAK hilang)"
+                              >
+                                {resettingId === `login_${st.id}` ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Unlock className="w-3.5 h-3.5" />
+                                )}
+                                Reset Login
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => openGradingModal(item, false)}
@@ -484,14 +594,14 @@ export default function GradeReports() {
                                 onClick={() => handleResetStudentExam(item)}
                                 disabled={resettingId === st.id}
                                 className="px-2.5 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg font-semibold text-xs transition flex items-center gap-1 disabled:opacity-50"
-                                title="Reset Ujian Siswa (Siswa dapat mengerjakan ulang)"
+                                title="Reset Ujian dari 0 (Hapus semua jawaban siswa)"
                               >
                                 {resettingId === st.id ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
                                   <RotateCcw className="w-3.5 h-3.5" />
                                 )}
-                                Reset
+                                Reset 0
                               </button>
                             </div>
                           ) : (

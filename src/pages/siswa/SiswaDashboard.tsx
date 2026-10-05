@@ -3,17 +3,40 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import {
-  BookOpen, CheckCircle2, Clock, Search, Send, Loader2, X, Lock,
-  KeyRound, ShieldAlert, ShieldCheck, Volume2, VolumeX, Maximize2, AlertTriangle
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  Search,
+  Send,
+  Loader2,
+  X,
+  Lock,
+  KeyRound,
+  ShieldAlert,
+  ShieldCheck,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  AlertTriangle,
+  Cloud,
+  WifiOff,
+  RefreshCw,
+  PlayCircle
 } from 'lucide-react';
 import SiswaMateri from './SiswaMateri';
 import SiswaNilai from './SiswaNilai';
 import { verifyTaskToken, getTokenTimeRemaining, antiCheatAlarm } from '../../lib/examToken';
-
-interface ViolationLog {
-  time: string;
-  reason: string;
-}
+import {
+  ViolationLogItem,
+  getOrCreateDeviceSessionToken,
+  saveLocalExamProgress,
+  getLocalExamProgress,
+  clearLocalExamProgress,
+  normalizeAndMergeAnswers,
+  countAnsweredQuestions,
+  syncExamProgressToSupabase,
+  calculateExamResult
+} from '../../lib/examMonitoring';
 
 function SiswaTugas() {
   const { user } = useAuth();
@@ -22,10 +45,12 @@ function SiswaTugas() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  // Token verification modal state
+  // Token verification & session resume modal state
   const [pendingTokenTask, setPendingTokenTask] = useState<any | null>(null);
   const [tokenInput, setTokenInput] = useState('');
   const [tokenError, setTokenError] = useState<string | null>(null);
+  const [sessionLockedError, setSessionLockedError] = useState<string | null>(null);
+  const [checkingSessionStatus, setCheckingSessionStatus] = useState(false);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [testingAlarm, setTestingAlarm] = useState(false);
 
@@ -34,13 +59,36 @@ function SiswaTugas() {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [violationCount, setViolationCount] = useState<number>(0);
-  const [violationLogs, setViolationLogs] = useState<ViolationLog[]>([]);
+  const [violationLogs, setViolationLogs] = useState<ViolationLogItem[]>([]);
   const [alarmActive, setAlarmActive] = useState<boolean>(false);
   const [latestViolationReason, setLatestViolationReason] = useState<string>('');
   const [copyWarning, setCopyWarning] = useState<string | null>(null);
 
+  // Auto-save & network status indicators
+  const [syncState, setSyncState] = useState<'saved' | 'saving' | 'offline'>('saved');
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
   const lastViolationTimestampRef = useRef<number>(0);
   const hadFullscreenRef = useRef<boolean>(false);
+  const answersRef = useRef<Record<number, string>>({});
+  const violationCountRef = useRef<number>(0);
+  const violationLogsRef = useRef<ViolationLogItem[]>([]);
+  const saveTimeoutRef = useRef<number | null>(null);
+  const deviceToken = getOrCreateDeviceSessionToken();
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  useEffect(() => {
+    violationCountRef.current = violationCount;
+  }, [violationCount]);
+
+  useEffect(() => {
+    violationLogsRef.current = violationLogs;
+  }, [violationLogs]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -57,41 +105,163 @@ function SiswaTugas() {
   useEffect(() => {
     return () => {
       antiCheatAlarm.stopAlarm();
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
 
-  const triggerViolation = useCallback((reason: string) => {
-    const now = Date.now();
-    // Debounce rapid simultaneous blur + visibilitychange within 1.2s
-    if (now - lastViolationTimestampRef.current < 1200) return;
-    lastViolationTimestampRef.current = now;
-
-    const timeStr = new Date(now).toLocaleTimeString('id-ID', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-
-    setViolationCount(prev => prev + 1);
-    setViolationLogs(prev => [{ time: timeStr, reason }, ...prev]);
-    setLatestViolationReason(reason);
-    setAlarmActive(true);
-
-    // Sound loud Web Audio API alarm + voice synthesis warning
-    antiCheatAlarm.startAlarm();
-
-    // Send browser notification if permitted
-    if ('Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification('🚨 Anda Keluar Aplikasi Ujian!', {
-          body: `${reason}. Segera tutup aplikasi lain / floating app dan kembali ke ujian!`,
-          requireInteraction: true
+  // Online / Offline network listeners to auto-sync answers when network recovers
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (activeTask && user) {
+        setSyncState('saving');
+        syncExamProgressToSupabase({
+          taskId: activeTask.id,
+          studentId: user.id,
+          answers: answersRef.current,
+          violationCount: violationCountRef.current,
+          violationLogs: violationLogsRef.current,
+          sessionToken: deviceToken
+        }).then(({ error }) => {
+          setSyncState(error ? 'offline' : 'saved');
         });
-      } catch {
-        // Ignore notification errors in restricted contexts
       }
-    }
-  }, []);
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncState('offline');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [activeTask, user, deviceToken]);
+
+  const triggerViolation = useCallback(
+    (reason: string) => {
+      const now = Date.now();
+      // Debounce rapid simultaneous blur + visibilitychange within 1.2s
+      if (now - lastViolationTimestampRef.current < 1200) return;
+      lastViolationTimestampRef.current = now;
+
+      const timeStr = new Date(now).toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+
+      const nextCount = violationCountRef.current + 1;
+      const nextLogs = [{ time: timeStr, reason }, ...violationLogsRef.current];
+
+      setViolationCount(nextCount);
+      setViolationLogs(nextLogs);
+      setLatestViolationReason(reason);
+      setAlarmActive(true);
+
+      // Sound loud Web Audio API alarm + voice synthesis warning "Anda Keluar Aplikasi Ujian"
+      antiCheatAlarm.startAlarm();
+
+      // Immediately persist violation to Supabase so Teacher sees it in Monitoring Ujian
+      if (activeTask && user) {
+        syncExamProgressToSupabase({
+          taskId: activeTask.id,
+          studentId: user.id,
+          answers: answersRef.current,
+          violationCount: nextCount,
+          violationLogs: nextLogs,
+          sessionToken: deviceToken
+        }).catch(() => {});
+      }
+
+      // Send browser notification if permitted
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('🚨 Anda Keluar Aplikasi Ujian!', {
+            body: `${reason}. Segera tutup aplikasi lain / floating app dan kembali ke ujian!`,
+            requireInteraction: true
+          });
+        } catch {
+          // Ignore notification errors in restricted contexts
+        }
+      }
+    },
+    [activeTask, user, deviceToken]
+  );
+
+  // Heartbeat & Realtime listener while activeTask is open (detects if Teacher finishes exam remotely)
+  useEffect(() => {
+    if (!activeTask || !user || !supabase) return;
+
+    const handleRemoteSubmissionCheck = async () => {
+      const { data: latestSub } = await supabase
+        .from('task_submissions')
+        .select('*')
+        .eq('task_id', activeTask.id)
+        .eq('student_id', user.id)
+        .maybeSingle();
+
+      if (
+        latestSub &&
+        (latestSub.status === 'graded' || latestSub.status === 'submitted' || latestSub.status === 'completed')
+      ) {
+        // Teacher finished the exam from ExamMonitoring!
+        antiCheatAlarm.stopAlarm();
+        setAlarmActive(false);
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+        setActiveTask(null);
+        await fetchStudentTasks();
+        alert(
+          '✅ Ujian Anda telah diselesaikan oleh Guru Pengawas melalui Monitoring Ujian.\nSeluruh jawaban yang sudah Anda kerjakan telah berhasil disimpan dan dinilai!'
+        );
+        return;
+      }
+
+      // Send heartbeat with latest answers so Teacher sees student is Online
+      const { error } = await syncExamProgressToSupabase({
+        taskId: activeTask.id,
+        studentId: user.id,
+        answers: answersRef.current,
+        violationCount: violationCountRef.current,
+        violationLogs: violationLogsRef.current,
+        sessionToken: deviceToken
+      });
+      setSyncState(error ? 'offline' : 'saved');
+    };
+
+    const heartbeatTimer = window.setInterval(handleRemoteSubmissionCheck, 10000);
+
+    const channel = supabase
+      .channel(`student_exam_${activeTask.id}_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'task_submissions',
+          filter: `task_id=eq.${activeTask.id}`
+        },
+        (payload: any) => {
+          const newRow = payload.new as any;
+          if (newRow && newRow.student_id === user.id) {
+            if (newRow.status === 'graded' || newRow.status === 'submitted' || newRow.status === 'completed') {
+              handleRemoteSubmissionCheck();
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(heartbeatTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [activeTask, user, deviceToken]);
 
   // Anti-open-other-app, new tab & mobile floating app listeners while activeTask is open
   useEffect(() => {
@@ -123,19 +293,19 @@ function SiswaTugas() {
       }
     };
 
-    // Detect mobile split-screen or floating app window resize
     const handleResizeOrViewport = () => {
       const activeTag = document.activeElement?.tagName?.toLowerCase();
       const isTyping = activeTag === 'input' || activeTag === 'textarea';
-      // If width shrinks significantly (split-screen / floating window mode on phone)
-      if (window.innerWidth < initialInnerWidth * 0.82 || (initialScreenWidth > 0 && window.innerWidth < initialScreenWidth * 0.72)) {
+      if (
+        window.innerWidth < initialInnerWidth * 0.82 ||
+        (initialScreenWidth > 0 && window.innerWidth < initialScreenWidth * 0.72)
+      ) {
         if (!isTyping) {
           triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi menggunakan fitur Split-Screen / Floating Aplikasi pada HP');
         }
       }
     };
 
-    // Poll document.hasFocus() every 600ms to catch mobile floating apps (overlay windows) that steal focus silently
     const focusPollTimer = window.setInterval(() => {
       if (document.hidden) {
         triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka tab baru atau aplikasi lain');
@@ -175,7 +345,7 @@ function SiswaTugas() {
   }, [activeTask, triggerViolation]);
 
   async function fetchStudentTasks() {
-    if (!user) return;
+    if (!user || !supabase) return;
 
     const { data: classStud } = await supabase
       .from('class_students')
@@ -199,7 +369,9 @@ function SiswaTugas() {
 
       const subMap: Record<string, any> = {};
       if (subData) {
-        subData.forEach(s => { subMap[s.task_id] = s; });
+        subData.forEach(s => {
+          subMap[s.task_id] = s;
+        });
       }
       setSubmissions(subMap);
     }
@@ -220,17 +392,18 @@ function SiswaTugas() {
     return new Date(pubTime).getTime() > Date.now();
   };
 
-  const openTaskModal = (task: any) => {
+  const openTaskModal = async (task: any) => {
     if (isTaskLocked(task)) {
       const pubTime = getTaskPublishTime(task);
       const formatted = pubTime ? new Date(pubTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' }) : '';
       alert(`Mohon maaf, tugas ini belum dapat dibuka karena baru dijadwalkan terbit pada: ${formatted} WIB.`);
       return;
     }
-    // Open Token Verification Modal first
+
     setPendingTokenTask(task);
     setTokenInput('');
     setTokenError(null);
+    setSessionLockedError(null);
     setTestingAlarm(false);
     antiCheatAlarm.stopAlarm();
   };
@@ -249,53 +422,155 @@ function SiswaTugas() {
     }
   };
 
-  const handleVerifyTokenAndStart = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pendingTokenTask) return;
+  // Start or resume exam (preserving any existing answers!)
+  const startOrResumeExamSession = async (taskToStart: any, bypassTokenCheck: boolean = false) => {
+    if (!user || !supabase) return;
 
     antiCheatAlarm.stopAlarm();
     setTestingAlarm(false);
 
-    const isValid = verifyTaskToken(pendingTokenTask.id, tokenInput, Date.now());
-    if (!isValid) {
-      setTokenError(
-        'Token tidak valid atau sudah kedaluwarsa! Ingat bahwa token berubah otomatis setiap 30 menit. Silakan minta token terbaru kepada Guru Anda.'
-      );
-      return;
-    }
-
-    // Unlock mobile audio & voice synthesis on direct user gesture
-    antiCheatAlarm.warmUpAudioAndVoice();
-
-    // Request browser notification permission for anti-cheat alerts
-    if ('Notification' in window && Notification.permission === 'default') {
-      try {
-        await Notification.requestPermission();
-      } catch {
-        // Ignore if blocked
+    if (!bypassTokenCheck) {
+      const isValid = verifyTaskToken(taskToStart.id, tokenInput, Date.now());
+      if (!isValid) {
+        setTokenError(
+          'Token tidak valid atau sudah kedaluwarsa! Ingat bahwa token berubah otomatis setiap 30 menit. Silakan minta token terbaru kepada Guru Anda.'
+        );
+        return;
       }
     }
 
-    // Enter fullscreen if supported
+    setCheckingSessionStatus(true);
     try {
-      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        hadFullscreenRef.current = true;
-      }
-    } catch {
-      // Fullscreen might be restricted by iframe policy; blur & visibilitychange still work
-    }
+      // Fetch freshest submission from Supabase to check session lock & restore answers
+      const { data: latestSub } = await supabase
+        .from('task_submissions')
+        .select('*')
+        .eq('task_id', taskToStart.id)
+        .eq('student_id', user.id)
+        .maybeSingle();
 
-    const taskToStart = pendingTokenTask;
-    setPendingTokenTask(null);
-    setTokenInput('');
-    setTokenError(null);
-    setAnswers({});
-    setViolationCount(0);
-    setViolationLogs([]);
-    setAlarmActive(false);
-    lastViolationTimestampRef.current = Date.now();
-    setActiveTask(taskToStart);
+      // Check if session is locked on a different device and hasn't been Reset Login by Guru
+      if (
+        latestSub &&
+        latestSub.status === 'in_progress' &&
+        latestSub.session_token &&
+        latestSub.session_token !== deviceToken
+      ) {
+        // Mark as locked so Teacher sees it highlighted on Monitoring Ujian
+        await supabase
+          .from('task_submissions')
+          .update({ is_locked: true })
+          .eq('id', latestSub.id);
+
+        const savedCount = countAnsweredQuestions(latestSub.answers);
+        setSessionLockedError(
+          `Sesi ujian Anda terdeteksi terkunci pada perangkat/jaringan sebelumnya (${savedCount} jawaban Anda sudah tersimpan aman). Silakan minta Guru menekan tombol "Reset Login" pada menu Monitoring Ujian agar Anda dapat melanjutkan pengerjaan.`
+        );
+        return;
+      }
+
+      // Restore answers from Supabase + localStorage backup so 0 answers are lost!
+      const localBackup = getLocalExamProgress(user.id, taskToStart.id);
+      const restoredAnswers = normalizeAndMergeAnswers(latestSub?.answers, localBackup?.answers);
+      const restoredViolations = Math.max(
+        Number(latestSub?.violation_count || 0),
+        Number(localBackup?.violationCount || 0)
+      );
+      const restoredLogs =
+        Array.isArray(latestSub?.violation_logs) && latestSub.violation_logs.length > 0
+          ? latestSub.violation_logs
+          : localBackup?.violationLogs || [];
+
+      // Sync active session and merged answers immediately to Supabase
+      const { data: syncedRow, error: syncErr } = await syncExamProgressToSupabase({
+        taskId: taskToStart.id,
+        studentId: user.id,
+        answers: restoredAnswers,
+        violationCount: restoredViolations,
+        violationLogs: restoredLogs,
+        sessionToken: deviceToken,
+        isLocked: false
+      });
+
+      setSyncState(syncErr ? 'offline' : 'saved');
+      if (syncedRow) {
+        setSubmissions(prev => ({ ...prev, [taskToStart.id]: syncedRow }));
+      }
+
+      // Unlock mobile audio & voice synthesis on direct user gesture
+      antiCheatAlarm.warmUpAudioAndVoice();
+
+      if ('Notification' in window && Notification.permission === 'default') {
+        try {
+          await Notification.requestPermission();
+        } catch {
+          // Ignore
+        }
+      }
+
+      try {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+          hadFullscreenRef.current = true;
+        }
+      } catch {
+        // Ignore fullscreen restriction
+      }
+
+      setPendingTokenTask(null);
+      setTokenInput('');
+      setTokenError(null);
+      setSessionLockedError(null);
+      setAnswers(restoredAnswers);
+      setViolationCount(restoredViolations);
+      setViolationLogs(restoredLogs);
+      setAlarmActive(false);
+      lastViolationTimestampRef.current = Date.now();
+      setActiveTask(taskToStart);
+    } finally {
+      setCheckingSessionStatus(false);
+    }
+  };
+
+  const handleVerifyTokenAndStart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingTokenTask) return;
+    await startOrResumeExamSession(pendingTokenTask, false);
+  };
+
+  const handleCheckResetLoginAndResume = async () => {
+    if (!pendingTokenTask || !user || !supabase) return;
+    setCheckingSessionStatus(true);
+    try {
+      const { data: latestSub } = await supabase
+        .from('task_submissions')
+        .select('*')
+        .eq('task_id', pendingTokenTask.id)
+        .eq('student_id', user.id)
+        .maybeSingle();
+
+      if (latestSub) {
+        setSubmissions(prev => ({ ...prev, [pendingTokenTask.id]: latestSub }));
+      }
+
+      // If teacher already performed Reset Login (session_token is null and is_locked is false)
+      // or if student is on the same device token, let them resume immediately without losing answers!
+      if (
+        latestSub &&
+        latestSub.status === 'in_progress' &&
+        (!latestSub.session_token || latestSub.session_token === deviceToken) &&
+        !latestSub.is_locked
+      ) {
+        setSessionLockedError(null);
+        await startOrResumeExamSession(pendingTokenTask, true);
+      } else {
+        setSessionLockedError(
+          'Sesi masih terkunci. Mohon tunggu Guru menekan tombol "Reset Login" pada halaman Monitoring Ujian, lalu klik tombol ini lagi.'
+        );
+      }
+    } finally {
+      setCheckingSessionStatus(false);
+    }
   };
 
   const handleDismissAlarmAndResume = async () => {
@@ -313,28 +588,75 @@ function SiswaTugas() {
     }
   };
 
-  const handleCloseExam = () => {
-    if (!confirm('Apakah Anda yakin ingin keluar dari pengerjaan soal? Jawaban yang belum dikumpulkan akan hilang.')) {
+  const handleCloseExam = async () => {
+    const answeredCount = countAnsweredQuestions(answers);
+    if (
+      !confirm(
+        `Keluar sementara dari halaman pengerjaan ujian?\n\n` +
+          `✅ Tenang, ${answeredCount} jawaban yang sudah Anda kerjakan telah TERSIMPAN OTOMATIS dan tidak akan hilang saat Anda masuk kembali.`
+      )
+    ) {
       return;
     }
+
+    if (activeTask && user) {
+      await syncExamProgressToSupabase({
+        taskId: activeTask.id,
+        studentId: user.id,
+        answers,
+        violationCount,
+        violationLogs,
+        sessionToken: deviceToken
+      });
+    }
+
     antiCheatAlarm.stopAlarm();
     setAlarmActive(false);
     setActiveTask(null);
     if (document.fullscreenElement && document.exitFullscreen) {
       document.exitFullscreen().catch(() => {});
     }
+    fetchStudentTasks();
   };
 
   const handleAnswerChange = (questionIndex: number, value: string) => {
-    setAnswers(prev => ({ ...prev, [questionIndex]: value }));
+    const nextAnswers = { ...answers, [questionIndex]: value };
+    setAnswers(nextAnswers);
+
+    if (!activeTask || !user) return;
+
+    // 1. Save immediately to localStorage (instant offline protection)
+    saveLocalExamProgress(user.id, activeTask.id, nextAnswers, violationCount, violationLogs);
+
+    // 2. Debounced auto-save to Supabase task_submissions (status = 'in_progress')
+    setSyncState('saving');
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      const { error } = await syncExamProgressToSupabase({
+        taskId: activeTask.id,
+        studentId: user.id,
+        answers: nextAnswers,
+        violationCount: violationCountRef.current,
+        violationLogs: violationLogsRef.current,
+        sessionToken: deviceToken
+      });
+      setSyncState(error ? 'offline' : 'saved');
+    }, 350);
   };
 
   const handleSubmitTask = async () => {
-    if (!activeTask || !user) return;
+    if (!activeTask || !user || !supabase) return;
 
     const questions = Array.isArray(activeTask.content) ? activeTask.content : [];
-    if (questions.length > 0 && Object.keys(answers).length < questions.length) {
-      if (!confirm('Masih ada soal yang belum dijawab. Yakin ingin mengumpulkan tugas sekarang?')) return;
+    const answeredCount = countAnsweredQuestions(answers);
+
+    if (questions.length > 0 && answeredCount < questions.length) {
+      if (!confirm(`Masih ada ${questions.length - answeredCount} soal yang belum dijawab. Yakin ingin mengumpulkan tugas sekarang?`)) {
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -342,55 +664,81 @@ function SiswaTugas() {
     setAlarmActive(false);
 
     try {
-      let totalQuestions = questions.length;
-      let pointsPerQuestion = totalQuestions > 0 ? 100 / totalQuestions : 0;
-      let calculatedScore = 0;
-      let hasEssay = false;
+      const result = calculateExamResult(questions, answers, violationCount, false);
+      const nowIso = new Date().toISOString();
 
-      for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
-        const ans = answers[i] || '';
+      // Check if an in_progress submission row already exists for this task & student
+      const { data: existing } = await supabase
+        .from('task_submissions')
+        .select('id')
+        .eq('task_id', activeTask.id)
+        .eq('student_id', user.id)
+        .maybeSingle();
 
-        if (q.type === 'pg') {
-          const isCorrect = String(ans).trim().toLowerCase() === String(q.answer).trim().toLowerCase();
-          if (isCorrect) {
-            calculatedScore += pointsPerQuestion;
-          }
-        } else if (q.type === 'essay') {
-          hasEssay = true;
-        }
-      }
-
-      const finalScore = hasEssay ? null : Math.round(calculatedScore);
-      const finalStatus = hasEssay ? 'submitted' : 'graded';
-      const antiCheatSummary =
-        violationCount > 0
-          ? ` [Catatan Pengawas Anti-Curang: Terdeteksi ${violationCount}x membuka aplikasi/tab lain saat ujian]`
-          : ' [Pengawas Ujian: Jujur / 0 Pelanggaran]';
-
-      const baseFeedback = hasEssay
-        ? 'Jawaban esai dikumpulkan dan sedang menunggu kaji ulang guru.'
-        : `Skor Pilihan Ganda Otomatis: ${Math.round(calculatedScore)}`;
-
-      const { error } = await supabase.from('task_submissions').insert([{
+      const fullPayload: Record<string, any> = {
         task_id: activeTask.id,
         student_id: user.id,
         answers: answers,
-        score: finalScore,
-        status: finalStatus,
-        feedback: baseFeedback + antiCheatSummary
-      }]);
+        score: result.finalScore,
+        status: result.finalStatus,
+        feedback: result.feedback,
+        is_locked: false,
+        session_token: null,
+        violation_count: violationCount,
+        violation_logs: violationLogs,
+        last_active_at: nowIso,
+        updated_at: nowIso
+      };
 
-      if (error) throw error;
+      if (existing?.id) {
+        const { error } = await supabase
+          .from('task_submissions')
+          .update(fullPayload)
+          .eq('id', existing.id);
+
+        if (error) {
+          // Fallback update with base columns
+          const { error: fbErr } = await supabase
+            .from('task_submissions')
+            .update({
+              answers: answers,
+              score: result.finalScore,
+              status: result.finalStatus,
+              feedback: result.feedback
+            })
+            .eq('id', existing.id);
+          if (fbErr) throw fbErr;
+        }
+      } else {
+        const { error } = await supabase
+          .from('task_submissions')
+          .insert([fullPayload]);
+
+        if (error) {
+          const { error: fbErr } = await supabase
+            .from('task_submissions')
+            .insert([{
+              task_id: activeTask.id,
+              student_id: user.id,
+              answers: answers,
+              score: result.finalScore,
+              status: result.finalStatus,
+              feedback: result.feedback
+            }]);
+          if (fbErr) throw fbErr;
+        }
+      }
+
+      clearLocalExamProgress(user.id, activeTask.id);
 
       if (document.fullscreenElement && document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
       }
 
       alert(
-        hasEssay
+        result.hasEssay
           ? 'Tugas berhasil dikumpulkan! Jawaban esai Anda akan diperiksa oleh guru.'
-          : `Tugas selesai! Nilai Pilihan Ganda Anda: ${Math.round(calculatedScore)}/100`
+          : `Tugas selesai! Nilai Pilihan Ganda Anda: ${result.calculatedPgScore}/100`
       );
 
       setActiveTask(null);
@@ -402,9 +750,10 @@ function SiswaTugas() {
     }
   };
 
-  const filteredTasks = tasks.filter(t =>
-    t.title?.toLowerCase().includes(search.toLowerCase()) ||
-    t.subject_name?.toLowerCase().includes(search.toLowerCase())
+  const filteredTasks = tasks.filter(
+    t =>
+      t.title?.toLowerCase().includes(search.toLowerCase()) ||
+      t.subject_name?.toLowerCase().includes(search.toLowerCase())
   );
 
   const tokenTimer = getTokenTimeRemaining(nowMs);
@@ -420,7 +769,7 @@ function SiswaTugas() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Daftar Tugas & Soal Kelas</h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Siapkan <strong>Token Soal</strong> dari Guru Anda (token berganti setiap 30 menit) sebelum mulai mengerjakan.
+            Siapkan <strong>Token Soal</strong> dari Guru Anda (token berganti setiap 30 menit). Jawaban Anda otomatis tersimpan saat dikerjakan.
           </p>
         </div>
 
@@ -444,20 +793,46 @@ function SiswaTugas() {
         </div>
       ) : (
         <div className="grid md:grid-cols-2 gap-6">
-          {filteredTasks.map((task) => {
+          {filteredTasks.map(task => {
             const sub = submissions[task.id];
-            const isCompleted = !!sub;
+            const isCompleted = Boolean(
+              sub && (sub.status === 'graded' || sub.status === 'submitted' || sub.status === 'completed')
+            );
+            const isInProgress = Boolean(sub && sub.status === 'in_progress');
+            const localDraft = user ? getLocalExamProgress(user.id, task.id) : null;
+            const mergedSavedAnswers = normalizeAndMergeAnswers(sub?.answers, localDraft?.answers);
+            const savedAnswerCount = countAnsweredQuestions(mergedSavedAnswers);
+            const totalQ = Array.isArray(task.content) ? task.content.length : 0;
+            const hasResetLoginPrivilege = Boolean(
+              isInProgress && (Number(sub?.login_reset_count || 0) > 0 || !sub?.session_token || sub?.session_token === deviceToken)
+            );
+
             const pubTime = getTaskPublishTime(task);
             const isLocked = isTaskLocked(task);
 
             return (
-              <div key={task.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 hover:border-blue-300 transition-colors flex flex-col justify-between">
+              <div
+                key={task.id}
+                className={`bg-white p-6 rounded-2xl shadow-sm border transition-colors flex flex-col justify-between ${
+                  isInProgress
+                    ? 'border-indigo-400 ring-2 ring-indigo-500/10'
+                    : 'border-gray-200 hover:border-blue-300'
+                }`}
+              >
                 <div>
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex justify-between items-start mb-4 gap-2">
                     <div className="flex items-center gap-3">
-                      <div className={`p-3 rounded-xl ${
-                        isCompleted ? 'bg-green-50 text-green-600' : isLocked ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'
-                      }`}>
+                      <div
+                        className={`p-3 rounded-xl ${
+                          isCompleted
+                            ? 'bg-green-50 text-green-600'
+                            : isInProgress
+                            ? 'bg-indigo-50 text-indigo-600'
+                            : isLocked
+                            ? 'bg-amber-50 text-amber-600'
+                            : 'bg-blue-50 text-blue-600'
+                        }`}
+                      >
                         <BookOpen className="w-6 h-6" />
                       </div>
                       <div>
@@ -467,33 +842,55 @@ function SiswaTugas() {
                     </div>
 
                     {isCompleted ? (
-                      <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-md flex items-center">
+                      <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-md flex items-center shrink-0">
                         <CheckCircle2 className="w-3 h-3 mr-1" /> Selesai
                       </span>
+                    ) : isInProgress ? (
+                      <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-md flex items-center gap-1 shrink-0">
+                        <Cloud className="w-3.5 h-3.5 text-indigo-600" />
+                         Tersimpan ({savedAnswerCount}/{totalQ})
+                      </span>
                     ) : isLocked ? (
-                      <span className="px-3 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-md flex items-center border border-amber-300">
+                      <span className="px-3 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-md flex items-center border border-amber-300 shrink-0">
                         <Lock className="w-3 h-3 mr-1 text-amber-700" /> Terjadwal
                       </span>
                     ) : (
-                      <span className="px-3 py-1 bg-indigo-50 text-indigo-800 text-xs font-bold rounded-md border border-indigo-200 flex items-center gap-1">
+                      <span className="px-3 py-1 bg-indigo-50 text-indigo-800 text-xs font-bold rounded-md border border-indigo-200 flex items-center gap-1 shrink-0">
                         <KeyRound className="w-3 h-3 text-indigo-600" /> Wajib Token
                       </span>
                     )}
                   </div>
 
                   <p className="text-gray-600 text-sm mb-3 capitalize">
-                    Jenis Soal: {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'} · Jumlah: {task.content?.length || 0} Soal
+                    Jenis Soal: {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'} · Jumlah: {totalQ} Soal
                   </p>
 
-                  {!isCompleted && !isLocked && (
+                  {isInProgress && (
+                    <div className="mb-4 p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl space-y-1.5 text-xs text-indigo-950">
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="flex items-center gap-1.5 text-indigo-900">
+                          <Cloud className="w-4 h-4 text-indigo-600" />
+                          Progres Jawaban Tersimpan Aman
+                        </span>
+                        <span className="text-indigo-700">
+                          {savedAnswerCount} / {totalQ} Soal
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-indigo-800 leading-relaxed">
+                        {Number(sub?.login_reset_count || 0) > 0
+                          ? `✅ Sesi login Anda telah direset oleh Guru. Seluruh ${savedAnswerCount} jawaban yang sudah Anda kerjakan tetap utuh dan siap dilanjutkan.`
+                          : `Jawaban yang sudah Anda pilih tidak akan hilang meskipun sempat terkendala jaringan.`}
+                      </p>
+                    </div>
+                  )}
+
+                  {!isCompleted && !isLocked && !isInProgress && (
                     <div className="mb-4 p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-600">
                       <span className="flex items-center gap-1.5 font-medium">
                         <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
-                        Anti-Buka Aplikasi Lain & Token 30 Menit
+                        Anti-Buka Aplikasi Lain & Auto-Save Jawaban
                       </span>
-                      <span className="font-mono font-bold text-indigo-700">
-                        {tokenTimer.formatted}
-                      </span>
+                      <span className="font-mono font-bold text-indigo-700">{tokenTimer.formatted}</span>
                     </div>
                   )}
                 </div>
@@ -523,6 +920,16 @@ function SiswaTugas() {
                       <Lock className="w-3.5 h-3.5 text-gray-400" /> Menunggu Waktu Terbit
                     </button>
                   </div>
+                ) : isInProgress ? (
+                  <button
+                    onClick={() => openTaskModal(task)}
+                    className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition shadow-sm flex items-center justify-center gap-2"
+                  >
+                    <PlayCircle className="w-4 h-4" />
+                    {hasResetLoginPrivilege
+                      ? `Lanjutkan Ujian (${savedAnswerCount}/${totalQ} Soal Tersimpan)`
+                      : `Masukkan Token & Lanjutkan (${savedAnswerCount}/${totalQ} Soal)`}
+                  </button>
                 ) : (
                   <button
                     onClick={() => openTaskModal(task)}
@@ -537,96 +944,33 @@ function SiswaTugas() {
         </div>
       )}
 
-      {/* Token Verification & Anti-Cheat Rules Modal */}
-      {pendingTokenTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-200">
-            <div className="p-6 bg-gradient-to-r from-indigo-900 to-blue-900 text-white flex items-start justify-between gap-4">
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5" /> Verifikasi Token Ujian
-                </span>
-                <h3 className="text-lg font-bold mt-1">{pendingTokenTask.title}</h3>
-                <p className="text-xs text-blue-200 mt-0.5">
-                  {pendingTokenTask.subject_name} · {pendingTokenTask.content?.length || 0} Butir Soal
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  antiCheatAlarm.stopAlarm();
-                  setTestingAlarm(false);
-                  setPendingTokenTask(null);
-                }}
-                className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* Token Verification & Resume Exam Modal */}
+      {pendingTokenTask && (() => {
+        const sub = submissions[pendingTokenTask.id];
+        const isInProgress = Boolean(sub && sub.status === 'in_progress');
+        const localDraft = user ? getLocalExamProgress(user.id, pendingTokenTask.id) : null;
+        const savedCount = countAnsweredQuestions(normalizeAndMergeAnswers(sub?.answers, localDraft?.answers));
+        const totalQ = Array.isArray(pendingTokenTask.content) ? pendingTokenTask.content.length : 0;
+        const canResumeDirectly = Boolean(
+          isInProgress &&
+            !sub?.is_locked &&
+            (!sub?.session_token || sub?.session_token === deviceToken || Number(sub?.login_reset_count || 0) > 0)
+        );
 
-            <form onSubmit={handleVerifyTokenAndStart} className="p-6 space-y-5">
-              {/* Anti-cheat rules notice */}
-              <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2 text-xs text-red-900">
-                <div className="font-bold flex items-center gap-1.5 text-red-800">
-                  <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
-                  Peraturan Pengawas Ujian (Anti-Buka Aplikasi Lain)
-                </div>
-                <ul className="list-disc pl-4 space-y-1 text-red-800/90 leading-relaxed">
-                  <li>Selama mengerjakan soal, Anda <strong>dilarang membuka tab baru atau menggunakan fitur Floating Aplikasi / Split-Screen</strong> pada handphone.</li>
-                  <li>Jika terdeteksi, sistem otomatis mengeluarkan notifikasi suara <strong>"Anda Keluar Aplikasi Ujian"</strong> serta mencatat pelanggaran ke Guru.</li>
-                </ul>
-                <div className="pt-1 flex items-center justify-between border-t border-red-200/70">
-                  <span className="text-[11px] text-red-700 font-medium">Pastikan suara perangkat aktif:</span>
-                  <button
-                    type="button"
-                    onClick={handleToggleTestAlarm}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                      testingAlarm
-                        ? 'bg-red-600 text-white'
-                        : 'bg-white text-red-700 border border-red-300 hover:bg-red-100'
-                    }`}
-                  >
-                    {testingAlarm ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                    {testingAlarm ? 'Matikan Tes Alarm' : 'Tes Bunyi Alarm'}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
-                    Masukkan Token 6 Karakter dari Guru
-                  </label>
-                  <span className="text-[11px] text-indigo-700 font-semibold flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> Reset dlm {tokenTimer.formatted}
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-200">
+              <div className="p-6 bg-gradient-to-r from-indigo-900 to-blue-900 text-white flex items-start justify-between gap-4">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5" />
+                    {isInProgress ? 'Lanjutkan Sesi Ujian' : 'Verifikasi Token Ujian'}
                   </span>
+                  <h3 className="text-lg font-bold mt-1">{pendingTokenTask.title}</h3>
+                  <p className="text-xs text-blue-200 mt-0.5">
+                    {pendingTokenTask.subject_name} · {totalQ} Butir Soal
+                  </p>
                 </div>
-                <input
-                  type="text"
-                  required
-                  maxLength={6}
-                  value={tokenInput}
-                  onChange={e => {
-                    setTokenInput(e.target.value.toUpperCase());
-                    if (tokenError) setTokenError(null);
-                  }}
-                  placeholder="CONTOH: K7M4P9"
-                  className="w-full p-3.5 text-center font-mono text-2xl font-black tracking-[0.3em] uppercase bg-gray-50 border-2 border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 text-indigo-950"
-                  autoFocus
-                />
-                <p className="text-[11px] text-gray-500 mt-1.5 text-center">
-                  Token berubah secara otomatis setiap 30 menit. Minta token aktif kepada Guru mata pelajaran Anda.
-                </p>
-              </div>
-
-              {tokenError && (
-                <div className="p-3 bg-red-100 border border-red-300 text-red-900 rounded-xl text-xs font-semibold flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                  <span>{tokenError}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -634,23 +978,167 @@ function SiswaTugas() {
                     setTestingAlarm(false);
                     setPendingTokenTask(null);
                   }}
-                  className="px-4 py-2.5 text-gray-600 font-semibold hover:bg-gray-100 rounded-xl text-sm transition"
+                  className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition"
                 >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition flex items-center gap-2 shadow-sm"
-                >
-                  <KeyRound className="w-4 h-4" /> Verifikasi & Mulai Ujian
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {/* Task Answering Modal (Protected Exam Mode) */}
+              <form onSubmit={handleVerifyTokenAndStart} className="p-6 space-y-5">
+                {/* Saved Progress Notice if resuming */}
+                {savedCount > 0 && (
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      Jawaban Anda Tersimpan ({savedCount} dari {totalQ} Soal)
+                    </div>
+                    <p className="text-emerald-800/90 leading-relaxed">
+                      Soal yang sudah Anda kerjakan sebelumnya <strong>tidak hilang</strong> dan akan langsung dimuat kembali saat Anda melanjutkan ujian.
+                    </p>
+                  </div>
+                )}
+
+                {/* Anti-cheat rules notice */}
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2 text-xs text-red-900">
+                  <div className="font-bold flex items-center gap-1.5 text-red-800">
+                    <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+                    Peraturan Pengawas Ujian (Anti-Buka Aplikasi Lain)
+                  </div>
+                  <ul className="list-disc pl-4 space-y-1 text-red-800/90 leading-relaxed">
+                    <li>Selama mengerjakan soal, Anda <strong>dilarang membuka tab baru atau menggunakan fitur Floating Aplikasi / Split-Screen</strong> pada handphone.</li>
+                    <li>Jika terdeteksi, sistem otomatis mengeluarkan notifikasi suara <strong>"Anda Keluar Aplikasi Ujian"</strong> serta mencatat pelanggaran ke Guru.</li>
+                  </ul>
+                  <div className="pt-1 flex items-center justify-between border-t border-red-200/70">
+                    <span className="text-[11px] text-red-700 font-medium">Pastikan suara perangkat aktif:</span>
+                    <button
+                      type="button"
+                      onClick={handleToggleTestAlarm}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
+                        testingAlarm
+                          ? 'bg-red-600 text-white'
+                          : 'bg-white text-red-700 border border-red-300 hover:bg-red-100'
+                      }`}
+                    >
+                      {testingAlarm ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      {testingAlarm ? 'Matikan Tes Alarm' : 'Tes Bunyi Alarm'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Direct resume button if student already verified on this device or Guru performed Reset Login */}
+                {canResumeDirectly && !sessionLockedError && (
+                  <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2.5">
+                    <p className="text-xs font-bold text-indigo-950">
+                      Sesi Ujian Anda Aktif / Telah Direset Guru:
+                    </p>
+                    <button
+                      type="button"
+                      disabled={checkingSessionStatus}
+                      onClick={() => startOrResumeExamSession(pendingTokenTask, true)}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      {checkingSessionStatus ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <PlayCircle className="w-4 h-4" />
+                      )}
+                      Lanjutkan Ujian Sekarang ({savedCount}/{totalQ} Soal Tersimpan)
+                    </button>
+                  </div>
+                )}
+
+                {!canResumeDirectly && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
+                        Masukkan Token 6 Karakter dari Guru
+                      </label>
+                      <span className="text-[11px] text-indigo-700 font-semibold flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> Reset dlm {tokenTimer.formatted}
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      value={tokenInput}
+                      onChange={e => {
+                        setTokenInput(e.target.value.toUpperCase());
+                        if (tokenError) setTokenError(null);
+                      }}
+                      placeholder="CONTOH: K7M4P9"
+                      className="w-full p-3.5 text-center font-mono text-2xl font-black tracking-[0.3em] uppercase bg-gray-50 border-2 border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 text-indigo-950"
+                      autoFocus
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1.5 text-center">
+                      Token berubah secara otomatis setiap 30 menit. Minta token aktif kepada Guru mata pelajaran Anda.
+                    </p>
+                  </div>
+                )}
+
+                {tokenError && (
+                  <div className="p-3 bg-red-100 border border-red-300 text-red-900 rounded-xl text-xs font-semibold flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>{tokenError}</span>
+                  </div>
+                )}
+
+                {sessionLockedError && (
+                  <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-950 rounded-xl text-xs space-y-2.5">
+                    <div className="flex items-start gap-2 font-semibold">
+                      <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                      <span>{sessionLockedError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={checkingSessionStatus}
+                      onClick={handleCheckResetLoginAndResume}
+                      className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      {checkingSessionStatus ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                      Sudah Direset Guru? Klik untuk Lanjutkan Ujian
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      antiCheatAlarm.stopAlarm();
+                      setTestingAlarm(false);
+                      setPendingTokenTask(null);
+                    }}
+                    className="px-4 py-2.5 text-gray-600 font-semibold hover:bg-gray-100 rounded-xl text-sm transition"
+                  >
+                    Batal
+                  </button>
+                  {!canResumeDirectly && (
+                    <button
+                      type="submit"
+                      disabled={checkingSessionStatus}
+                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition flex items-center gap-2 shadow-sm disabled:opacity-50"
+                    >
+                      {checkingSessionStatus ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <KeyRound className="w-4 h-4" />
+                      )}
+                      Verifikasi & Mulai Ujian
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Task Answering Modal (Protected Exam Mode with Auto-Save) */}
       {activeTask && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-gray-950/90 backdrop-blur-md select-none"
@@ -672,13 +1160,29 @@ function SiswaTugas() {
           }}
         >
           <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] relative border border-gray-200">
-            {/* Top Security & Header Bar */}
+            {/* Top Security & Auto-Save Header Bar */}
             <div className="p-4 sm:p-5 border-b border-gray-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="px-2.5 py-0.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[11px] font-bold rounded-md flex items-center gap-1">
                     <ShieldCheck className="w-3.5 h-3.5" /> Pengawas Anti-Buka Aplikasi Lain Aktif
                   </span>
+
+                  {/* Live Auto-Save Status Pill */}
+                  {syncState === 'saving' ? (
+                    <span className="px-2.5 py-0.5 bg-blue-500/20 border border-blue-400/40 text-blue-200 text-[11px] font-semibold rounded-md flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Menyimpan jawaban...
+                    </span>
+                  ) : syncState === 'offline' || !isOnline ? (
+                    <span className="px-2.5 py-0.5 bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-bold rounded-md flex items-center gap-1">
+                      <WifiOff className="w-3 h-3" /> Kendala Jaringan (Jawaban Aman di Perangkat)
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-[11px] font-semibold rounded-md flex items-center gap-1">
+                      <Cloud className="w-3 h-3 text-emerald-300" /> Jawaban Tersimpan Otomatis
+                    </span>
+                  )}
+
                   {violationCount > 0 && (
                     <span className="px-2.5 py-0.5 bg-red-600 text-white text-[11px] font-extrabold rounded-md flex items-center gap-1 animate-pulse">
                       <ShieldAlert className="w-3.5 h-3.5" /> Pelanggaran Terdeteksi: {violationCount}x
@@ -687,7 +1191,7 @@ function SiswaTugas() {
                 </div>
                 <h3 className="text-lg font-bold text-white mt-1">{activeTask.title}</h3>
                 <p className="text-xs text-indigo-200">
-                  Mata Pelajaran: {activeTask.subject_name} · Jangan berpindah aplikasi/tab hingga selesai mengumpulkan tugas
+                  Mata Pelajaran: {activeTask.subject_name} · Soal yang sudah dijawab otomatis tersimpan ke server
                 </p>
               </div>
 
@@ -708,7 +1212,7 @@ function SiswaTugas() {
                   type="button"
                   onClick={handleCloseExam}
                   className="text-gray-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition"
-                  title="Keluar Ujian"
+                  title="Simpan & Keluar Sementara"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -725,55 +1229,70 @@ function SiswaTugas() {
 
             {/* Questions List */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {activeTask.content?.map((q: any, idx: number) => (
-                <div key={idx} className="p-5 bg-gray-50 rounded-2xl border border-gray-200 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded-md">
-                      Soal #{idx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})
-                    </span>
+              {activeTask.content?.map((q: any, idx: number) => {
+                const isAnswered = answers[idx] !== undefined && String(answers[idx]).trim() !== '';
+                return (
+                  <div
+                    key={idx}
+                    className={`p-5 rounded-2xl border space-y-3 transition ${
+                      isAnswered ? 'bg-blue-50/20 border-blue-200' : 'bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded-md">
+                        Soal #{idx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})
+                      </span>
+                      {isAnswered && (
+                        <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Tersimpan
+                        </span>
+                      )}
+                    </div>
+                    <p className="font-bold text-gray-900 text-base">{q.question}</p>
+
+                    {q.type === 'pg' && q.options && (
+                      <div className="space-y-2 pt-2">
+                        {q.options.map((opt: string, oIdx: number) => {
+                          const letter = String.fromCharCode(65 + oIdx);
+                          const isSelected = answers[idx] === letter || answers[idx] === opt;
+                          return (
+                            <label
+                              key={oIdx}
+                              onClick={() => handleAnswerChange(idx, letter)}
+                              className={`flex items-center p-3 rounded-xl border cursor-pointer text-sm transition ${
+                                isSelected
+                                  ? 'bg-blue-50 border-blue-500 font-bold text-blue-900'
+                                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name={`q_${idx}`}
+                                checked={isSelected}
+                                onChange={() => handleAnswerChange(idx, letter)}
+                                className="mr-3 text-blue-600"
+                              />
+                              <span className="font-bold mr-2">{letter}.</span> {opt}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {q.type === 'essay' && (
+                      <div className="pt-2">
+                        <textarea
+                          rows={3}
+                          value={answers[idx] || ''}
+                          onChange={e => handleAnswerChange(idx, e.target.value)}
+                          placeholder="Tuliskan jawaban esai Anda di sini..."
+                          className="w-full p-3 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 select-text"
+                        />
+                      </div>
+                    )}
                   </div>
-                  <p className="font-bold text-gray-900 text-base">{q.question}</p>
-
-                  {q.type === 'pg' && q.options && (
-                    <div className="space-y-2 pt-2">
-                      {q.options.map((opt: string, oIdx: number) => {
-                        const letter = String.fromCharCode(65 + oIdx);
-                        const isSelected = answers[idx] === letter || answers[idx] === opt;
-                        return (
-                          <label
-                            key={oIdx}
-                            onClick={() => handleAnswerChange(idx, letter)}
-                            className={`flex items-center p-3 rounded-xl border cursor-pointer text-sm transition ${
-                              isSelected ? 'bg-blue-50 border-blue-500 font-bold text-blue-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name={`q_${idx}`}
-                              checked={isSelected}
-                              onChange={() => handleAnswerChange(idx, letter)}
-                              className="mr-3 text-blue-600"
-                            />
-                            <span className="font-bold mr-2">{letter}.</span> {opt}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {q.type === 'essay' && (
-                    <div className="pt-2">
-                      <textarea
-                        rows={3}
-                        value={answers[idx] || ''}
-                        onChange={e => handleAnswerChange(idx, e.target.value)}
-                        placeholder="Tuliskan jawaban esai Anda di sini..."
-                        className="w-full p-3 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 select-text"
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
 
               {/* Violation Log History inside Exam if any */}
               {violationLogs.length > 0 && (
@@ -797,7 +1316,8 @@ function SiswaTugas() {
             {/* Bottom Submit Bar */}
             <div className="p-4 border-t border-gray-200 flex items-center justify-between gap-3 bg-gray-50">
               <div className="text-xs text-gray-600 font-medium">
-                Terjawab: <strong>{Object.keys(answers).length}</strong> dari <strong>{activeTask.content?.length || 0}</strong> soal
+                Terjawab & Tersimpan: <strong>{countAnsweredQuestions(answers)}</strong> dari{' '}
+                <strong>{activeTask.content?.length || 0}</strong> soal
               </div>
               <div className="flex items-center gap-3">
                 <button
@@ -805,7 +1325,7 @@ function SiswaTugas() {
                   onClick={handleCloseExam}
                   className="px-4 py-2 text-gray-600 font-semibold hover:bg-gray-200 rounded-xl text-sm transition"
                 >
-                  Batal
+                  Simpan & Keluar Sementara
                 </button>
                 <button
                   type="button"
@@ -814,7 +1334,7 @@ function SiswaTugas() {
                   className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-xl text-sm hover:bg-blue-700 transition flex items-center disabled:opacity-50 shadow-md shadow-blue-200"
                 >
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-                  {submitting ? 'Mengumpulkan...' : 'Kumpulkan Tugas'}
+                  {submitting ? 'Mengumpulkan...' : 'Selesaikan & Kumpulkan Ujian'}
                 </button>
               </div>
             </div>
@@ -846,7 +1366,7 @@ function SiswaTugas() {
                     </span>
                   </div>
                   <p className="text-xs text-red-100 leading-relaxed">
-                    Setiap aktivitas membuka aplikasi lain dicatat secara otomatis dan dilampirkan pada hasil pengumpulan ujian Anda kepada Guru.
+                    Setiap aktivitas membuka aplikasi lain dicatat secara otomatis dan tampil langsung di layar Monitoring Ujian Guru.
                   </p>
                 </div>
 

@@ -13,6 +13,7 @@ import {
   ImageRun
 } from 'docx';
 import { parseKepsek, getDetailedPendahuluan, getDetailedPenutup, getStoredTtdKepsek } from './schoolSettings';
+import { getEnsuredKKTP, type KKTPItem } from './kktpHelper';
 
 async function urlOrBase64ToUint8Array(input: string): Promise<Uint8Array | null> {
   try {
@@ -285,10 +286,59 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
     });
   }
 
+  // D. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)
+  const kktpList: KKTPItem[] = getEnsuredKKTP(data);
   children.push(
     new Paragraph({
       children: [
-        new TextRun({ text: 'D. Prinsip Pembelajaran Mendalam (Deep Learning Framework):', bold: true, size: 20, font: 'Calibri' })
+        new TextRun({ text: 'D. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP):', bold: true, size: 20, font: 'Calibri' })
+      ],
+      spacing: { before: 140, after: 60 }
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: 'Pendekatan Rubrik Rentang Nilai (Aspek penilaian disesuaikan dengan Tujuan Pembelajaran):', italics: true, size: 18, font: 'Calibri' })
+      ],
+      spacing: { after: 80 }
+    })
+  );
+
+  if (kktpList && kktpList.length > 0) {
+    const kktpHeader = new TableRow({
+      children: [
+        createCell('Aspek Penilaian (Sesuai TP)', true, 24, 'E2E8F0'),
+        createCell('Sangat Mahir (86-100)', true, 19, 'E2E8F0'),
+        createCell('Mahir (71-85)', true, 19, 'E2E8F0'),
+        createCell('Berkembang (56-70)', true, 19, 'E2E8F0'),
+        createCell('Perlu Bimbingan (<56)', true, 19, 'E2E8F0')
+      ]
+    });
+
+    const kktpRows = kktpList.map((kktp: KKTPItem, idx: number) =>
+      new TableRow({
+        children: [
+          createCell(`Indikator ${idx + 1}: ${kktp.aspek || '-'}`, true, 24, 'F8FAFC'),
+          createCell(kktp.sangatMahir || '-', false, 19),
+          createCell(kktp.mahir || '-', false, 19),
+          createCell(kktp.berkembang || '-', false, 19),
+          createCell(kktp.perluBimbingan || '-', false, 19)
+        ]
+      })
+    );
+
+    children.push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [kktpHeader, ...kktpRows]
+      }),
+      new Paragraph({ spacing: { after: 120 } })
+    );
+  }
+
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({ text: 'E. Prinsip Pembelajaran Mendalam (Deep Learning Framework):', bold: true, size: 20, font: 'Calibri' })
       ],
       spacing: { before: 140 }
     }),
@@ -316,7 +366,7 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
     }),
     new Paragraph({
       children: [
-        new TextRun({ text: 'E. Pemahaman Bermakna (Enduring Understanding):', bold: true, size: 20, font: 'Calibri' })
+        new TextRun({ text: 'F. Pemahaman Bermakna (Enduring Understanding):', bold: true, size: 20, font: 'Calibri' })
       ]
     }),
     new Paragraph({
@@ -327,7 +377,7 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
     }),
     new Paragraph({
       children: [
-        new TextRun({ text: 'F. Pertanyaan Pemantik (Driving Questions):', bold: true, size: 20, font: 'Calibri' })
+        new TextRun({ text: 'G. Pertanyaan Pemantik (Driving Questions):', bold: true, size: 20, font: 'Calibri' })
       ]
     })
   );
@@ -348,7 +398,7 @@ export async function exportModulAjarToDocx(data: any, fileName?: string) {
   children.push(
     new Paragraph({
       children: [
-        new TextRun({ text: 'G. Dimensi Profil Lulusan (8 Dimensi Lulusan):', bold: true, size: 20, font: 'Calibri' })
+        new TextRun({ text: 'H. Dimensi Profil Lulusan (8 Dimensi Lulusan):', bold: true, size: 20, font: 'Calibri' })
       ],
       spacing: { before: 140 }
     })

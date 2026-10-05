@@ -7,6 +7,7 @@ import { generateMaterialApi } from '../../lib/aiService';
 import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
+import ExamMonitoring from './ExamMonitoring';
 import CreateModulAjar, { extractMateriTitleFromModule } from './CreateModulAjar';
 import GuruLihatCp from './GuruLihatCp';
 import InteractiveBahanAjar from '../../components/InteractiveBahanAjar';
@@ -1387,6 +1388,9 @@ export default function GuruDashboard() {
   }
   if (location.pathname.startsWith('/dashboard/soal')) {
     return <CreateQuestions />;
+  }
+  if (location.pathname.startsWith('/dashboard/monitoring')) {
+    return <ExamMonitoring />;
   }
   if (location.pathname.startsWith('/dashboard/laporan')) {
     return <GradeReports />;

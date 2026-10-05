@@ -13,3 +13,40 @@ export const isSupabaseConfigured = () => {
 export const supabase = isSupabaseConfigured() 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
+
+let schemaSyncTriggered = false;
+
+/**
+ * Automatically ensures any new table columns exist in Supabase
+ * via both the Postgres SECURITY DEFINER RPC and the backend migration endpoint.
+ */
+export async function ensureSupabaseSchemaSynced(): Promise<boolean> {
+  if (!supabase) return false;
+  if (schemaSyncTriggered) return true;
+  schemaSyncTriggered = true;
+
+  try {
+    // 1. Trigger Postgres RPC ensure_schema_columns() directly in Supabase
+    const { error: rpcError } = await supabase.rpc('ensure_schema_columns');
+    if (!rpcError) {
+      return true;
+    }
+  } catch {
+    // Ignore RPC error and try server endpoint fallback
+  }
+
+  try {
+    // 2. Fallback to backend schema migration endpoint
+    const res = await fetch('/api/sync-schema', { method: 'POST' });
+    if (res.ok) return true;
+  } catch {
+    // Ignore network error in static environments
+  }
+
+  return false;
+}
+
+// Run schema sync automatically on client startup
+if (typeof window !== 'undefined' && isSupabaseConfigured()) {
+  ensureSupabaseSchemaSynced().catch(() => {});
+}

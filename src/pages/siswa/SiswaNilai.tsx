@@ -21,7 +21,9 @@ export default function SiswaNilai() {
       .eq('student_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (data) setSubmissions(data);
+    if (data) {
+      setSubmissions(data.filter((s: any) => s.status !== 'in_progress'));
+    }
     setLoading(false);
   }
 

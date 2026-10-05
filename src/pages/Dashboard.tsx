@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../components/AuthProvider';
-import { LogOut, LayoutDashboard, Users, BookOpen, FileText, CheckSquare, GraduationCap, Shield, Settings, Menu, X, Sparkles, Database } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, BookOpen, FileText, CheckSquare, GraduationCap, Shield, Settings, Menu, X, Sparkles, Database, Activity } from 'lucide-react';
 
 import AdminDashboard from './admin/AdminDashboard';
 import AppSettings from './admin/AppSettings';
@@ -43,6 +43,7 @@ export default function Dashboard() {
       { path: '/dashboard/modul', icon: Sparkles, label: 'Modul Ajar Otomatis' },
       { path: '/dashboard/bahan-ajar', icon: BookOpen, label: 'Bahan Ajar AI' },
       { path: '/dashboard/soal', icon: FileText, label: 'Buat Soal' },
+      { path: '/dashboard/monitoring', icon: Activity, label: 'Monitoring Ujian' },
       { path: '/dashboard/laporan', icon: CheckSquare, label: 'Laporan Nilai' },
     ],
     siswa: [
