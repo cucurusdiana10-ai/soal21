@@ -17,7 +17,8 @@ import {
   AlertCircle, 
   Info, 
   Check, 
-  AlertTriangle 
+  AlertTriangle,
+  Filter 
 } from 'lucide-react';
 import { User } from '../../types';
 import * as XLSX from 'xlsx';
@@ -85,11 +86,15 @@ export default function UserManagement({ role, title }: UserManagementProps) {
   const [guruSubjects, setGuruSubjects] = useState<Record<string, string>>({});
   const [studentClasses, setStudentClasses] = useState<Record<string, { id: string; name: string }>>({});
   const [classList, setClassList] = useState<{ id: string; name: string }[]>([]);
+  const [selectedClassFilter, setSelectedClassFilter] = useState<string>('');
 
   useEffect(() => {
     fetchClasses();
+  }, []);
+
+  useEffect(() => {
     fetchUsers();
-  }, [role, page, search]);
+  }, [role, page, search, selectedClassFilter]);
 
   async function fetchClasses() {
     const { data } = await supabase.from('classes').select('id, name').order('name');
@@ -98,14 +103,35 @@ export default function UserManagement({ role, title }: UserManagementProps) {
 
   async function fetchUsers() {
     setLoading(true);
+
+    let studentIdsInClass: string[] | null = null;
+    if (role === 'siswa' && selectedClassFilter) {
+      const { data: csList, error: csErr } = await supabase
+        .from('class_students')
+        .select('student_id')
+        .eq('class_id', selectedClassFilter);
+
+      if (csErr || !csList || csList.length === 0) {
+        setUsers([]);
+        setTotalItems(0);
+        setLoading(false);
+        return;
+      }
+      studentIdsInClass = csList.map(c => c.student_id);
+    }
+
     let query = supabase
       .from('users')
       .select('*', { count: 'exact' })
       .eq('role', role)
       .order('created_at', { ascending: false });
 
+    if (studentIdsInClass) {
+      query = query.in('id', studentIdsInClass);
+    }
+
     if (search) {
-      query = query.ilike('name', `%${search}%`);
+      query = query.or(`name.ilike.%${search}%,username.ilike.%${search}%`);
     }
 
     const from = (page - 1) * ITEMS_PER_PAGE;
@@ -744,19 +770,63 @@ export default function UserManagement({ role, title }: UserManagementProps) {
 
       {/* Main Table Card */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-4 flex-wrap">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder={`Cari nama atau ${role === 'siswa' ? 'NISN' : 'username'} ${role}...`}
-              value={search}
-              onChange={handleSearchChange}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-            />
+        <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex flex-1 items-center gap-2.5 max-w-2xl flex-wrap">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder={`Cari nama atau ${role === 'siswa' ? 'NISN' : 'username'} ${role}...`}
+                value={search}
+                onChange={handleSearchChange}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+              />
+            </div>
+
+            {role === 'siswa' && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="relative">
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-blue-600 pointer-events-none" />
+                  <select
+                    value={selectedClassFilter}
+                    onChange={(e) => {
+                      setSelectedClassFilter(e.target.value);
+                      setPage(1);
+                    }}
+                    className="pl-8 pr-8 py-2 bg-white border border-gray-300 hover:border-blue-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 rounded-xl text-xs md:text-sm font-semibold text-gray-800 outline-none transition cursor-pointer shadow-xs"
+                  >
+                    <option value="">Semua Kelas ({classList.length} Kelas)</option>
+                    {classList.map(cls => (
+                      <option key={cls.id} value={cls.id}>
+                        Kelas {cls.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedClassFilter && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedClassFilter('');
+                      setPage(1);
+                    }}
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition cursor-pointer"
+                    title="Reset Filter Kelas"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <div className="text-xs font-semibold text-gray-500">
-            Total {totalItems} {role} terdaftar
+
+          <div className="text-xs font-semibold text-gray-500 flex items-center gap-2 shrink-0">
+            <span>Total {totalItems} {role} terdaftar</span>
+            {role === 'siswa' && selectedClassFilter && (
+              <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-bold border border-blue-200">
+                Kelas: {classList.find(c => c.id === selectedClassFilter)?.name || ''}
+              </span>
+            )}
           </div>
         </div>
 

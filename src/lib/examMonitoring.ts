@@ -434,12 +434,15 @@ export async function resetStudentLoginByGuru(params: {
   const nowIso = new Date().toISOString();
 
   try {
-    // 1. Ensure user account is active and unlock user login session token
+    // 1. Ensure user account is active, unlocked from exam violation, and clear session token
     await supabase
       .from('users')
       .update({
         status: 'active',
-        active_session_token: null
+        active_session_token: null,
+        is_exam_locked: false,
+        exam_locked_reason: null,
+        exam_locked_at: null
       })
       .eq('id', studentId);
   } catch {
@@ -462,7 +465,7 @@ export async function resetStudentLoginByGuru(params: {
   const feedbackMsg = `Reset Login ke-${nextResetCount} oleh Guru (${new Date().toLocaleTimeString('id-ID', {
     hour: '2-digit',
     minute: '2-digit'
-  })}). ${answeredCount} jawaban tersimpan aman.`;
+  })}). ${answeredCount} jawaban tersimpan aman. Toleransi pelanggaran dipulihkan.`;
 
   if (sub?.id) {
     const updatePayload: Record<string, any> = {
@@ -470,6 +473,7 @@ export async function resetStudentLoginByGuru(params: {
       status: 'in_progress',     // Buka kembali sesi pengerjaan agar siswa bisa lanjut
       session_token: null,       // Lepas kunci sesi/perangkat
       is_locked: false,
+      violation_count: 0,        // Reset hitungan pelanggaran setelah reset oleh guru
       login_reset_count: nextResetCount,
       login_reset_at: nowIso,
       last_active_at: nowIso,

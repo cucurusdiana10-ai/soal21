@@ -4,6 +4,9 @@ export interface User {
   username: string;
   name: string;
   status: 'active' | 'inactive';
+  is_exam_locked?: boolean;
+  exam_locked_reason?: string;
+  exam_locked_at?: string;
 }
 
 export interface Class {

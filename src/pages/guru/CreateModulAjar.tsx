@@ -403,9 +403,10 @@ export default function CreateModulAjar() {
             content_json: data,
             subject_name: selectedSubjectFinal || data.identitas?.mataPelajaran
           });
+          const isKodingOrGeneric = (selectedSubjectFinal || '').toLowerCase().includes('koding') || (selectedSubjectFinal || '').toLowerCase().includes('kecerdasan');
           const distinctTitle = materiSnippet && materiSnippet !== 'Materi Pokok'
-            ? `${selectedSubjectFinal || 'Mapel'} - ${materiSnippet}`
-            : `Modul Ajar: ${selectedSubjectFinal || 'Mapel'} - ${formData.metode}`;
+            ? (isKodingOrGeneric ? materiSnippet : `${selectedSubjectFinal || 'Mapel'} - ${materiSnippet}`)
+            : (isKodingOrGeneric ? 'Algoritma Pemrograman & Logika Komputasional' : `Modul Ajar: ${selectedSubjectFinal || 'Mapel'}`);
 
           const { data: savedRecord, error: saveErr } = await supabase
             .from('modul_ajar')

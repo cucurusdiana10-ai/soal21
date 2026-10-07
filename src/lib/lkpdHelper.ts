@@ -1,6 +1,133 @@
 import { LkpdContent } from './lkpdDocxGenerator';
 
 /**
+ * Mengekstraksi materi inti pembelajaran dari modul ajar agar judul LKPD tidak hanya berupa
+ * nama mata pelajaran (seperti "Koding dan Kecerdasan Artifisial") melainkan topik esensial/materi intinya.
+ */
+export function extractCoreMateriTitle(mod: any, meetingSelection?: string): string {
+  const content = mod?.content_json || {};
+  const allMeetings: any[] = Array.isArray(content?.pertemuan) ? content.pertemuan : [];
+
+  const isInvalidSubjectPlaceholder = (str?: string) => {
+    if (!str) return true;
+    const lower = str.toLowerCase().trim();
+    return (
+      lower === 'koding dan kecerdasan artifisial' ||
+      lower.includes('koding dan kecerdasan artifisial - problem based') ||
+      lower.includes('koding dan kecerdasan artifisial - project based') ||
+      lower === 'koding & kecerdasan artifisial' ||
+      lower === 'kecerdasan artifisial' ||
+      lower.startsWith('modul ajar:') ||
+      lower.startsWith('modul ajar') ||
+      lower === 'informatika' ||
+      lower === 'materi pokok' ||
+      lower === 'materi pokok pembelajaran' ||
+      lower === 'elemen/domain' ||
+      lower.includes('problem-based learning') ||
+      lower.includes('project-based learning') ||
+      lower.includes('discovery learning') ||
+      lower.includes('inquiry learning') ||
+      lower.startsWith('pertemuan 1:') ||
+      lower.startsWith('pertemuan ke-')
+    );
+  };
+
+  // 1. Cek sub-judul materi dari title modul (misal: "Koding dan Kecerdasan Artifisial - Logika Algoritma Dasar")
+  if (mod?.title) {
+    let clean = String(mod.title)
+      .replace(/^Modul Ajar:\s*/i, '')
+      .replace(/^Modul:\s*/i, '')
+      .trim();
+
+    const parts = clean.split(' - ');
+    if (parts.length > 1) {
+      for (let i = 1; i < parts.length; i++) {
+        const candidate = parts[i].trim();
+        if (candidate && !isInvalidSubjectPlaceholder(candidate)) {
+          return candidate;
+        }
+      }
+    }
+    // Jika tidak ada minus atau title modul sudah merupakan nama materi inti
+    if (!isInvalidSubjectPlaceholder(clean)) {
+      return clean;
+    }
+  }
+
+  // 2. Jika memilih pertemuan spesifik dan pertemuan memiliki nama materi/topik yang jelas
+  if (meetingSelection && meetingSelection !== 'ALL') {
+    const idx = parseInt(meetingSelection, 10);
+    if (!isNaN(idx) && allMeetings[idx]?.nama) {
+      const pNama = String(allMeetings[idx].nama).trim();
+      if (pNama && !pNama.toLowerCase().startsWith('pertemuan') && !isInvalidSubjectPlaceholder(pNama)) {
+        return pNama;
+      }
+    }
+  }
+
+  // 3. Cek elemen CP di content_json (biasanya berisi materi spesifik seperti "Algoritma dan Pemrograman (AP)", "Analisis Data", dll)
+  if (content.elemenCp && typeof content.elemenCp === 'string' && content.elemenCp.trim()) {
+    const el = content.elemenCp.trim();
+    if (!isInvalidSubjectPlaceholder(el)) {
+      return el;
+    }
+  }
+
+  // 4. Cek nama pertemuan pertama
+  if (allMeetings[0]?.nama) {
+    const p0 = String(allMeetings[0].nama).trim();
+    if (p0 && !p0.toLowerCase().startsWith('pertemuan') && !isInvalidSubjectPlaceholder(p0)) {
+      return p0;
+    }
+  }
+
+  // 5. Cek Tujuan Pembelajaran pertama (mengekstrak topik yang dipelajari)
+  if (Array.isArray(content.tujuanPembelajaran) && content.tujuanPembelajaran[0]) {
+    const tp = String(content.tujuanPembelajaran[0])
+      .replace(/^(peserta didik mampu|siswa mampu|memahami|menganalisis|menerapkan|menjelaskan|mengevaluasi)\s+/i, '')
+      .trim();
+    if (tp && tp.length <= 70 && !isInvalidSubjectPlaceholder(tp)) {
+      return tp.charAt(0).toUpperCase() + tp.slice(1);
+    }
+  }
+
+  // 6. Cek Capaian Pembelajaran (CP)
+  const rawCp = mod?.cp || content.capaianPembelajaran || '';
+  if (rawCp) {
+    const lowerCp = String(rawCp).toLowerCase();
+    if (lowerCp.includes('konten digital') || lowerCp.includes('multimedia')) {
+      return 'Produksi & Diseminasi Konten Digital Multimedia';
+    }
+    if (lowerCp.includes('berpikir komputasional')) {
+      return 'Berpikir Komputasional & Pemecahan Masalah';
+    }
+    if (lowerCp.includes('algoritma pemrograman') || lowerCp.includes('aplikasi')) {
+      return 'Algoritma Pemrograman & Pengembangan Aplikasi';
+    }
+    if (lowerCp.includes('pola citra') || lowerCp.includes('etika')) {
+      return 'Pengenalan Pola Citra, Suara & Etika AI';
+    }
+
+    const cleaned = String(rawCp).trim()
+      .replace(/^pada akhir fase [a-z0-9\s()]+peserta didik mampu\s+/i, '')
+      .replace(/^pada akhir fase [a-z0-9\s(),]+siswa mampu\s+/i, '')
+      .replace(/^peserta didik mampu\s+/i, '')
+      .replace(/^siswa mampu\s+/i, '');
+    const firstSegment = cleaned.split(/[.\n;]/)[0].trim();
+    if (firstSegment.length > 0 && !isInvalidSubjectPlaceholder(firstSegment)) {
+      return firstSegment.length <= 65 ? firstSegment : firstSegment.slice(0, 62).trim() + '...';
+    }
+  }
+
+  // Default materi pokok yang relevan jika mapel Koding dan Kecerdasan Artifisial
+  if (mod?.subject_name?.toLowerCase().includes('koding') || mod?.title?.toLowerCase().includes('koding')) {
+    return 'Algoritma Pemrograman & Logika Komputasional';
+  }
+
+  return 'Materi Pokok Pembelajaran';
+}
+
+/**
  * Builds an authentic, deep learning LKPD directly from an archived Modul Ajar.
  * @param mod The archived module record from Supabase
  * @param meetingSelection 'ALL' | '0' | '1' | '2' ... (index of meeting in module)
@@ -41,13 +168,10 @@ export function buildLkpdFromModule(
   // Extract main topic / subject
   const subjectName = mod?.subject_name || ident.mataPelajaran || 'Mata Pelajaran';
   const grade = mod?.grade || ident.fase || 'Fase E (Kelas X)';
-  const moduleTitle = mod?.title || 'Modul Pembelajaran Mendalam';
   
-  // Specific title for LKPD
-  const firstMeetingName = targetedMeetings[0]?.nama || '';
-  const judulLkpd = targetedMeetings.length === 1 && firstMeetingName && !firstMeetingName.toLowerCase().startsWith('pertemuan')
-    ? `${firstMeetingName}`
-    : `${moduleTitle}`;
+  // Ambil Materi Inti sebenarnya, BUKAN nama mata pelajaran
+  const coreMateri = extractCoreMateriTitle(mod, meetingSelection);
+  const judulLkpd = coreMateri;
 
   // Time allocation
   const alokasi = targetedMeetings.length > 1

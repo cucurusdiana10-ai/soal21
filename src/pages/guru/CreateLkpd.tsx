@@ -28,7 +28,7 @@ import {
   Filter,
   Check
 } from 'lucide-react';
-import { buildLkpdFromModule } from '../../lib/lkpdHelper';
+import { buildLkpdFromModule, extractCoreMateriTitle } from '../../lib/lkpdHelper';
 import { exportLkpdToDocx, LkpdContent } from '../../lib/lkpdDocxGenerator';
 import { parseKepsek, getStoredTtdKepsek, getStoredCapSekolah } from '../../lib/schoolSettings';
 import OfficialSignatureStamp from '../../components/OfficialSignatureStamp';
@@ -140,17 +140,15 @@ export default function CreateLkpd() {
     ? selectedModule.content_json.pertemuan
     : [];
 
-  // Update title when module or meeting changes
+  // Update title when module or meeting changes with actual materi inti
   useEffect(() => {
     if (selectedModule) {
-      const pIdx = parseInt(selectedMeetingIndex, 10);
-      const pName = !isNaN(pIdx) && meetingsInSelectedModule[pIdx]?.nama ? meetingsInSelectedModule[pIdx].nama : '';
+      const coreMateri = extractCoreMateriTitle(selectedModule, selectedMeetingIndex);
       if (selectedMeetingIndex === 'ALL') {
-        setCustomTitle(`LKPD Lengkap - ${selectedModule.title}`);
-      } else if (pName && !pName.toLowerCase().startsWith('pertemuan')) {
-        setCustomTitle(`LKPD ${pName} - ${selectedModule.subject_name}`);
+        setCustomTitle(`LKPD: ${coreMateri}`);
       } else {
-        setCustomTitle(`LKPD Pertemuan ${pIdx + 1} - ${selectedModule.title}`);
+        const pIdx = parseInt(selectedMeetingIndex, 10);
+        setCustomTitle(`LKPD Pertemuan ${pIdx + 1}: ${coreMateri}`);
       }
     }
   }, [selectedModuleId, selectedMeetingIndex]);
@@ -376,6 +374,7 @@ export default function CreateLkpd() {
                   {filteredModules.map(m => {
                     const isSelected = selectedModuleId === m.id;
                     const pCount = Array.isArray(m.content_json?.pertemuan) ? m.content_json.pertemuan.length : (m.pertemuan_count || 2);
+                    const coreMateri = extractCoreMateriTitle(m);
                     return (
                       <div
                         key={m.id}
@@ -395,7 +394,7 @@ export default function CreateLkpd() {
                           </span>
                         </div>
                         <h4 className="font-bold text-gray-900 text-xs line-clamp-2 leading-snug">
-                          {m.title}
+                          {coreMateri}
                         </h4>
                         <p className="text-[11px] text-gray-500 truncate">
                           {m.grade} • {m.metode || 'Deep Learning'}
@@ -406,20 +405,23 @@ export default function CreateLkpd() {
                 </div>
 
                 {/* Selected Module Detail Banner */}
-                {selectedModule && (
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                    <div>
-                      <p className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider">Modul Terpilih:</p>
-                      <h3 className="font-bold text-slate-900 text-sm">{selectedModule.title}</h3>
-                      <p className="text-slate-600 mt-0.5">
-                        Mata Pelajaran: <strong>{selectedModule.subject_name}</strong> • {selectedModule.grade} • Total: <strong>{meetingsInSelectedModule.length || selectedModule.pertemuan_count || 2} Pertemuan</strong>
-                      </p>
+                {selectedModule && (() => {
+                  const coreMateri = extractCoreMateriTitle(selectedModule, selectedMeetingIndex);
+                  return (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                      <div>
+                        <p className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider">Modul Terpilih (Materi Inti):</p>
+                        <h3 className="font-bold text-slate-900 text-sm">{coreMateri}</h3>
+                        <p className="text-slate-600 mt-0.5">
+                          Mata Pelajaran: <strong>{selectedModule.subject_name}</strong> • {selectedModule.grade} • Total: <strong>{meetingsInSelectedModule.length || selectedModule.pertemuan_count || 2} Pertemuan</strong>
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg shrink-0 self-start md:self-center">
+                        Siap Diturunkan Menjadi LKPD
+                      </span>
                     </div>
-                    <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg shrink-0 self-start md:self-center">
-                      Siap Diturunkan Menjadi LKPD
-                    </span>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 

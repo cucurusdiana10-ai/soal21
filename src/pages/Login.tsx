@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../components/AuthProvider';
 import { supabase } from '../lib/supabase';
-import { GraduationCap, ArrowLeft, Loader2, Shield, Users, UserCheck } from 'lucide-react';
+import { GraduationCap, ArrowLeft, Loader2, Shield, Users, UserCheck, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function Login() {
@@ -122,6 +122,14 @@ export default function Login() {
         throw new Error('Akun Anda sedang dinonaktifkan oleh administrator.');
       }
 
+      if (userProfile.role === 'siswa' && userProfile.is_exam_locked) {
+        try { await supabase.auth.signOut(); } catch {}
+        throw new Error(
+          'Akun Anda saat ini TERKUNCI karena telah melakukan 3 kali batas toleransi pelanggaran saat ujian (keluar aplikasi / beralih layar). ' +
+          'Silakan lapor kepada Guru Pengawas Anda untuk melakukan Reset Login pada menu Monitoring Ujian agar akun dapat dibuka kembali.'
+        );
+      }
+
       // Record login timestamp & device session token in users table
       try {
         const deviceToken = localStorage.getItem('sman21_exam_device_token') || 'DEV_LOGIN';
@@ -219,6 +227,21 @@ export default function Login() {
           </button>
         </div>
         
+        {searchParams.get('locked') === '1' && requestedRole === 'siswa' && (
+          <div className="p-4 bg-red-50 border-2 border-red-300 rounded-xl text-left space-y-1.5 shadow-sm">
+            <div className="flex items-center gap-2 text-red-900 font-bold text-xs uppercase tracking-wide">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>Akun Ujian Terkunci (3x Pelanggaran)</span>
+            </div>
+            <p className="text-xs text-red-800 leading-relaxed">
+              Sesi ujian Anda telah di-reset ke halaman login karena terdeteksi mencapai batas toleransi 3 kali pelanggaran (keluar aplikasi atau beralih layar).
+            </p>
+            <p className="text-xs text-red-700 font-semibold leading-relaxed">
+              ✅ Jawaban Anda aman tersimpan. Silakan hubungi <strong>Guru Pengawas</strong> di kelas Anda untuk melakukan <strong>Reset Login</strong> pada menu Monitoring Ujian agar Anda dapat masuk dan melanjutkan ujian.
+            </p>
+          </div>
+        )}
+
         <form className="mt-6 space-y-5" onSubmit={handleLogin}>
           {error && (
             <div className="p-3 text-sm text-red-600 bg-red-50 rounded-lg border border-red-100">

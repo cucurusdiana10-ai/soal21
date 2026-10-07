@@ -35,7 +35,7 @@ export default function Dashboard() {
       { path: '/dashboard/admin', icon: Shield, label: 'Kelola Admin' },
       { path: '/dashboard/guru', icon: Users, label: 'Kelola Guru' },
       { path: '/dashboard/kelas', icon: BookOpen, label: 'Kelola Kelas' },
-      { path: '/dashboard/siswa', icon: GraduationCap, label: 'Kelola Siswa' },
+      { path: '/dashboard/siswa', icon: GraduationCap, label: 'Data Siswa' },
       { path: '/dashboard/pengaturan', icon: Settings, label: 'Kelola Aplikasi' },
     ],
     guru: [
@@ -141,7 +141,7 @@ export default function Dashboard() {
                 <Route path="/admin" element={<UserManagement role="admin" title="Kelola Admin" />} />
                 <Route path="/guru" element={<UserManagement role="guru" title="Kelola Guru" />} />
                 <Route path="/kelas" element={<ClassManagement />} />
-                <Route path="/siswa" element={<UserManagement role="siswa" title="Kelola Siswa" />} />
+                <Route path="/siswa" element={<UserManagement role="siswa" title="Data Siswa" />} />
                 <Route path="/pengaturan" element={<AppSettings />} />
                 <Route path="/*" element={<AdminDashboard />} />
               </>

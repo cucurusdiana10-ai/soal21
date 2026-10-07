@@ -60,6 +60,9 @@ export async function syncSupabaseSchema() {
       -- Kolom sesi login pada tabel users
       ALTER TABLE public.users ADD COLUMN IF NOT EXISTS active_session_token TEXT;
       ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_exam_locked BOOLEAN DEFAULT FALSE;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS exam_locked_reason TEXT;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS exam_locked_at TIMESTAMP WITH TIME ZONE;
 
       -- Pastikan index unik (task_id, student_id) tersedia untuk upsert progres ujian
       CREATE UNIQUE INDEX IF NOT EXISTS idx_task_submissions_task_student
@@ -88,6 +91,9 @@ export async function syncSupabaseSchema() {
         ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS kkm NUMERIC DEFAULT 75;
         ALTER TABLE public.users ADD COLUMN IF NOT EXISTS active_session_token TEXT;
         ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;
+        ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_exam_locked BOOLEAN DEFAULT FALSE;
+        ALTER TABLE public.users ADD COLUMN IF NOT EXISTS exam_locked_reason TEXT;
+        ALTER TABLE public.users ADD COLUMN IF NOT EXISTS exam_locked_at TIMESTAMP WITH TIME ZONE;
         PERFORM pg_notify('pgrst', 'reload schema');
         RETURN jsonb_build_object('status', 'ok', 'synced_at', NOW());
       END;

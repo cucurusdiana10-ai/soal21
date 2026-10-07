@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import {
@@ -39,7 +39,8 @@ import {
 } from '../../lib/examMonitoring';
 
 function SiswaTugas() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -160,6 +161,72 @@ function SiswaTugas() {
       setViolationCount(nextCount);
       setViolationLogs(nextLogs);
       setLatestViolationReason(reason);
+
+      // SENSITIFITAS TOLERANSI PELANGGARAN: 3 KALI
+      // Pelanggaran 1 & 2: Peringatan keras & alarm suara
+      // Pelanggaran 3: Langsung terkunci, akun di-reset ke halaman login, harus minta reset login ke guru
+      if (nextCount >= 3) {
+        antiCheatAlarm.stopAlarm();
+        setAlarmActive(false);
+
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+
+        // Simpan jawaban terakhir & tandai akun terkunci di Supabase
+        if (activeTask && user && supabase) {
+          syncExamProgressToSupabase({
+            taskId: activeTask.id,
+            studentId: user.id,
+            answers: answersRef.current,
+            violationCount: 3,
+            violationLogs: nextLogs,
+            sessionToken: null
+          }).catch(() => {});
+
+          supabase
+            .from('task_submissions')
+            .update({
+              is_locked: true,
+              session_token: null,
+              violation_count: 3,
+              violation_logs: nextLogs,
+              feedback: 'Akun ujian terkunci karena telah melakukan 3 kali batas toleransi pelanggaran. Memerlukan Reset Login oleh Guru.'
+            })
+            .eq('task_id', activeTask.id)
+            .eq('student_id', user.id)
+            .then(() => {});
+
+          supabase
+            .from('users')
+            .update({
+              is_exam_locked: true,
+              exam_locked_reason: 'Terkunci otomatis karena melakukan 3 kali batas toleransi pelanggaran ujian (keluar aplikasi / beralih layar)',
+              exam_locked_at: new Date().toISOString(),
+              active_session_token: null
+            })
+            .eq('id', user.id)
+            .then(() => {});
+        }
+
+        setActiveTask(null);
+        localStorage.removeItem('auth_user');
+        sessionStorage.setItem('exam_violation_locked', '1');
+
+        alert(
+          '🚨 UJIAN TERKUNCI KARENA 3 KALI PELANGGARAN!\n\n' +
+          'Anda telah mencapai batas toleransi 3 kali pelanggaran selama ujian (terdeteksi keluar aplikasi atau beralih layar).\n\n' +
+          '• Seluruh jawaban yang sudah Anda kerjakan telah TERSIMPAN AMAN di sistem.\n' +
+          '• Akun Anda telah di-reset ke halaman login.\n' +
+          '• Anda harus meminta RESET LOGIN kepada Guru Pengawas di kelas Anda untuk dapat masuk kembali dan melanjutkan ujian.'
+        );
+
+        logout();
+        navigate('/login?role=siswa&locked=1', { replace: true });
+        return;
+      }
+
+      // Jika masih dalam batas toleransi (< 3 kali)
       setAlarmActive(true);
 
       // Sound loud Web Audio API alarm + voice synthesis warning "Anda Keluar Aplikasi Ujian"
@@ -1358,25 +1425,31 @@ function SiswaTugas() {
                   {latestViolationReason || 'Sistem mendeteksi Anda membuka tab baru atau menggunakan fitur floating aplikasi pada handphone.'}
                 </p>
 
-                <div className="my-5 p-4 bg-red-900/80 border border-red-500/60 rounded-2xl max-w-md w-full text-left space-y-1.5">
+                <div className="my-5 p-4 bg-red-900/80 border border-red-500/60 rounded-2xl max-w-md w-full text-left space-y-2">
                   <div className="flex items-center justify-between text-xs font-bold text-amber-300">
-                    <span>Total Pelanggaran Tercatat:</span>
-                    <span className="text-base font-black text-white bg-red-600 px-2.5 py-0.5 rounded-md">
-                      {violationCount} Kali
+                    <span>Pelanggaran Saat Ini:</span>
+                    <span className="text-sm font-black text-white bg-red-600 px-2.5 py-0.5 rounded-md">
+                      Ke-{violationCount} dari 3 Kali
                     </span>
                   </div>
-                  <p className="text-xs text-red-100 leading-relaxed">
-                    Setiap aktivitas membuka aplikasi lain dicatat secara otomatis dan tampil langsung di layar Monitoring Ujian Guru.
+                  <div className="flex items-center justify-between text-xs font-bold text-amber-200">
+                    <span>Sisa Batas Toleransi:</span>
+                    <span className="text-sm font-black text-amber-300 bg-amber-950/80 px-2.5 py-0.5 rounded-md border border-amber-500/40">
+                      {Math.max(0, 3 - violationCount)} Kali Lagi
+                    </span>
+                  </div>
+                  <p className="text-xs text-red-100 leading-relaxed pt-1 border-t border-red-800">
+                    ⚠️ <strong>PERINGATAN KERAS:</strong> Anda memiliki batas toleransi maksimal 3 kali. Jika mencapai 3 kali pelanggaran, sesi ujian Anda akan langsung <strong>TERKUNCI</strong>, akun di-reset ke halaman login, dan Anda wajib meminta <strong>Reset Login</strong> kepada Guru Pengawas!
                   </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={handleDismissAlarmAndResume}
-                  className="px-8 py-3.5 bg-white text-red-900 hover:bg-red-50 font-black rounded-xl text-sm shadow-xl transition flex items-center gap-2"
+                  className="px-8 py-3.5 bg-white text-red-900 hover:bg-red-50 font-black rounded-xl text-sm shadow-xl transition flex items-center gap-2 cursor-pointer"
                 >
                   <VolumeX className="w-5 h-5 text-red-700" />
-                  Matikan Alarm & Kembali Kerjakan Soal
+                  Matikan Alarm & Kembali Kerjakan (Sisa Toleransi {Math.max(0, 3 - violationCount)}x)
                 </button>
               </div>
             )}

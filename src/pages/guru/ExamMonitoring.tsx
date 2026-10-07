@@ -112,7 +112,7 @@ export default function ExamMonitoring() {
         // 1. Fetch all students in the task's class
         const { data: classStudents } = await supabase
           .from('class_students')
-          .select('student:users!student_id(id, name, username, status, active_session_token, last_login_at)')
+          .select('student:users!student_id(id, name, username, status, active_session_token, last_login_at, is_exam_locked, exam_locked_reason)')
           .eq('class_id', taskToLoad.class_id);
 
         // 2. Fetch all submissions (including in_progress) for this task
@@ -196,6 +196,7 @@ export default function ExamMonitoring() {
   // Helper to classify student exam state
   const getStudentMonitoringState = (item: any) => {
     const sub = item.submission;
+    const st = item.student;
     const totalQuestions = Array.isArray(selectedTask?.content) ? selectedTask.content.length : 0;
     const answers = normalizeAndMergeAnswers(sub?.answers, null);
     const answeredCount = countAnsweredQuestions(answers);
@@ -221,7 +222,10 @@ export default function ExamMonitoring() {
 
     const isCompleted = sub.status === 'graded' || sub.status === 'submitted' || sub.status === 'completed';
     const isInProgress = sub.status === 'in_progress' || !isCompleted;
-    const isLocked = Boolean(sub.is_locked);
+    const violationCount = Number(sub.violation_count || 0);
+    const violationLogs = Array.isArray(sub.violation_logs) ? sub.violation_logs : [];
+    const isViolationLock = Boolean(st?.is_exam_locked || violationCount >= 3);
+    const isLocked = Boolean(sub.is_locked || isViolationLock);
 
     const lastActiveStr = sub.last_active_at || sub.updated_at || sub.created_at;
     const lastActiveMs = lastActiveStr ? new Date(lastActiveStr).getTime() : 0;
@@ -237,9 +241,6 @@ export default function ExamMonitoring() {
       else if (diffSec < 3600) lastActiveText = `${Math.floor(diffSec / 60)} mnt lalu`;
       else lastActiveText = new Date(lastActiveMs).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
     }
-
-    const violationCount = Number(sub.violation_count || 0);
-    const violationLogs = Array.isArray(sub.violation_logs) ? sub.violation_logs : [];
 
     if (isCompleted) {
       return {
@@ -262,7 +263,7 @@ export default function ExamMonitoring() {
     if (isLocked) {
       return {
         code: 'NETWORK_ISSUE' as const,
-        label: 'Sesi Terkunci • Butuh Reset Login',
+        label: isViolationLock ? '🚨 Terkunci (3x Pelanggaran) • Butuh Reset Login' : 'Sesi Terkunci • Butuh Reset Login',
         isOnline: false,
         hasNetworkIssue: true,
         isLocked: true,
@@ -949,13 +950,17 @@ export default function ExamMonitoring() {
 
                             {mState.code === 'NETWORK_ISSUE' && (
                               <div className="space-y-1">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold rounded-lg">
-                                  {mState.isLocked ? (
-                                    <Lock className="w-3.5 h-3.5 text-red-600" />
-                                  ) : (
-                                    <WifiOff className="w-3.5 h-3.5 text-amber-700" />
-                                  )}
-                                  {mState.isLocked ? 'Sesi Terkunci / Pindah HP' : 'Indikasi Kendala Jaringan'}
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg border ${
+                                  st.is_exam_locked || mState.violationCount >= 3
+                                    ? 'bg-red-100 text-red-900 border-red-300'
+                                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                                }`}>
+                                  <Lock className="w-3.5 h-3.5 text-red-600" />
+                                  {st.is_exam_locked || mState.violationCount >= 3
+                                    ? '🚨 Terkunci (3x Pelanggaran)'
+                                    : mState.isLocked
+                                    ? 'Sesi Terkunci / Pindah HP'
+                                    : 'Indikasi Kendala Jaringan'}
                                 </span>
                                 <p className="text-[11px] text-amber-800">
                                   Klik <strong>Reset Login</strong> agar siswa bisa lanjut tanpa hilang jawaban

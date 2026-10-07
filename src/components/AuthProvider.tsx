@@ -39,15 +39,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             const parsed = JSON.parse(saved);
             if (parsed?.id) {
-              // Verify user is still active in database
+              // Verify user is still active and not exam locked in database
               const { data: verified } = await supabase
                 .from('users')
                 .select('*')
                 .eq('id', parsed.id)
                 .maybeSingle();
-              if (verified && verified.status === 'active') {
+              if (verified && verified.status === 'active' && !(verified.role === 'siswa' && verified.is_exam_locked)) {
                 setUser(verified);
-              } else if (verified && verified.status !== 'active') {
+              } else if (verified && (verified.status !== 'active' || (verified.role === 'siswa' && verified.is_exam_locked))) {
                 setUser(null);
                 localStorage.removeItem('auth_user');
               }
