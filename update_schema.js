@@ -21,6 +21,21 @@ export async function syncSupabaseSchema() {
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS subject_name TEXT;
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'pg';
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS content JSONB;
+      ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS kkm NUMERIC DEFAULT 75;
+
+      -- Tabel Arsip Lembar Kerja Peserta Didik (LKPD)
+      CREATE TABLE IF NOT EXISTS public.lkpd_records (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        guru_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+        modul_id UUID REFERENCES public.modul_ajar(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        subject_name TEXT,
+        grade TEXT,
+        pertemuan_info TEXT,
+        content_json JSONB NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
 
       ALTER TABLE public.teaching_materials ADD COLUMN IF NOT EXISTS guru_id UUID REFERENCES public.users(id) ON DELETE CASCADE;
       ALTER TABLE public.teaching_materials ADD COLUMN IF NOT EXISTS subject_name TEXT;
@@ -70,6 +85,7 @@ export async function syncSupabaseSchema() {
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+        ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS kkm NUMERIC DEFAULT 75;
         ALTER TABLE public.users ADD COLUMN IF NOT EXISTS active_session_token TEXT;
         ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;
         PERFORM pg_notify('pgrst', 'reload schema');

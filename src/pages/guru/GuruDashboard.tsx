@@ -9,6 +9,7 @@ import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
 import ExamMonitoring from './ExamMonitoring';
 import CreateModulAjar, { extractMateriTitleFromModule } from './CreateModulAjar';
+import CreateLkpd from './CreateLkpd';
 import GuruLihatCp from './GuruLihatCp';
 import InteractiveBahanAjar from '../../components/InteractiveBahanAjar';
 
@@ -1397,6 +1398,9 @@ export default function GuruDashboard() {
   }
   if (location.pathname.startsWith('/dashboard/modul')) {
     return <CreateModulAjar />;
+  }
+  if (location.pathname.startsWith('/dashboard/lkpd')) {
+    return <CreateLkpd />;
   }
 
   // Default: Lihat CP as the primary top menu item

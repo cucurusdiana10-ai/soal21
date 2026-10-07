@@ -361,17 +361,26 @@ export default function GradeReports() {
       return;
     }
 
-    const headers = ['No', 'Nama', 'NISN', 'Nilai', 'Status'];
+    const taskKkm = Number(selectedTask?.kkm !== undefined && selectedTask?.kkm !== null ? selectedTask.kkm : 75);
+    const headers = ['No', 'Nama', 'NISN', 'Nilai', 'KKM', 'Status Kelulusan', 'Status Pengerjaan'];
     const rows = submissions.map((item, idx) => {
       const st = item.student;
       const sub = item.submission;
       const scoreVal = sub && sub.score !== null ? sub.score : '-';
-      const statusText = !sub ? 'Belum Mengumpulkan' : sub.status === 'graded' ? 'Sudah Dinilai' : 'Sudah Mengumpulkan';
+      const kelulusan =
+        sub && sub.score !== null && sub.status !== 'in_progress'
+          ? sub.score >= taskKkm
+            ? 'Tuntas'
+            : 'Remedial'
+          : '-';
+      const statusText = !sub ? 'Belum Mengumpulkan' : sub.status === 'graded' ? 'Sudah Dinilai' : sub.status === 'in_progress' ? 'Sedang Mengerjakan' : 'Sudah Mengumpulkan';
       return [
         idx + 1,
         `"${st.name ? st.name.replace(/"/g, '""') : ''}"`,
         `"${st.username ? st.username.replace(/"/g, '""') : ''}"`,
         scoreVal,
+        taskKkm,
+        `"${kelulusan}"`,
         `"${statusText}"`
       ];
     });
@@ -437,7 +446,12 @@ export default function GradeReports() {
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-6 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Hasil Pekerjaan Siswa</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-gray-900">Hasil Pekerjaan Siswa</h2>
+                <span className="text-xs px-2.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md border border-emerald-300">
+                  KKM: {selectedTask.kkm !== undefined && selectedTask.kkm !== null ? selectedTask.kkm : 75}
+                </span>
+              </div>
               <p className="text-sm text-gray-500">
                 Tugas: <span className="font-semibold text-gray-900">{selectedTask.title}</span> • Kelas {selectedTask.class?.name}
               </p>
@@ -533,12 +547,23 @@ export default function GradeReports() {
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-4 font-black text-lg text-gray-900">
+                        <td className="px-6 py-4">
                           {sub && sub.score !== null && !isInProgress ? (
-                            <span className={sub.score >= 75 ? 'text-green-600' : 'text-amber-600'}>
-                              {sub.score}
-                            </span>
-                          ) : '-'}
+                            <div className="flex items-center gap-2">
+                              <span className={`font-black text-lg ${sub.score >= (selectedTask.kkm || 75) ? 'text-emerald-700' : 'text-red-600'}`}>
+                                {sub.score}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                sub.score >= (selectedTask.kkm || 75)
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : 'bg-red-50 text-red-800 border-red-200'
+                              }`}>
+                                {sub.score >= (selectedTask.kkm || 75) ? 'TUNTAS' : 'REMEDIAL'}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="font-bold text-gray-400">-</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right whitespace-nowrap">
                           {sub ? (

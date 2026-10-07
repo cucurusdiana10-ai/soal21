@@ -17,7 +17,7 @@ export default function SiswaNilai() {
 
     const { data } = await supabase
       .from('task_submissions')
-      .select('*, task:tasks(title, type, subject_name)')
+      .select('*, task:tasks(title, type, subject_name, kkm)')
       .eq('student_id', user.id)
       .order('created_at', { ascending: false });
 
@@ -74,19 +74,39 @@ export default function SiswaNilai() {
               <div key={sub.id} className="p-5 bg-gray-50 rounded-2xl border border-gray-200 space-y-3">
                 <div className="flex justify-between items-start">
                   <div>
-                    <span className="text-xs font-bold px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full">
-                      {sub.task?.subject_name || 'Tugas'}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full">
+                        {sub.task?.subject_name || 'Tugas'}
+                      </span>
+                      <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-md border border-emerald-200">
+                        KKM: {sub.task?.kkm !== undefined && sub.task?.kkm !== null ? sub.task.kkm : 75}
+                      </span>
+                    </div>
                     <h3 className="font-bold text-gray-900 text-base mt-1">{sub.task?.title}</h3>
                     <p className="text-xs text-gray-500">Dikumpulkan pada {new Date(sub.created_at).toLocaleDateString('id-ID')}</p>
                   </div>
 
                   <div className="text-right">
                     <span className="text-xs text-gray-500 block mb-1">Nilai Akhir</span>
-                    <span className={`text-2xl font-black ${sub.score !== null && sub.score >= 75 ? 'text-green-600' : 'text-amber-600'}`}>
-                      {sub.score !== null ? sub.score : '-'}
-                      <span className="text-xs font-normal text-gray-400">/100</span>
-                    </span>
+                    {(() => {
+                      const taskKkm = sub.task?.kkm !== undefined && sub.task?.kkm !== null ? sub.task.kkm : 75;
+                      const isPass = sub.score !== null && sub.score >= taskKkm;
+                      return (
+                        <div>
+                          <div className={`text-2xl font-black ${isPass ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {sub.score !== null ? sub.score : '-'}
+                            <span className="text-xs font-normal text-gray-400">/100</span>
+                          </div>
+                          {sub.score !== null && (
+                            <span className={`inline-block mt-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              isPass ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-red-100 text-red-800 border-red-200'
+                            }`}>
+                              {isPass ? 'TUNTAS' : 'REMEDIAL'}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 

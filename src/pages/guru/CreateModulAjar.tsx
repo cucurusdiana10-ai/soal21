@@ -24,7 +24,8 @@ import {
   Check,
   Search,
   Filter,
-  Bookmark
+  Bookmark,
+  ClipboardList
 } from 'lucide-react';
 import { generateModulAjarApi } from '../../lib/aiService';
 import { exportModulAjarToDocx } from '../../lib/modulDocxGenerator';
@@ -1053,6 +1054,15 @@ export default function CreateModulAjar() {
                     <Edit3 className="w-3.5 h-3.5" />
                     {isEditing ? 'Selesai Edit' : 'Edit Teks'}
                   </button>
+
+                  <Link
+                    to="/dashboard/lkpd"
+                    className="px-3.5 py-2 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+                    title="Buat Lembar Kerja Peserta Didik (LKPD) dari modul ini"
+                  >
+                    <ClipboardList className="w-3.5 h-3.5 text-emerald-600" />
+                    Buat LKPD
+                  </Link>
                 </div>
               </div>
 

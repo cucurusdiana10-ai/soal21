@@ -5,7 +5,11 @@ import {
   TextRun,
   HeadingLevel,
   AlignmentType,
-  BorderStyle
+  BorderStyle,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType
 } from 'docx';
 import { saveAs } from 'file-saver';
 
@@ -548,3 +552,461 @@ export function parseQuestionsFromText(
   flushCurrent();
   return questions;
 }
+
+/**
+ * Downloads a published task package as a complete Microsoft Word (.docx) document,
+ * complete with Kop Surat SMAN 21 Garut, metadata (Mata Pelajaran, Kelas, KKM, Bentuk Soal),
+ * petunjuk pengerjaan, naskah butir soal siswa, serta lampiran kunci jawaban guru.
+ */
+export async function downloadPublishedTaskAsWord(
+  task: any,
+  className?: string,
+  kkmValue?: number,
+  teacherName?: string
+) {
+  if (!task) return;
+
+  const title = task.title || 'Naskah Soal';
+  const subject = task.subject_name || 'Mata Pelajaran';
+  const targetClass = className || (task.classes?.name ? `Kelas ${task.classes.name}` : 'Semua Kelas');
+  const kkm = task.kkm !== undefined && task.kkm !== null ? task.kkm : (kkmValue || 75);
+  const questions: any[] = Array.isArray(task.content) ? task.content : [];
+  const typeText =
+    task.type === 'pg'
+      ? 'Pilihan Ganda (PG)'
+      : task.type === 'essay'
+      ? 'Esai / Uraian'
+      : 'Campuran (Pilihan Ganda & Esai)';
+
+  const tableBorder = {
+    top: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' },
+    bottom: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' },
+    left: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' },
+    right: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' }
+  };
+
+  const createCell = (text: string, isBold: boolean = false, widthPct: number = 50, bgColor?: string) => {
+    return new TableCell({
+      width: { size: widthPct, type: WidthType.PERCENTAGE },
+      shading: bgColor ? { fill: bgColor } : undefined,
+      children: [
+        new Paragraph({
+          children: [
+            new TextRun({
+              text,
+              bold: isBold,
+              size: 20,
+              font: 'Calibri'
+            })
+          ],
+          spacing: { before: 40, after: 40 }
+        })
+      ],
+      borders: tableBorder
+    });
+  };
+
+  const docChildren: any[] = [];
+
+  // 1. KOP SURAT RESMI
+  docChildren.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: 'PEMERINTAH DAERAH PROVINSI JAWA BARAT',
+          bold: true,
+          size: 22,
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: 'DINAS PENDIDIKAN - CABANG DINAS PENDIDIKAN WILAYAH XI',
+          bold: true,
+          size: 22,
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: 'SMA NEGERI 21 GARUT',
+          bold: true,
+          size: 26,
+          color: '1E3A8A',
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 180 },
+      border: {
+        bottom: { color: '1E3A8A', space: 6, style: BorderStyle.DOUBLE, size: 18 }
+      },
+      children: [
+        new TextRun({
+          text: 'Alamat: Jl. Raya Talegong No. 21, Kec. Talegong, Kab. Garut, Jawa Barat 44167 • NPSN: 20209194',
+          italics: true,
+          size: 18,
+          color: '475569',
+          font: 'Calibri'
+        })
+      ]
+    }),
+
+    // 2. JUDUL NASKAH SOAL
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 120, after: 60 },
+      children: [
+        new TextRun({
+          text: 'NASKAH SOAL EVALUASI PEMBELAJARAN',
+          bold: true,
+          size: 24,
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 180 },
+      children: [
+        new TextRun({
+          text: title.toUpperCase(),
+          bold: true,
+          size: 22,
+          color: '1E3A8A',
+          font: 'Calibri'
+        })
+      ]
+    })
+  );
+
+  // 3. TABEL INFORMASI / IDENTITAS SOAL
+  docChildren.push(
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          children: [
+            createCell('Mata Pelajaran', true, 25, 'F1F5F9'),
+            createCell(subject, false, 25),
+            createCell('Kelas / Sasaran', true, 25, 'F1F5F9'),
+            createCell(targetClass, false, 25)
+          ]
+        }),
+        new TableRow({
+          children: [
+            createCell('Kriteria Ketuntasan (KKM)', true, 25, 'F1F5F9'),
+            createCell(`${kkm} (Minimal Tuntas)`, true, 25),
+            createCell('Bentuk Soal', true, 25, 'F1F5F9'),
+            createCell(typeText, false, 25)
+          ]
+        }),
+        new TableRow({
+          children: [
+            createCell('Jumlah Butir Soal', true, 25, 'F1F5F9'),
+            createCell(`${questions.length} Butir Soal`, false, 25),
+            createCell('Guru Pengampu', true, 25, 'F1F5F9'),
+            createCell(teacherName || 'Guru Mata Pelajaran', false, 25)
+          ]
+        })
+      ]
+    }),
+    new Paragraph({ spacing: { after: 140 } })
+  );
+
+  // 4. PETUNJUK PENGERJAAN
+  docChildren.push(
+    new Paragraph({
+      heading: HeadingLevel.HEADING_3,
+      spacing: { before: 100, after: 60 },
+      children: [
+        new TextRun({
+          text: 'PETUNJUK UMUM PENGERJAAN:',
+          bold: true,
+          size: 20,
+          color: '1E3A8A',
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [
+        new TextRun({
+          text: '1. Berdoalah sebelum mulai mengerjakan naskah soal.',
+          size: 20,
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [
+        new TextRun({
+          text: '2. Tuliskan Nama Lengkap, Nomor Induk Siswa (NISN), dan Kelas pada lembar pengerjaan.',
+          size: 20,
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [
+        new TextRun({
+          text: '3. Periksa kelengkapan naskah dan bacalah setiap butir soal dengan cermat sebelum menjawab.',
+          size: 20,
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [
+        new TextRun({
+          text: '4. Untuk soal Pilihan Ganda, silang (X) atau pilih salah satu huruf (A, B, C, D, atau E) yang paling tepat.',
+          size: 20,
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      spacing: { after: 180 },
+      children: [
+        new TextRun({
+          text: '5. Kerjakan terlebih dahulu butir soal yang Anda anggap mudah dengan jujur dan percaya diri.',
+          size: 20,
+          font: 'Calibri'
+        })
+      ]
+    })
+  );
+
+  // 5. BUTIR-BUTIR SOAL SISWA
+  docChildren.push(
+    new Paragraph({
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 140, after: 100 },
+      border: {
+        bottom: { color: 'CCCCCC', space: 4, style: BorderStyle.SINGLE, size: 6 }
+      },
+      children: [
+        new TextRun({
+          text: 'DAFTAR PERTANYAAN SOAL',
+          bold: true,
+          size: 22,
+          color: '1E3A8A',
+          font: 'Calibri'
+        })
+      ]
+    })
+  );
+
+  questions.forEach((q, idx) => {
+    // Soal Text
+    docChildren.push(
+      new Paragraph({
+        spacing: { before: 120, after: 60 },
+        children: [
+          new TextRun({
+            text: `${idx + 1}. `,
+            bold: true,
+            size: 22,
+            font: 'Calibri'
+          }),
+          new TextRun({
+            text: q.question || '',
+            size: 22,
+            font: 'Calibri'
+          })
+        ]
+      })
+    );
+
+    // If PG, render options
+    if (q.type === 'pg' && Array.isArray(q.options) && q.options.length > 0) {
+      q.options.forEach((opt: string, oIdx: number) => {
+        const letter = String.fromCharCode(65 + oIdx);
+        docChildren.push(
+          new Paragraph({
+            indent: { left: 400 },
+            spacing: { after: 40 },
+            children: [
+              new TextRun({
+                text: `${letter}. `,
+                bold: true,
+                size: 20,
+                font: 'Calibri'
+              }),
+              new TextRun({
+                text: String(opt || ''),
+                size: 20,
+                font: 'Calibri'
+              })
+            ]
+          })
+        );
+      });
+    }
+
+    // If Essay, render answer space lines
+    if (q.type === 'essay') {
+      docChildren.push(
+        new Paragraph({
+          indent: { left: 400 },
+          spacing: { before: 60, after: 40 },
+          children: [
+            new TextRun({
+              text: 'Lembar Jawaban Uraian:',
+              italics: true,
+              size: 18,
+              color: '64748B',
+              font: 'Calibri'
+            })
+          ]
+        }),
+        new Paragraph({
+          indent: { left: 400 },
+          spacing: { after: 30 },
+          children: [
+            new TextRun({
+              text: '_________________________________________________________________________________',
+              color: 'CBD5E1',
+              size: 18
+            })
+          ]
+        }),
+        new Paragraph({
+          indent: { left: 400 },
+          spacing: { after: 30 },
+          children: [
+            new TextRun({
+              text: '_________________________________________________________________________________',
+              color: 'CBD5E1',
+              size: 18
+            })
+          ]
+        }),
+        new Paragraph({
+          indent: { left: 400 },
+          spacing: { after: 60 },
+          children: [
+            new TextRun({
+              text: '_________________________________________________________________________________',
+              color: 'CBD5E1',
+              size: 18
+            })
+          ]
+        })
+      );
+    }
+  });
+
+  // 6. LEMBAR KUNCI JAWABAN & PEMBAHASAN GURU
+  docChildren.push(
+    new Paragraph({
+      spacing: { before: 360, after: 80 },
+      border: {
+        top: { color: '1E3A8A', space: 6, style: BorderStyle.DASHED, size: 8 }
+      },
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: '--- LEMBAR PEGANGAN GURU: KUNCI JAWABAN & PEMBAHASAN ---',
+          bold: true,
+          size: 22,
+          color: '1E3A8A',
+          font: 'Calibri'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 180 },
+      children: [
+        new TextRun({
+          text: `Paket Soal: ${title} • KKM: ${kkm} • Target: ${targetClass}`,
+          italics: true,
+          size: 18,
+          color: '475569',
+          font: 'Calibri'
+        })
+      ]
+    })
+  );
+
+  questions.forEach((q, idx) => {
+    const isPg = q.type === 'pg';
+    const key = isPg ? q.answer : q.answerKey || q.answer || '-';
+    docChildren.push(
+      new Paragraph({
+        spacing: { before: 80, after: 40 },
+        children: [
+          new TextRun({
+            text: `Soal No. ${idx + 1} (${isPg ? 'Pilihan Ganda' : 'Esai'}): `,
+            bold: true,
+            size: 20,
+            font: 'Calibri'
+          }),
+          new TextRun({
+            text: `Kunci Jawaban: ${key}`,
+            bold: true,
+            color: '047857',
+            size: 20,
+            font: 'Calibri'
+          })
+        ]
+      })
+    );
+
+    if (q.explanation) {
+      docChildren.push(
+        new Paragraph({
+          indent: { left: 360 },
+          spacing: { after: 60 },
+          children: [
+            new TextRun({
+              text: `Pembahasan: ${q.explanation}`,
+              italics: true,
+              size: 18,
+              color: '334155',
+              font: 'Calibri'
+            })
+          ]
+        })
+      );
+    }
+  });
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: 1000,
+              right: 1000,
+              bottom: 1000,
+              left: 1000
+            }
+          }
+        },
+        children: docChildren
+      }
+    ]
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const cleanTitle = (title || 'Soal').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanClass = (targetClass || 'Kelas').replace(/[^a-zA-Z0-9_-]/g, '_');
+  saveAs(blob, `[Soal]_${cleanTitle}_${cleanClass}.docx`);
+}
+

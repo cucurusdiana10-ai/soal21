@@ -777,6 +777,9 @@ export default function ExamMonitoring() {
                     <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-md">
                       Kelas {selectedTask.class?.name}
                     </span>
+                    <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-md border border-emerald-300">
+                      KKM: {selectedTask.kkm !== undefined && selectedTask.kkm !== null ? selectedTask.kkm : 75}
+                    </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
                     Pembaruan terakhir: <strong>{lastRefreshedAt.toLocaleTimeString('id-ID')} WIB</strong> • Jawaban siswa otomatis tersimpan setiap kali memilih/mengetik jawaban.
@@ -962,9 +965,13 @@ export default function ExamMonitoring() {
 
                             {mState.code === 'COMPLETED' && (
                               <div className="space-y-1">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg">
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg ${
+                                  sub?.score !== null && sub?.score !== undefined && sub.score >= (selectedTask?.kkm || 75)
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-red-100 text-red-800'
+                                }`}>
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  Selesai • Nilai: {sub?.score !== null && sub?.score !== undefined ? sub.score : 'Menunggu'}
+                                  Selesai • Nilai: {sub?.score !== null && sub?.score !== undefined ? `${sub.score} (${sub.score >= (selectedTask?.kkm || 75) ? 'Tuntas' : 'Remedial'})` : 'Menunggu'}
                                 </span>
                               </div>
                             )}

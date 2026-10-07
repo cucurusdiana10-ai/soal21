@@ -13,7 +13,8 @@ import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
 import {
   downloadWordQuestionTemplate,
   extractTextFromWordFile,
-  parseQuestionsFromText
+  parseQuestionsFromText,
+  downloadPublishedTaskAsWord
 } from '../../lib/wordQuestionHelper';
 
 export default function CreateQuestions() {
@@ -43,7 +44,8 @@ export default function CreateQuestions() {
     title: '',
     type: 'pg', // 'pg', 'essay', 'mixed'
     count: 5,
-    optionCount: 5 // 3 (A-C), 4 (A-D), 5 (A-E)
+    optionCount: 5, // 3 (A-C), 4 (A-D), 5 (A-E)
+    kkm: 75 // Kriteria Ketuntasan Minimal
   });
 
   // Multi-select classes state (pilihan beberapa kelas)
@@ -64,12 +66,14 @@ export default function CreateQuestions() {
     subject_name: string;
     title: string;
     type: string;
+    kkm: number;
   }>({
     class_id: '',
     class_ids: [],
     subject_name: '',
     title: '',
-    type: 'pg'
+    type: 'pg',
+    kkm: 75
   });
 
   const [editingQuestionIdx, setEditingQuestionIdx] = useState<number | null>(null);
@@ -257,7 +261,8 @@ export default function CreateQuestions() {
         class_ids: [...selectedClassIds],
         subject_name: form.subject_name,
         title: form.title,
-        type: form.type
+        type: form.type,
+        kkm: form.kkm || 75
       };
 
       setGeneratedQuestions(formatted);
@@ -314,6 +319,7 @@ export default function CreateQuestions() {
         subject_name: meta.subject_name,
         title: meta.title,
         type: meta.type,
+        kkm: Number(meta.kkm || form.kkm || 75),
         content: questionsWithSchedule
       }));
 
@@ -419,7 +425,8 @@ export default function CreateQuestions() {
         class_ids: initialClassIds,
         subject_name: form.subject_name || (teacherSubjects[0] || 'Mata Pelajaran'),
         title: form.title || 'Paket Soal Manual Baru',
-        type: form.type || 'pg'
+        type: form.type || 'pg',
+        kkm: form.kkm || 75
       });
       setEditingQuestionIdx(0);
     }
@@ -483,7 +490,8 @@ export default function CreateQuestions() {
         class_ids: initialClassIds,
         subject_name: form.subject_name || (teacherSubjects[0] || 'Mata Pelajaran'),
         title: form.title || (importFileName ? importFileName.replace(/\.[^.]+$/, '') : 'Paket Soal Import Word'),
-        type: detectedType
+        type: detectedType,
+        kkm: form.kkm || 75
       });
     }
 
@@ -505,6 +513,7 @@ export default function CreateQuestions() {
           subject_name: editingExistingTask.subject_name,
           class_id: editingExistingTask.class_id,
           type: editingExistingTask.type,
+          kkm: Number(editingExistingTask.kkm || 75),
           content: editingExistingTask.content
         })
         .eq('id', editingExistingTask.id);
@@ -518,6 +527,15 @@ export default function CreateQuestions() {
       alert('Gagal menyimpan perubahan: ' + err.message);
     } finally {
       setSavingEditTask(false);
+    }
+  };
+
+  const handleDownloadTaskWord = async (task: any) => {
+    try {
+      const clsName = task.className || getClassName(task.class_id);
+      await downloadPublishedTaskAsWord(task, clsName, task.kkm, user?.name);
+    } catch (err: any) {
+      alert('Gagal mengunduh soal Word: ' + (err?.message || String(err)));
     }
   };
 
@@ -766,6 +784,28 @@ export default function CreateQuestions() {
                 placeholder="Jumlah soal, contoh: 10"
                 className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-bold text-gray-900 focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                <span>KKM (Kriteria Ketuntasan Minimal)</span>
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  Acuan Kelulusan
+                </span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                required
+                value={form.kkm}
+                onChange={e => setForm({ ...form, kkm: Math.min(100, Math.max(0, Number(e.target.value))) })}
+                placeholder="Standar KKM, contoh: 75"
+                className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-bold text-emerald-800 focus:ring-2 focus:ring-emerald-500"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">
+                Batas nilai minimal untuk menentukan status kelulusan siswa (Tuntas / Remedial).
+              </p>
             </div>
 
             <div className="md:col-span-2 lg:col-span-3">
@@ -1422,6 +1462,9 @@ export default function CreateQuestions() {
                       <span className="text-xs text-gray-600 font-medium">
                         · {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'} ({questionCount} Soal)
                       </span>
+                      <span className="text-xs px-2.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded-md border border-emerald-200">
+                        KKM: {task.kkm !== undefined && task.kkm !== null ? task.kkm : 75}
+                      </span>
                       {isFuture ? (
                         <span className="text-xs px-2.5 py-0.5 bg-amber-100 text-amber-900 font-bold rounded-md border border-amber-300 flex items-center gap-1">
                           <Clock className="w-3 h-3 text-amber-700" />
@@ -1484,6 +1527,14 @@ export default function CreateQuestions() {
                       >
                         <Eye className="w-3.5 h-3.5" /> Lihat
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadTaskWord({ ...task, className })}
+                        className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-2xs"
+                        title="Download Naskah Soal & Kunci Jawaban (Word .docx)"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Download Soal
+                      </button>
                       <button 
                         onClick={() => setEditingExistingTask(JSON.parse(JSON.stringify(task)))}
                         className="px-3 py-2 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
@@ -1514,14 +1565,26 @@ export default function CreateQuestions() {
             <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-blue-50">
               <div>
                 <h3 className="text-lg font-bold text-blue-950">{selectedTask.title}</h3>
-                <p className="text-xs text-blue-700">Kelas {selectedTask.className || getClassName(selectedTask.class_id)} • {selectedTask.subject_name}</p>
+                <p className="text-xs text-blue-700">
+                  Kelas {selectedTask.className || getClassName(selectedTask.class_id)} • {selectedTask.subject_name} • KKM: <span className="font-bold text-emerald-700">{selectedTask.kkm || 75}</span>
+                </p>
               </div>
-              <button 
-                onClick={() => setSelectedTask(null)}
-                className="text-gray-400 hover:text-gray-600 p-2"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTaskWord(selectedTask)}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                  title="Download Naskah Soal Lengkap (.docx)"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download Soal (.docx)
+                </button>
+                <button 
+                  onClick={() => setSelectedTask(null)}
+                  className="text-gray-400 hover:text-gray-600 p-2"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4 flex-1">
@@ -1646,7 +1709,7 @@ export default function CreateQuestions() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              <div className="grid md:grid-cols-3 gap-3">
+              <div className="grid md:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Judul Paket Soal</label>
                   <input
@@ -1676,6 +1739,17 @@ export default function CreateQuestions() {
                       <option key={c.id} value={c.id}>Kelas {c.name}</option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">KKM (Minimal Tuntas)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={editingExistingTask.kkm !== undefined ? editingExistingTask.kkm : 75}
+                    onChange={e => setEditingExistingTask({ ...editingExistingTask, kkm: Math.min(100, Math.max(0, Number(e.target.value))) })}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-sm font-bold text-emerald-800"
+                  />
                 </div>
               </div>
 
