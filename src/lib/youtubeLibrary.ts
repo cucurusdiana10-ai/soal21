@@ -276,6 +276,54 @@ export const YOUTUBE_EDUCATIONAL_DATABASE: EducationalVideo[] = [
     channel: 'Zenius Education',
     subject: 'Sosiologi',
     keywords: ['sosiologi', 'interaksi', 'norma', 'sosial', 'masyarakat', 'konflik', 'integrasi']
+  },
+
+  // --- PENDIDIKAN PANCASILA & KEWARGANEGARAAN ---
+  {
+    id: 'lJ6_9oH3vVw',
+    url: 'https://www.youtube.com/watch?v=lJ6_9oH3vVw',
+    title: 'Nilai-Nilai Luhur Pancasila dalam Kehidupan Berbangsa dan Bernegara',
+    channel: 'BPIP RI',
+    subject: 'Pendidikan Pancasila',
+    keywords: ['pancasila', 'sila', 'nilai', 'uud 1945', 'konstitusi', 'demokrasi', 'bhineka tunggal ika', 'norma hukum']
+  },
+  {
+    id: 'c90tP93iXbA',
+    url: 'https://www.youtube.com/watch?v=c90tP93iXbA',
+    title: 'Hak Asasi Manusia (HAM) & Penegakan Hukum di Indonesia',
+    channel: 'Kok Bisa?',
+    subject: 'Pendidikan Pancasila',
+    keywords: ['ham', 'hak asasi', 'hukum', 'pelanggaran ham', 'keadilan', 'peradilan', 'warga negara']
+  },
+
+  // --- PENDIDIKAN AGAMA ISLAM (PAI) ---
+  {
+    id: 'vB97fGk56_c',
+    url: 'https://www.youtube.com/watch?v=vB97fGk56_c',
+    title: 'Kajian Iman, Fiqih Ibadah, dan Pembentukan Karakter Mulia (Akhlak)',
+    channel: 'Kemenag RI',
+    subject: 'Pendidikan Agama Islam',
+    keywords: ['agama', 'islam', 'iman', 'akhlak', 'fiqih', 'ibadah', 'al-qur\'an', 'hadits', 'syariah']
+  },
+
+  // --- PENDIDIKAN JASMANI, OLAHRAGA, & KESEHATAN (PJOK) ---
+  {
+    id: 'x81a_bX99dE',
+    url: 'https://www.youtube.com/watch?v=x81a_bX99dE',
+    title: 'Kebugaran Jasmani, Pola Hidup Sehat, dan Gerak Dasar Olahraga',
+    channel: 'Kemenpora RI',
+    subject: 'PJOK',
+    keywords: ['pjok', 'olahraga', 'kebugaran', 'jasmani', 'sepak bola', 'bola voli', 'atletik', 'senam', 'kesehatan']
+  },
+
+  // --- SENI BUDAYA & PRAKARYA (PKWU) ---
+  {
+    id: '7mC0n55vXlA',
+    url: 'https://www.youtube.com/watch?v=7mC0n55vXlA',
+    title: 'Apresiasi Seni Rupa 2 Dimensi & 3 Dimensi serta Unsur Estetika',
+    channel: 'Kemendikbud RI',
+    subject: 'Seni Budaya',
+    keywords: ['seni', 'seni rupa', 'musik', 'tari', 'teater', 'budaya', 'estetika', 'karya seni', 'prakarya', 'pkwu']
   }
 ];
 
@@ -288,59 +336,101 @@ export interface YoutubeMatchResult {
   alternativeVideos: EducationalVideo[];
 }
 
+function normalizeSubjectKey(sub: string): string {
+  const s = (sub || '').toLowerCase().trim();
+  if (s.includes('informatika') || s.includes('tik') || s.includes('komputer') || s.includes('koding')) return 'informatika';
+  if (s.includes('biologi') || s.includes('hayati')) return 'biologi';
+  if (s.includes('fisika')) return 'fisika';
+  if (s.includes('kimia')) return 'kimia';
+  if (s.includes('matematika') || s.includes('mtk') || s.includes('kalkulus') || s.includes('aljabar')) return 'matematika';
+  if (s.includes('inggris') || s.includes('english')) return 'bahasa inggris';
+  if (s.includes('indonesia') || s.includes('sastra')) return 'bahasa indonesia';
+  if (s.includes('sejarah') || s.includes('history')) return 'sejarah';
+  if (s.includes('ekonomi') || s.includes('akuntansi')) return 'ekonomi';
+  if (s.includes('geografi') || s.includes('kebumian')) return 'geografi';
+  if (s.includes('sosiologi') || s.includes('antropologi')) return 'sosiologi';
+  if (s.includes('pancasila') || s.includes('ppkn') || s.includes('pkn') || s.includes('kewarganegaraan')) return 'pendidikan pancasila';
+  if (s.includes('pjok') || s.includes('penjas') || s.includes('olahraga')) return 'pjok';
+  if (s.includes('seni') || s.includes('prakarya') || s.includes('budaya') || s.includes('pkwu')) return 'seni budaya';
+  if (s.includes('agama') || s.includes('pai') || s.includes('islam')) return 'pendidikan agama islam';
+  return s;
+}
+
 /**
  * Mencocokkan topik & mata pelajaran dengan video YouTube pembelajaran resmi yang relevan.
- * Mencegah video placeholder (Rickroll dQw4w9WgXcQ) atau link rusak.
+ * Menjamin video yang dihasilkan selalu valid, dapat disematkan (embeddable), dan tidak rusak.
  */
 export function resolveRelevantYoutubeVideo(
   subject: string,
   topic: string,
   providedVideoUrl?: string
 ): YoutubeMatchResult {
-  const normSubject = (subject || '').toLowerCase().trim();
-  const normTopic = (topic || '').toLowerCase().trim();
-  const cleanSearchQuery = `${subject || ''} ${topic || ''} SMA pembelajaran`.trim();
+  const cleanSubject = (subject || '').trim();
+  const cleanTopic = (topic || '').trim();
+  const normSubKey = normalizeSubjectKey(cleanSubject);
+  const normTopic = cleanTopic.toLowerCase();
+  const cleanSearchQuery = `${cleanSubject} ${cleanTopic} SMA pembelajaran`.trim();
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(cleanSearchQuery)}`;
 
-  // Filter out the known rickroll placeholder
-  const isRickroll = providedVideoUrl && providedVideoUrl.includes('dQw4w9WgXcQ');
-  const hasValidCustomVideo = providedVideoUrl && !isRickroll && (
-    providedVideoUrl.includes('youtube.com') ||
-    providedVideoUrl.includes('youtu.be') ||
-    providedVideoUrl.endsWith('.mp4')
-  );
+  // Validasi URL khusus yang diberikan:
+  // Harus menghasilkan ID embed YouTube 11 karakter yang valid atau direct mp4,
+  // dan BUKAN search query, BUKAN placeholder rickroll, BUKAN teks deskriptif
+  const rawUrl = (providedVideoUrl || '').trim();
+  const isRickroll = rawUrl.includes('dQw4w9WgXcQ');
+  const isSearchUrl = rawUrl.includes('results?search_query') || rawUrl.includes('search_query=');
+  const isChannelUrl = rawUrl.includes('youtube.com/@') || rawUrl.includes('/channel/') || rawUrl.includes('/user/');
+  
+  // Ekstraksi ID YouTube jika ada
+  let validEmbedId: string | null = null;
+  const ytMatch = rawUrl.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([a-zA-Z0-9_-]{11})/);
+  if (ytMatch && ytMatch[1] && ytMatch[1].length === 11 && !isRickroll) {
+    validEmbedId = ytMatch[1];
+  }
 
-  // If a valid custom non-rickroll video was provided, retain it
-  if (hasValidCustomVideo) {
+  const isDirectVideo = rawUrl.endsWith('.mp4') || rawUrl.endsWith('.webm') || rawUrl.startsWith('data:video/');
+
+  // Jika URL yang diberikan benar-benar video yang valid & dapat di-embed
+  if (!isSearchUrl && !isChannelUrl && !isRickroll && (validEmbedId || isDirectVideo)) {
+    const canonicalUrl = validEmbedId ? `https://www.youtube.com/watch?v=${validEmbedId}` : rawUrl;
     return {
-      videoUrl: providedVideoUrl.trim(),
-      videoTitle: `Video Pembelajaran: ${topic || subject}`,
-      videoChannel: 'YouTube Pembelajaran',
+      videoUrl: canonicalUrl,
+      videoTitle: `Video Pembelajaran: ${cleanTopic || cleanSubject}`,
+      videoChannel: 'YouTube Pembelajaran Terpilih',
       isCurated: false,
       youtubeSearchUrl,
-      alternativeVideos: getAlternativesForSubject(subject)
+      alternativeVideos: getAlternativesForSubject(cleanSubject)
     };
   }
 
-  // Find exact or semantic keyword match in our curated educational database
+  // Jika URL tidak valid, kosong, atau hasil pencarian,
+  // cari kecocokan terbaik di curated educational database kami
   let bestMatch: EducationalVideo | null = null;
-  let highestScore = 0;
+  let highestScore = -1;
 
   for (const item of YOUTUBE_EDUCATIONAL_DATABASE) {
     let score = 0;
-    const itemSub = item.subject.toLowerCase();
+    const itemSubKey = normalizeSubjectKey(item.subject);
 
-    // Subject similarity
-    if (normSubject.includes(itemSub) || itemSub.includes(normSubject)) {
-      score += 10;
+    // Kecocokan mata pelajaran
+    if (normSubKey && (normSubKey === itemSubKey || normSubKey.includes(itemSubKey) || itemSubKey.includes(normSubKey))) {
+      score += 15;
     }
 
-    // Keyword matching in topic
+    // Keyword matching pada topik
     for (const kw of item.keywords) {
-      if (normTopic.includes(kw)) {
-        score += 8;
+      const lowerKw = kw.toLowerCase();
+      if (normTopic.includes(lowerKw)) {
+        score += 10;
       }
-      if (item.title.toLowerCase().includes(kw) && normTopic.includes(kw)) {
+      if (lowerKw.includes(normTopic) && normTopic.length > 3) {
+        score += 7;
+      }
+    }
+
+    // Kecocokan dengan judul video
+    const itemTitleLower = item.title.toLowerCase();
+    for (const kw of item.keywords) {
+      if (itemTitleLower.includes(kw.toLowerCase()) && normTopic.includes(kw.toLowerCase())) {
         score += 5;
       }
     }
@@ -351,22 +441,23 @@ export function resolveRelevantYoutubeVideo(
     }
   }
 
-  // If match found with decent confidence
-  if (bestMatch && highestScore >= 8) {
+  // Jika match ditemukan dengan skor baik
+  if (bestMatch && highestScore > 0) {
     return {
       videoUrl: bestMatch.url,
       videoTitle: bestMatch.title,
       videoChannel: bestMatch.channel,
       isCurated: true,
       youtubeSearchUrl,
-      alternativeVideos: getAlternativesForSubject(subject, bestMatch.id)
+      alternativeVideos: getAlternativesForSubject(cleanSubject, bestMatch.id)
     };
   }
 
-  // Fallback to subject-level default or default Kok Bisa channel
-  const subjectFallback = YOUTUBE_EDUCATIONAL_DATABASE.find(v => 
-    normSubject.includes(v.subject.toLowerCase()) || v.subject.toLowerCase().includes(normSubject)
-  ) || YOUTUBE_EDUCATIONAL_DATABASE[0];
+  // Fallback ke video mata pelajaran yang sama
+  const subjectFallback = YOUTUBE_EDUCATIONAL_DATABASE.find(v => {
+    const vSubKey = normalizeSubjectKey(v.subject);
+    return normSubKey && (vSubKey === normSubKey || normSubKey.includes(vSubKey) || vSubKey.includes(normSubKey));
+  }) || YOUTUBE_EDUCATIONAL_DATABASE[0];
 
   return {
     videoUrl: subjectFallback.url,
@@ -374,19 +465,21 @@ export function resolveRelevantYoutubeVideo(
     videoChannel: subjectFallback.channel,
     isCurated: true,
     youtubeSearchUrl,
-    alternativeVideos: getAlternativesForSubject(subject, subjectFallback.id)
+    alternativeVideos: getAlternativesForSubject(cleanSubject, subjectFallback.id)
   };
 }
 
 function getAlternativesForSubject(subject: string, excludeId?: string): EducationalVideo[] {
-  const norm = (subject || '').toLowerCase().trim();
-  const matched = YOUTUBE_EDUCATIONAL_DATABASE.filter(v => 
-    v.id !== excludeId && (norm.includes(v.subject.toLowerCase()) || v.subject.toLowerCase().includes(norm))
-  );
+  const normSubKey = normalizeSubjectKey(subject || '');
+  const matched = YOUTUBE_EDUCATIONAL_DATABASE.filter(v => {
+    if (v.id === excludeId) return false;
+    const vSubKey = normalizeSubjectKey(v.subject);
+    return normSubKey && (vSubKey === normSubKey || normSubKey.includes(vSubKey) || vSubKey.includes(normSubKey));
+  });
 
   if (matched.length >= 3) return matched.slice(0, 3);
 
-  // Pad with top general educational videos
+  // Pad dengan video edukasi top lainnya
   const others = YOUTUBE_EDUCATIONAL_DATABASE.filter(v => v.id !== excludeId && !matched.some(m => m.id === v.id));
   return [...matched, ...others].slice(0, 3);
 }

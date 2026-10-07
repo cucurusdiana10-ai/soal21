@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Image, Video, Upload, ExternalLink, Play, Film, Sparkles, Youtube, Search, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Image, Video, Upload, ExternalLink, Play, Film, Sparkles, Youtube, Search, CheckCircle2, Layers } from 'lucide-react';
 import { getYouTubeEmbedUrl, isDirectVideoUrl } from '../lib/mediaUtils';
 import { resolveRelevantYoutubeVideo, EducationalVideo } from '../lib/youtubeLibrary';
 
@@ -33,18 +33,46 @@ export default function MediaViewer({
     return resolveRelevantYoutubeVideo(subject, title || '', videoUrl);
   }, [subject, title, videoUrl]);
 
-  const effectiveVideoUrl = videoUrl && !videoUrl.includes('dQw4w9WgXcQ') 
-    ? videoUrl 
-    : youtubeMatch.videoUrl;
+  // Validasi apakah videoUrl yang dioper benar-benar dapat di-embed
+  const hasValidProvidedVideo = useMemo(() => {
+    if (!videoUrl || typeof videoUrl !== 'string') return false;
+    const clean = videoUrl.trim();
+    if (clean.includes('dQw4w9WgXcQ')) return false; // Rickroll placeholder
+    if (clean.includes('results?search_query') || clean.includes('search_query=')) return false;
+    return Boolean(getYouTubeEmbedUrl(clean)) || isDirectVideoUrl(clean);
+  }, [videoUrl]);
 
-  const [activeTab, setActiveTab] = useState<'video' | 'image'>(
-    effectiveVideoUrl ? 'video' : 'image'
-  );
+  const effectiveVideoUrl = hasValidProvidedVideo ? (videoUrl as string).trim() : youtubeMatch.videoUrl;
 
   const youtubeEmbed = effectiveVideoUrl ? getYouTubeEmbedUrl(effectiveVideoUrl) : null;
   const isDirectVideo = effectiveVideoUrl ? isDirectVideoUrl(effectiveVideoUrl) : false;
   const hasVideo = Boolean(effectiveVideoUrl && (youtubeEmbed || isDirectVideo));
   const hasImage = Boolean(imageUrl);
+
+  // Default active tab: jika mediaType bukan 'image' murni dan video tersedia, otomatis aktifkan tab video
+  const [activeTab, setActiveTab] = useState<'video' | 'image' | 'both'>(() => {
+    if (mediaType === 'image') return 'image';
+    if (hasVideo) return 'video';
+    return 'image';
+  });
+
+  // Sinkronisasi otomatis tab saat props berubah, pastikan video otomatis muncul
+  useEffect(() => {
+    if (mediaType === 'image') {
+      setActiveTab('image');
+    } else if (hasVideo) {
+      setActiveTab('video');
+    } else {
+      setActiveTab('image');
+    }
+  }, [mediaType, hasVideo, effectiveVideoUrl]);
+
+  // Jika videoUrl awal kosong atau tidak valid, sinkronkan video rekomendasi resmi ke parent
+  useEffect(() => {
+    if (!hasValidProvidedVideo && youtubeMatch.videoUrl && onVideoUrlChange) {
+      onVideoUrlChange(youtubeMatch.videoUrl);
+    }
+  }, [hasValidProvidedVideo, youtubeMatch.videoUrl, onVideoUrlChange]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -67,32 +95,45 @@ export default function MediaViewer({
     <div className={`space-y-4 ${className}`}>
       {/* Tab Switcher if both media exist or if in editing mode */}
       {(hasVideo && hasImage) || isEditing ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-100/80 p-1.5 rounded-2xl border border-gray-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-100/90 p-1.5 rounded-2xl border border-gray-200">
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setActiveTab('video')}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 activeTab === 'video'
-                  ? 'bg-red-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm ring-1 ring-red-400'
+                  : 'text-gray-700 hover:bg-gray-200'
               }`}
             >
               <Film className="w-3.5 h-3.5" /> Video Pembelajaran
-              {hasVideo && <span className="w-2 h-2 rounded-full bg-red-300 animate-pulse" />}
+              {hasVideo && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Video siap diputar" />}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('image')}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 activeTab === 'image'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                  : 'text-gray-700 hover:bg-gray-200'
               }`}
             >
               <Image className="w-3.5 h-3.5" /> Gambar Ilustrasi
               {hasImage && <span className="w-2 h-2 rounded-full bg-indigo-300" />}
             </button>
+            {hasVideo && hasImage && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('both')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'both'
+                    ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-600'
+                    : 'text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" /> Video + Gambar
+              </button>
+            )}
           </div>
 
           {isEditing && onMediaTypeChange && (
@@ -196,7 +237,7 @@ export default function MediaViewer({
       )}
 
       {/* Main Display: Video View */}
-      {activeTab === 'video' && hasVideo ? (
+      {(activeTab === 'video' || activeTab === 'both') && hasVideo ? (
         <div className="space-y-2">
           <div className="relative rounded-2xl overflow-hidden border border-gray-300 bg-black shadow-md aspect-video max-h-[440px] w-full">
             {youtubeEmbed ? (
@@ -271,7 +312,7 @@ export default function MediaViewer({
       ) : null}
 
       {/* Main Display: Image View */}
-      {(activeTab === 'image' || (!hasVideo && hasImage)) && (
+      {(activeTab === 'image' || activeTab === 'both' || (!hasVideo && hasImage)) && (
         <div className="relative rounded-2xl overflow-hidden border border-gray-200 bg-gray-900 group max-h-80 w-full shadow-sm">
           <img
             src={imageUrl || "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=1200&q=80"}

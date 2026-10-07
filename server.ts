@@ -343,6 +343,7 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
         parsedData.videoUrl = resolved.videoUrl;
         if (!parsedData.videoTitle) parsedData.videoTitle = resolved.videoTitle;
         if (!parsedData.videoChannel) parsedData.videoChannel = resolved.videoChannel;
+        if (!parsedData.mediaType) parsedData.mediaType = 'both';
       }
       res.json(parsedData);
     } catch (error: any) {

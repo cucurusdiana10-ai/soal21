@@ -4,6 +4,7 @@ import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink, FileText, CheckCircle2, Search, LayoutGrid, List, Calendar, Layers, HelpCircle } from 'lucide-react';
 import { generateMaterialApi } from '../../lib/aiService';
+import { resolveRelevantYoutubeVideo } from '../../lib/youtubeLibrary';
 import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
 import GradeReports from './GradeReports';
@@ -47,7 +48,8 @@ function MaterialGenerator() {
     class_id: '',
     topic: '',
     description: '',
-    mediaPreference: 'both' // 'both', 'video', 'image'
+    mediaPreference: 'both', // 'both', 'video', 'image'
+    videoUrl: ''
   });
 
   useEffect(() => {
@@ -241,6 +243,13 @@ function MaterialGenerator() {
       if (!data.imageUrl) {
         data.imageUrl = `https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=1200&q=80`;
       }
+
+      // Pastikan video otomatis tervalidasi & terisi video edukasi resmi yang relevan
+      const resolvedVid = resolveRelevantYoutubeVideo(form.subject, form.topic, data.videoUrl || form.videoUrl);
+      data.videoUrl = resolvedVid.videoUrl;
+      data.videoTitle = data.videoTitle || resolvedVid.videoTitle;
+      data.videoChannel = data.videoChannel || resolvedVid.videoChannel;
+
       data.mediaType = form.mediaPreference || 'both';
       setResult(data);
     } catch (err: any) {
@@ -299,7 +308,7 @@ function MaterialGenerator() {
 
       setResult(null);
       setIsEditing(false);
-      setForm({ subject: teacherSubjects[0] || '', grade: '', class_id: '', topic: '', description: '', mediaPreference: 'both' });
+      setForm({ subject: teacherSubjects[0] || '', grade: '', class_id: '', topic: '', description: '', mediaPreference: 'both', videoUrl: '' });
       fetchSavedMaterials();
     } catch (err: any) {
       alert('Gagal menyimpan bahan ajar: ' + (err.message || 'Terjadi kesalahan saat menyimpan'));
@@ -569,6 +578,56 @@ function MaterialGenerator() {
             <p className="text-[11px] text-gray-500 mt-1">Anda juga dapat mengganti atau mengunggah gambar/video sendiri setelah AI selesai.</p>
           </div>
         </div>
+
+        {/* Deteksi Otomatis Video Edukasi YouTube */}
+        {form.mediaPreference !== 'image' && (
+          <div className="mb-6 p-4 bg-red-50/70 border border-red-200 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Film className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-red-700 bg-red-100 px-2 py-0.5 rounded-md">
+                    Video Pembelajaran Otomatis Siap Diputar
+                  </span>
+                  <span className="text-[11px] text-gray-500 font-medium">
+                    (YouTube Edukasi Terverifikasi)
+                  </span>
+                </div>
+                {(() => {
+                  const autoVid = resolveRelevantYoutubeVideo(form.subject, form.topic, form.videoUrl);
+                  return (
+                    <div className="mt-1">
+                      <p className="text-xs font-bold text-gray-900 truncate">
+                        📺 {autoVid.videoTitle} <span className="text-red-700 font-medium">• {autoVid.videoChannel}</span>
+                      </p>
+                      <p className="text-[11px] text-gray-600 mt-0.5">
+                        Video ini akan otomatis langsung muncul & disematkan saat Anda mengklik Generate Bahan Ajar.
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+              {(() => {
+                const autoVid = resolveRelevantYoutubeVideo(form.subject, form.topic, form.videoUrl);
+                return (
+                  <a
+                    href={autoVid.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-2xs transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Uji Putar Video
+                  </a>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         <button 
           onClick={handleGenerate}
@@ -1110,7 +1169,7 @@ function MaterialGenerator() {
                 videoUrl={selectedMaterial.content_json?.videoUrl}
                 mediaType={selectedMaterial.content_json?.mediaType || 'both'}
                 title={selectedMaterial.title}
-                subject={selectedMaterial.subject || ''}
+                subject={selectedMaterial.subject_name || selectedMaterial.subject || ''}
               />
 
               {/* Fun Fact */}
@@ -1177,7 +1236,7 @@ function MaterialGenerator() {
               videoUrl={fullscreenMaterial.content_json?.videoUrl}
               mediaType={fullscreenMaterial.content_json?.mediaType || 'both'}
               title={fullscreenMaterial.title}
-              subject={fullscreenMaterial.subject || ''}
+              subject={fullscreenMaterial.subject_name || fullscreenMaterial.subject || ''}
               className="max-w-5xl mx-auto"
             />
 

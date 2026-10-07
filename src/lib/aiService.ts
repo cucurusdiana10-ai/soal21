@@ -145,7 +145,7 @@ Buat bahan ajar dengan gamifikasi seru (Misi Siswa, Poin XP, Tantangan Aktif, Ku
 Kembalikan respon DALAM FORMAT JSON MURNI valid persis berikut:
 {
   "imageUrl": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
-  "videoUrl": "URL video YouTube edukasi yang relevan (misalnya dari Kok Bisa, Zenius, Ruangguru, Kemendikbud, atau format pencarian https://www.youtube.com/results?search_query=...)",
+  "videoUrl": "https://www.youtube.com/watch?v=...",
   "mediaType": "both",
   "mindMap": [
     "Konsep Inti 1",
@@ -757,6 +757,7 @@ export async function generateMaterialApi(payload: GenerateMaterialPayload) {
     result.videoUrl = resolved.videoUrl;
     if (!result.videoTitle) result.videoTitle = resolved.videoTitle;
     if (!result.videoChannel) result.videoChannel = resolved.videoChannel;
+    if (!result.mediaType) result.mediaType = 'both';
   }
   return result;
 }

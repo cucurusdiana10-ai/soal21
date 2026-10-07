@@ -228,6 +228,7 @@ export default function SiswaMateri() {
                 videoUrl={selectedMaterial.content_json?.videoUrl}
                 mediaType={selectedMaterial.content_json?.mediaType || 'both'}
                 title={selectedMaterial.title}
+                subject={selectedMaterial.subject_name || ''}
               />
 
               {/* Interactive Gamification & Peta Konsep Arena */}
