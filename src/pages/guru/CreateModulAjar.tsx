@@ -192,6 +192,26 @@ const CONTOH_CP = [
   }
 ];
 
+// Helper to strip heavy duplicated base64 images from content_json before saving to DB
+// (UI and DOCX generator automatically fall back to global schoolSettings, saving ~110KB per row)
+function sanitizeModulContentForStorage(content: any): any {
+  if (!content || typeof content !== 'object') return content;
+  try {
+    const clone = JSON.parse(JSON.stringify(content));
+    if (clone.identitas) {
+      if (typeof clone.identitas.ttdKepsek === 'string' && clone.identitas.ttdKepsek.length > 500) {
+        delete clone.identitas.ttdKepsek;
+      }
+      if (typeof clone.identitas.capSekolah === 'string' && clone.identitas.capSekolah.length > 500) {
+        delete clone.identitas.capSekolah;
+      }
+    }
+    return clone;
+  } catch {
+    return content;
+  }
+}
+
 export default function CreateModulAjar() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'create' | 'saved'>('create');
@@ -420,10 +440,10 @@ export default function CreateModulAjar() {
                 pertemuan_count: Number(formData.pertemuanCount) || 2,
                 alokasi_waktu: formData.alokasiWaktu || '2 x 45 Menit',
                 title: distinctTitle,
-                content_json: data
+                content_json: sanitizeModulContentForStorage(data)
               }
             ])
-            .select()
+            .select('id')
             .single();
 
           if (!saveErr && savedRecord) {
@@ -465,7 +485,7 @@ export default function CreateModulAjar() {
             await supabase
               .from('modul_ajar')
               .update({
-                content_json: result,
+                content_json: sanitizeModulContentForStorage(result),
                 title: editDistinctTitle,
                 updated_at: new Date().toISOString()
               })
@@ -483,10 +503,10 @@ export default function CreateModulAjar() {
                   pertemuan_count: Number(result.pertemuan?.length || formData.pertemuanCount) || 2,
                   alokasi_waktu: result.identitas?.alokasiWaktu || formData.alokasiWaktu || '2 x 45 Menit',
                   title: editDistinctTitle,
-                  content_json: result
+                  content_json: sanitizeModulContentForStorage(result)
                 }
               ])
-              .select()
+              .select('id')
               .single();
             if (savedRecord) setCurrentSavedId(savedRecord.id);
           }

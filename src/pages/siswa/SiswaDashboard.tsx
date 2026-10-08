@@ -260,7 +260,8 @@ function SiswaTugas() {
       });
 
       const nextCount = violationCountRef.current + 1;
-      const nextLogs = [{ time: timeStr, reason }, ...violationLogsRef.current];
+      // Cap violation logs array to 30 most recent entries to avoid database bloating
+      const nextLogs = [{ time: timeStr, reason }, ...violationLogsRef.current].slice(0, 30);
 
       setViolationCount(nextCount);
       setViolationLogs(nextLogs);
