@@ -19,16 +19,24 @@ let schemaSyncTriggered = false;
 /**
  * Automatically ensures any new table columns exist in Supabase
  * via both the Postgres SECURITY DEFINER RPC and the backend migration endpoint.
+ * Caches in sessionStorage so it only executes once per user session.
  */
 export async function ensureSupabaseSchemaSynced(): Promise<boolean> {
   if (!supabase) return false;
   if (schemaSyncTriggered) return true;
+  
+  if (typeof window !== 'undefined' && sessionStorage.getItem('sman21_schema_synced') === '1') {
+    schemaSyncTriggered = true;
+    return true;
+  }
+  
   schemaSyncTriggered = true;
 
   try {
     // 1. Trigger Postgres RPC ensure_schema_columns() directly in Supabase
     const { error: rpcError } = await supabase.rpc('ensure_schema_columns');
     if (!rpcError) {
+      if (typeof window !== 'undefined') sessionStorage.setItem('sman21_schema_synced', '1');
       return true;
     }
   } catch {
@@ -38,7 +46,10 @@ export async function ensureSupabaseSchemaSynced(): Promise<boolean> {
   try {
     // 2. Fallback to backend schema migration endpoint
     const res = await fetch('/api/sync-schema', { method: 'POST' });
-    if (res.ok) return true;
+    if (res.ok) {
+      if (typeof window !== 'undefined') sessionStorage.setItem('sman21_schema_synced', '1');
+      return true;
+    }
   } catch {
     // Ignore network error in static environments
   }

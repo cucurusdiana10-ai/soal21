@@ -169,7 +169,7 @@ export async function syncExamProgressToSupabase(params: {
     // Check existing submission row
     const { data: existing } = await supabase
       .from('task_submissions')
-      .select('*')
+      .select('id, status, violation_count, violation_logs, started_at, answers')
       .eq('task_id', taskId)
       .eq('student_id', studentId)
       .maybeSingle();
@@ -209,7 +209,7 @@ export async function syncExamProgressToSupabase(params: {
       const { data, error } = await supabase
         .from('task_submissions')
         .insert([fullPayload])
-        .select('*')
+        .select('id, status, last_active_at')
         .maybeSingle();
 
       if (!error) return { data, error: null };
@@ -226,7 +226,7 @@ export async function syncExamProgressToSupabase(params: {
       const { data: fbData, error: fbErr } = await supabase
         .from('task_submissions')
         .insert([fallbackPayload])
-        .select('*')
+        .select('id, status')
         .maybeSingle();
       return { data: fbData, error: fbErr };
     } else {
@@ -234,7 +234,7 @@ export async function syncExamProgressToSupabase(params: {
         .from('task_submissions')
         .update(fullPayload)
         .eq('id', existing.id)
-        .select('*')
+        .select('id, status, last_active_at')
         .maybeSingle();
 
       if (!error) return { data, error: null };
@@ -248,7 +248,7 @@ export async function syncExamProgressToSupabase(params: {
         .from('task_submissions')
         .update(fallbackPayload)
         .eq('id', existing.id)
-        .select('*')
+        .select('id, status')
         .maybeSingle();
       return { data: fbData, error: fbErr };
     }
@@ -369,7 +369,7 @@ export async function finishStudentExamByGuru(params: {
       .from('task_submissions')
       .update(updatePayload)
       .eq('id', sub.id)
-      .select('*')
+      .select('id, status, score, updated_at')
       .maybeSingle();
 
     if (!error) return { data, error: null };
@@ -384,7 +384,7 @@ export async function finishStudentExamByGuru(params: {
         feedback: result.feedback
       })
       .eq('id', sub.id)
-      .select('*')
+      .select('id, status, score')
       .maybeSingle();
     return { data: fbData, error: fbErr };
   } else {
@@ -398,7 +398,7 @@ export async function finishStudentExamByGuru(params: {
     const { data, error } = await supabase
       .from('task_submissions')
       .insert([insertPayload])
-      .select('*')
+      .select('id, status, score')
       .maybeSingle();
 
     if (!error) return { data, error: null };
@@ -413,7 +413,7 @@ export async function finishStudentExamByGuru(params: {
         status: result.finalStatus,
         feedback: result.feedback
       }])
-      .select('*')
+      .select('id, status, score')
       .maybeSingle();
     return { data: fbData, error: fbErr };
   }
@@ -491,7 +491,7 @@ export async function resetStudentLoginByGuru(params: {
       .from('task_submissions')
       .update(updatePayload)
       .eq('id', sub.id)
-      .select('*')
+      .select('id, status, is_locked, violation_count, updated_at')
       .maybeSingle();
 
     if (!error) {
@@ -507,7 +507,7 @@ export async function resetStudentLoginByGuru(params: {
         feedback: feedbackMsg
       })
       .eq('id', sub.id)
-      .select('*')
+      .select('id, status')
       .maybeSingle();
 
     return { data: fbData, answeredCount, error: fbErr };
@@ -532,7 +532,7 @@ export async function resetStudentLoginByGuru(params: {
     const { data, error } = await supabase
       .from('task_submissions')
       .insert([insertPayload])
-      .select('*')
+      .select('id, status, is_locked')
       .maybeSingle();
 
     if (!error) {
@@ -549,7 +549,7 @@ export async function resetStudentLoginByGuru(params: {
         status: 'in_progress',
         feedback: 'Sesi login ujian telah direset oleh Guru.'
       }])
-      .select('*')
+      .select('id, status')
       .maybeSingle();
 
     return { data: fbData, answeredCount: 0, error: fbErr };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase, ensureSupabaseSchemaSynced } from '../../lib/supabase';
@@ -60,6 +60,10 @@ export default function ExamMonitoring() {
   const [detailModalItem, setDetailModalItem] = useState<any | null>(null);
   const [syncingSchema, setSyncingSchema] = useState<boolean>(false);
 
+  // In-memory cache & debounce to prevent heavy Supabase egress & log flooding
+  const classStudentsCacheRef = useRef<{ classId: string; students: any[] } | null>(null);
+  const realtimeDebounceTimerRef = useRef<number | null>(null);
+
   // 1s ticker for token countdown & relative timestamps
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -104,21 +108,35 @@ export default function ExamMonitoring() {
   }, [fetchTasks]);
 
   const fetchMonitoringData = useCallback(
-    async (taskToLoad: any, silent: boolean = false) => {
+    async (taskToLoad: any, silent: boolean = false, forceRefreshClass: boolean = false) => {
       if (!taskToLoad || !supabase) return;
       if (!silent) setLoadingRows(true);
 
       try {
-        // 1. Fetch all students in the task's class
-        const { data: classStudents } = await supabase
-          .from('class_students')
-          .select('student:users!student_id(id, name, username, status, active_session_token, last_login_at, is_exam_locked, exam_locked_reason)')
-          .eq('class_id', taskToLoad.class_id);
+        // 1. Fetch students in the task's class with in-memory caching to save Supabase egress/queries
+        let studentsList: any[] = [];
+        if (!forceRefreshClass && classStudentsCacheRef.current && classStudentsCacheRef.current.classId === taskToLoad.class_id) {
+          studentsList = classStudentsCacheRef.current.students;
+        } else {
+          const { data: classStudents } = await supabase
+            .from('class_students')
+            .select('student:users!student_id(id, name, username, status, active_session_token, last_login_at, is_exam_locked, exam_locked_reason)')
+            .eq('class_id', taskToLoad.class_id);
 
-        // 2. Fetch all submissions (including in_progress) for this task
+          studentsList = (classStudents || [])
+            .map((cs: any) => cs.student)
+            .filter(Boolean);
+
+          classStudentsCacheRef.current = {
+            classId: taskToLoad.class_id,
+            students: studentsList
+          };
+        }
+
+        // 2. Fetch submissions for this task with explicit columns (not select *) to reduce egress
         const { data: subs } = await supabase
           .from('task_submissions')
-          .select('*')
+          .select('id, task_id, student_id, status, answers, score, violation_count, violation_logs, is_locked, session_token, started_at, last_active_at, updated_at, created_at, feedback')
           .eq('task_id', taskToLoad.id);
 
         const subMap: Record<string, any> = {};
@@ -127,10 +145,6 @@ export default function ExamMonitoring() {
             subMap[s.student_id] = s;
           });
         }
-
-        const studentsList = (classStudents || [])
-          .map((cs: any) => cs.student)
-          .filter(Boolean);
 
         const combined = studentsList.map((st: any) => ({
           student: st,
@@ -156,11 +170,11 @@ export default function ExamMonitoring() {
   // Load monitoring data when selectedTask changes
   useEffect(() => {
     if (selectedTask) {
-      fetchMonitoringData(selectedTask, false);
+      fetchMonitoringData(selectedTask, false, true);
     }
   }, [selectedTask, fetchMonitoringData]);
 
-  // Auto-refresh every 5 seconds + Supabase Realtime channel subscription
+  // Auto-refresh (20s backup interval) + debounced Supabase Realtime channel subscription
   useEffect(() => {
     if (!selectedTask || !supabase) return;
 
@@ -168,7 +182,7 @@ export default function ExamMonitoring() {
     if (autoRefresh) {
       intervalId = window.setInterval(() => {
         fetchMonitoringData(selectedTask, true);
-      }, 5000);
+      }, 20000);
     }
 
     const channel = supabase
@@ -182,13 +196,20 @@ export default function ExamMonitoring() {
           filter: `task_id=eq.${selectedTask.id}`
         },
         () => {
-          fetchMonitoringData(selectedTask, true);
+          // Debounce realtime event triggers to prevent bursting queries when many students submit simultaneously
+          if (realtimeDebounceTimerRef.current) {
+            clearTimeout(realtimeDebounceTimerRef.current);
+          }
+          realtimeDebounceTimerRef.current = window.setTimeout(() => {
+            fetchMonitoringData(selectedTask, true);
+          }, 2500);
         }
       )
       .subscribe();
 
     return () => {
       if (intervalId) clearInterval(intervalId);
+      if (realtimeDebounceTimerRef.current) clearTimeout(realtimeDebounceTimerRef.current);
       supabase.removeChannel(channel);
     };
   }, [selectedTask, autoRefresh, fetchMonitoringData]);

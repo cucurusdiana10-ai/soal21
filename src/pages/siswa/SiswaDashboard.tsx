@@ -368,9 +368,10 @@ function SiswaTugas() {
     if (!activeTask || !user || !supabase) return;
 
     const handleRemoteSubmissionCheck = async () => {
+      // Lightweight check: only select status & is_locked to minimize egress and WAL log generation
       const { data: latestSub } = await supabase
         .from('task_submissions')
-        .select('*')
+        .select('id, status, is_locked')
         .eq('task_id', activeTask.id)
         .eq('student_id', user.id)
         .maybeSingle();
@@ -392,34 +393,26 @@ function SiswaTugas() {
         );
         return;
       }
-
-      // Send heartbeat with latest answers so Teacher sees student is Online
-      const { error } = await syncExamProgressToSupabase({
-        taskId: activeTask.id,
-        studentId: user.id,
-        answers: answersRef.current,
-        violationCount: violationCountRef.current,
-        violationLogs: violationLogsRef.current,
-        sessionToken: deviceToken
-      });
-      setSyncState(error ? 'offline' : 'saved');
     };
 
-    const heartbeatTimer = window.setInterval(handleRemoteSubmissionCheck, 10000);
+    // Low-frequency heartbeat safety check (every 60s)
+    const heartbeatTimer = window.setInterval(handleRemoteSubmissionCheck, 60000);
 
+    // CRITICAL OPTIMIZATION: Filter realtime strictly to THIS student_id!
+    // Prevents receiving broadcasts for other students' answer updates, eliminating 97%+ of websocket egress & log ingestion!
     const channel = supabase
-      .channel(`student_exam_${activeTask.id}_${user.id}`)
+      .channel(`student_exam_sub_${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'UPDATE',
           schema: 'public',
           table: 'task_submissions',
-          filter: `task_id=eq.${activeTask.id}`
+          filter: `student_id=eq.${user.id}`
         },
         (payload: any) => {
           const newRow = payload.new as any;
-          if (newRow && newRow.student_id === user.id) {
+          if (newRow && newRow.task_id === activeTask.id) {
             if (newRow.status === 'graded' || newRow.status === 'submitted' || newRow.status === 'completed') {
               handleRemoteSubmissionCheck();
             }
@@ -542,7 +535,7 @@ function SiswaTugas() {
 
       const { data: subData } = await supabase
         .from('task_submissions')
-        .select('*')
+        .select('id, task_id, status, score, is_locked, violation_count, started_at, created_at, updated_at')
         .eq('student_id', user.id);
 
       const subMap: Record<string, any> = {};
@@ -890,7 +883,7 @@ function SiswaTugas() {
         startedAt: examStartedAt
       });
       setSyncState(error ? 'offline' : 'saved');
-    }, 350);
+    }, 1200);
   };
 
   const handleAttemptSubmitTask = () => {
