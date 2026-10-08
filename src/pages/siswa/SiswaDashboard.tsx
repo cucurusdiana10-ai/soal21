@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Component, ErrorInfo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
@@ -21,7 +21,15 @@ import {
   Cloud,
   WifiOff,
   RefreshCw,
-  PlayCircle
+  PlayCircle,
+  Grid,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  ListChecks,
+  Hourglass,
+  Layers,
+  AlertCircle
 } from 'lucide-react';
 import SiswaMateri from './SiswaMateri';
 import SiswaNilai from './SiswaNilai';
@@ -37,6 +45,57 @@ import {
   syncExamProgressToSupabase,
   calculateExamResult
 } from '../../lib/examMonitoring';
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+  onReset?: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+class ExamErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('ExamErrorBoundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 text-white select-none backdrop-blur-md">
+          <div className="bg-white text-gray-900 rounded-2xl max-w-md w-full p-6 text-center space-y-4 shadow-2xl border border-gray-200">
+            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900">Tampilan Dioptimalkan Kembali</h3>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Perangkat Anda sempat mengalami kendala rendering layout. Tenang, seluruh jawaban yang sudah Anda pilih <strong>tersimpan aman</strong> di sistem.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false });
+                if (this.props.onReset) this.props.onReset();
+              }}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm transition shadow-md"
+            >
+              Muat Ulang Tampilan Pengerjaan
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function SiswaTugas() {
   const { user, logout } = useAuth();
@@ -57,6 +116,15 @@ function SiswaTugas() {
 
   // Active exam & Anti-cheat state
   const [activeTask, setActiveTask] = useState<any | null>(null);
+  const [examStartedAt, setExamStartedAt] = useState<string>('');
+  const [currentQuestionIdx, setCurrentQuestionIdx] = useState<number>(0);
+  const [viewMode, setViewMode] = useState<'focus' | 'all'>('focus'); // 'focus' (Mode Fokus Per Soal - sangat ringan di HP) | 'all' (Tampilkan Semua)
+  const [showNumberGridModal, setShowNumberGridModal] = useState<boolean>(false);
+  const [unansweredModalOpen, setUnansweredModalOpen] = useState<boolean>(false);
+  const [unansweredList, setUnansweredList] = useState<number[]>([]);
+  const [minDurationModalOpen, setMinDurationModalOpen] = useState<boolean>(false);
+  const [confirmSubmitModalOpen, setConfirmSubmitModalOpen] = useState<boolean>(false);
+
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [violationCount, setViolationCount] = useState<number>(0);
@@ -77,7 +145,43 @@ function SiswaTugas() {
   const violationCountRef = useRef<number>(0);
   const violationLogsRef = useRef<ViolationLogItem[]>([]);
   const saveTimeoutRef = useRef<number | null>(null);
+  const isInternalActionRef = useRef<boolean>(false);
+  const lastInternalActionTimeRef = useRef<number>(0);
   const deviceToken = getOrCreateDeviceSessionToken();
+
+  const markInternalAction = () => {
+    isInternalActionRef.current = true;
+    lastInternalActionTimeRef.current = Date.now();
+  };
+
+  const safeToggleFullscreen = () => {
+    markInternalAction();
+    try {
+      const doc = document as any;
+      const el = document.documentElement as any;
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        if (doc.exitFullscreen) doc.exitFullscreen().catch(() => {});
+        else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen().catch(() => {});
+      } else {
+        if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen().catch(() => {});
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const safeExitFullscreen = () => {
+    try {
+      const doc = document as any;
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        if (doc.exitFullscreen) doc.exitFullscreen().catch(() => {});
+        else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen().catch(() => {});
+      }
+    } catch {
+      // Ignore
+    }
+  };
 
   useEffect(() => {
     answersRef.current = answers;
@@ -339,47 +443,49 @@ function SiswaTugas() {
       return;
     }
 
-    const initialScreenWidth = window.screen?.availWidth || window.innerWidth;
-    const initialInnerWidth = window.innerWidth;
+    const isInternalActionActive = () => {
+      return (
+        isInternalActionRef.current ||
+        showNumberGridModal ||
+        unansweredModalOpen ||
+        minDurationModalOpen ||
+        confirmSubmitModalOpen ||
+        testingAlarm ||
+        alarmActive ||
+        Boolean(copyWarning) ||
+        Date.now() - lastInternalActionTimeRef.current < 2500
+      );
+    };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
+        if (isInternalActionActive()) return;
         triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka tab baru atau berpindah aplikasi');
       }
     };
 
     const handleWindowBlur = () => {
-      triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka floating aplikasi atau keluar dari jendela ujian');
+      if (isInternalActionActive()) return;
+      // On mobile / touch devices, virtual keyboard opening, scrolling, or tapping buttons causes window blur.
+      // Therefore, on touch devices we rely on document.hidden to avoid false alarms!
+      const isTouchDevice = 'ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+      if (isTouchDevice) {
+        return;
+      }
+      setTimeout(() => {
+        if (!document.hasFocus() && !isInternalActionActive()) {
+          triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi keluar dari jendela ujian');
+        }
+      }, 700);
     };
 
+    // User requirement: "untuk fullscreen tidak termasuk pelanggaran"
+    // Fullscreen is optional; exiting or changing fullscreen does NOT trigger any violation.
     const handleFullscreenChange = () => {
       if (document.fullscreenElement) {
         hadFullscreenRef.current = true;
-      } else if (hadFullscreenRef.current) {
-        triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi keluar dari mode layar penuh (Fullscreen)');
       }
     };
-
-    const handleResizeOrViewport = () => {
-      const activeTag = document.activeElement?.tagName?.toLowerCase();
-      const isTyping = activeTag === 'input' || activeTag === 'textarea';
-      if (
-        window.innerWidth < initialInnerWidth * 0.82 ||
-        (initialScreenWidth > 0 && window.innerWidth < initialScreenWidth * 0.72)
-      ) {
-        if (!isTyping) {
-          triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi menggunakan fitur Split-Screen / Floating Aplikasi pada HP');
-        }
-      }
-    };
-
-    const focusPollTimer = window.setInterval(() => {
-      if (document.hidden) {
-        triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka tab baru atau aplikasi lain');
-      } else if (!document.hasFocus()) {
-        triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi menggunakan fitur Floating Aplikasi pada handphone / layar');
-      }
-    }, 600);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -396,20 +502,25 @@ function SiswaTugas() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    window.addEventListener('resize', handleResizeOrViewport);
-    window.visualViewport?.addEventListener('resize', handleResizeOrViewport);
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      clearInterval(focusPollTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      window.removeEventListener('resize', handleResizeOrViewport);
-      window.visualViewport?.removeEventListener('resize', handleResizeOrViewport);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeTask, triggerViolation]);
+  }, [
+    activeTask,
+    triggerViolation,
+    showNumberGridModal,
+    unansweredModalOpen,
+    minDurationModalOpen,
+    confirmSubmitModalOpen,
+    testingAlarm,
+    alarmActive,
+    copyWarning
+  ]);
 
   async function fetchStudentTasks() {
     if (!user || !supabase) return;
@@ -548,6 +659,15 @@ function SiswaTugas() {
           ? latestSub.violation_logs
           : localBackup?.violationLogs || [];
 
+      const initialStartedAt = latestSub?.started_at || localBackup?.startedAt || new Date().toISOString();
+      setExamStartedAt(initialStartedAt);
+      setCurrentQuestionIdx(0);
+      setViewMode('focus');
+      setShowNumberGridModal(false);
+      setUnansweredModalOpen(false);
+      setMinDurationModalOpen(false);
+      setConfirmSubmitModalOpen(false);
+
       // Sync active session and merged answers immediately to Supabase
       const { data: syncedRow, error: syncErr } = await syncExamProgressToSupabase({
         taskId: taskToStart.id,
@@ -556,7 +676,8 @@ function SiswaTugas() {
         violationCount: restoredViolations,
         violationLogs: restoredLogs,
         sessionToken: deviceToken,
-        isLocked: false
+        isLocked: false,
+        startedAt: initialStartedAt
       });
 
       setSyncState(syncErr ? 'offline' : 'saved');
@@ -575,10 +696,11 @@ function SiswaTugas() {
         }
       }
 
+      // Optional fullscreen, safe on all devices without throwing
       try {
-        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-          await document.documentElement.requestFullscreen();
-          hadFullscreenRef.current = true;
+        const el = document.documentElement as any;
+        if (el.requestFullscreen && !document.fullscreenElement) {
+          el.requestFullscreen().catch(() => {});
         }
       } catch {
         // Ignore fullscreen restriction
@@ -686,6 +808,62 @@ function SiswaTugas() {
     fetchStudentTasks();
   };
 
+  const parsedQuestions = useMemo(() => {
+    if (!activeTask) return [];
+    let raw = activeTask.content;
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        raw = [];
+      }
+    }
+    if (!Array.isArray(raw)) return [];
+    return raw.map((q: any, i: number) => {
+      let rawOpts = q?.options;
+      if (typeof rawOpts === 'string') {
+        try {
+          rawOpts = JSON.parse(rawOpts);
+        } catch {
+          rawOpts = [];
+        }
+      }
+      if (!Array.isArray(rawOpts)) rawOpts = [];
+      return {
+        idx: i,
+        type: q?.type === 'essay' ? 'essay' : 'pg',
+        question: q?.question || `Soal #${i + 1}`,
+        options: rawOpts,
+        answer: q?.answer || '',
+        answerKey: q?.answerKey || q?.answer || '',
+        explanation: q?.explanation || ''
+      };
+    });
+  }, [activeTask]);
+
+  const maxDurationMinutes = Number(activeTask?.max_duration || activeTask?.duration || 60);
+  const minDurationMinutes = Number(activeTask?.min_duration || 0);
+  const startedAtMs = examStartedAt ? new Date(examStartedAt).getTime() : nowMs;
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+  const totalMaxSeconds = maxDurationMinutes * 60;
+  const remainingSeconds = Math.max(0, totalMaxSeconds - elapsedSeconds);
+  const minRequiredSeconds = minDurationMinutes * 60;
+  const isMinDurationReached = elapsedSeconds >= minRequiredSeconds;
+  const minRemainingSeconds = Math.max(0, minRequiredSeconds - elapsedSeconds);
+
+  // Formatted countdown timer (durasi mundur)
+  const remHours = Math.floor(remainingSeconds / 3600);
+  const remMinutes = Math.floor((remainingSeconds % 3600) / 60);
+  const remSecs = remainingSeconds % 60;
+  const formattedCountdown = remHours > 0
+    ? `${String(remHours).padStart(2, '0')}:${String(remMinutes).padStart(2, '0')}:${String(remSecs).padStart(2, '0')}`
+    : `${String(remMinutes).padStart(2, '0')}:${String(remSecs).padStart(2, '0')}`;
+
+  const elapsedMin = Math.floor(elapsedSeconds / 60);
+  const elapsedSec = elapsedSeconds % 60;
+  const minRemMin = Math.floor(minRemainingSeconds / 60);
+  const minRemSec = minRemainingSeconds % 60;
+
   const handleAnswerChange = (questionIndex: number, value: string) => {
     const nextAnswers = { ...answers, [questionIndex]: value };
     setAnswers(nextAnswers);
@@ -693,7 +871,7 @@ function SiswaTugas() {
     if (!activeTask || !user) return;
 
     // 1. Save immediately to localStorage (instant offline protection)
-    saveLocalExamProgress(user.id, activeTask.id, nextAnswers, violationCount, violationLogs);
+    saveLocalExamProgress(user.id, activeTask.id, nextAnswers, violationCount, violationLogs, examStartedAt);
 
     // 2. Debounced auto-save to Supabase task_submissions (status = 'in_progress')
     setSyncState('saving');
@@ -708,33 +886,50 @@ function SiswaTugas() {
         answers: nextAnswers,
         violationCount: violationCountRef.current,
         violationLogs: violationLogsRef.current,
-        sessionToken: deviceToken
+        sessionToken: deviceToken,
+        startedAt: examStartedAt
       });
       setSyncState(error ? 'offline' : 'saved');
     }, 350);
   };
 
-  const handleSubmitTask = async () => {
-    if (!activeTask || !user || !supabase) return;
+  const handleAttemptSubmitTask = () => {
+    markInternalAction();
+    if (!activeTask) return;
 
-    const questions = Array.isArray(activeTask.content) ? activeTask.content : [];
-    const answeredCount = countAnsweredQuestions(answers);
+    // 1. Validasi: jika ada soal yang belum dikerjakan tidak bisa diselesaikan dan beri notifikasi ada soal yang belum terjawab
+    const unanswered = parsedQuestions
+      .filter(q => answers[q.idx] === undefined || answers[q.idx] === null || String(answers[q.idx]).trim() === '')
+      .map(q => q.idx + 1);
 
-    if (questions.length > 0 && answeredCount < questions.length) {
-      if (!confirm(`Masih ada ${questions.length - answeredCount} soal yang belum dijawab. Yakin ingin mengumpulkan tugas sekarang?`)) {
-        return;
-      }
+    if (unanswered.length > 0) {
+      setUnansweredList(unanswered);
+      setUnansweredModalOpen(true);
+      return; // Tidak bisa diselesaikan!
     }
 
+    // 2. Validasi: minimal durasi pengerjaan sebelum terbitkan/kumpulkan soal
+    if (minDurationMinutes > 0 && !isMinDurationReached) {
+      setMinDurationModalOpen(true);
+      return; // Tidak bisa diselesaikan!
+    }
+
+    // 3. Konfirmasi penyelesaian jika semua syarat terpenuhi
+    setConfirmSubmitModalOpen(true);
+  };
+
+  const handleSubmitTask = async (isAutoSubmit: boolean = false) => {
+    if (!activeTask || !user || !supabase) return;
+
+    setConfirmSubmitModalOpen(false);
     setSubmitting(true);
     antiCheatAlarm.stopAlarm();
     setAlarmActive(false);
 
     try {
-      const result = calculateExamResult(questions, answers, violationCount, false);
+      const result = calculateExamResult(parsedQuestions, answers, violationCount, false);
       const nowIso = new Date().toISOString();
 
-      // Check if an in_progress submission row already exists for this task & student
       const { data: existing } = await supabase
         .from('task_submissions')
         .select('id')
@@ -764,7 +959,6 @@ function SiswaTugas() {
           .eq('id', existing.id);
 
         if (error) {
-          // Fallback update with base columns
           const { error: fbErr } = await supabase
             .from('task_submissions')
             .update({
@@ -797,15 +991,14 @@ function SiswaTugas() {
       }
 
       clearLocalExamProgress(user.id, activeTask.id);
-
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
-      }
+      safeExitFullscreen();
 
       alert(
-        result.hasEssay
-          ? 'Tugas berhasil dikumpulkan! Jawaban esai Anda akan diperiksa oleh guru.'
-          : `Tugas selesai! Nilai Pilihan Ganda Anda: ${result.calculatedPgScore}/100`
+        isAutoSubmit
+          ? '⏰ Waktu pengerjaan telah selesai! Seluruh lembar jawaban Anda telah disimpan dan dinilai oleh sistem.'
+          : result.hasEssay
+          ? '✅ Ujian berhasil dikumpulkan! Jawaban esai Anda akan diperiksa dan dinilai oleh guru.'
+          : `✅ Ujian selesai! Nilai Pilihan Ganda Anda: ${result.calculatedPgScore}/100`
       );
 
       setActiveTask(null);
@@ -816,6 +1009,15 @@ function SiswaTugas() {
       setSubmitting(false);
     }
   };
+
+  // Auto-submit saat hitung mundur waktu maksimal habis
+  useEffect(() => {
+    if (!activeTask || submitting) return;
+    if (maxDurationMinutes > 0 && remainingSeconds === 0 && elapsedSeconds > 10) {
+      alert('⏰ Waktu ujian telah berakhir! Sistem otomatis mengumpulkan lembar jawaban Anda.');
+      handleSubmitTask(true);
+    }
+  }, [remainingSeconds, activeTask, submitting, maxDurationMinutes, elapsedSeconds]);
 
   const filteredTasks = tasks.filter(
     t =>
@@ -1205,256 +1407,800 @@ function SiswaTugas() {
         );
       })()}
 
-      {/* Task Answering Modal (Protected Exam Mode with Auto-Save) */}
+      {/* Task Answering Modal (Protected Exam Mode with Auto-Save & Number Grid) */}
       {activeTask && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-gray-950/90 backdrop-blur-md select-none"
-          onContextMenu={e => {
-            e.preventDefault();
-            setCopyWarning('Klik kanan dinonaktifkan selama mengerjakan ujian.');
-            setTimeout(() => setCopyWarning(null), 2500);
-          }}
-          onCopy={e => {
-            e.preventDefault();
-            setCopyWarning('Menyalin teks soal tidak diizinkan selama ujian.');
-            setTimeout(() => setCopyWarning(null), 2500);
-          }}
-          onCut={e => e.preventDefault()}
-          onPaste={e => {
-            e.preventDefault();
-            setCopyWarning('Menempelkan teks dari luar tidak diizinkan selama ujian.');
-            setTimeout(() => setCopyWarning(null), 2500);
-          }}
-        >
-          <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] relative border border-gray-200">
-            {/* Top Security & Auto-Save Header Bar */}
-            <div className="p-4 sm:p-5 border-b border-gray-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2.5 py-0.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[11px] font-bold rounded-md flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Pengawas Anti-Buka Aplikasi Lain Aktif
-                  </span>
+        <ExamErrorBoundary onReset={() => fetchStudentTasks()}>
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-4 bg-gray-950/90 backdrop-blur-md select-none"
+            onContextMenu={e => {
+              e.preventDefault();
+              markInternalAction();
+              setCopyWarning('Klik kanan dinonaktifkan selama mengerjakan ujian.');
+              setTimeout(() => setCopyWarning(null), 2500);
+            }}
+            onCopy={e => {
+              e.preventDefault();
+              markInternalAction();
+              setCopyWarning('Menyalin teks soal tidak diizinkan selama ujian.');
+              setTimeout(() => setCopyWarning(null), 2500);
+            }}
+            onCut={e => e.preventDefault()}
+            onPaste={e => {
+              e.preventDefault();
+              markInternalAction();
+              setCopyWarning('Menempelkan teks dari luar tidak diizinkan selama ujian.');
+              setTimeout(() => setCopyWarning(null), 2500);
+            }}
+          >
+            <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[98vh] max-h-[98vh] relative border border-gray-200">
+              {/* Top Header Bar */}
+              <div className="p-3 sm:p-4 border-b border-gray-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-col gap-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-0.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[11px] font-bold rounded-md flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" /> Pengawas Anti-Buka Aplikasi Lain Aktif
+                    </span>
 
-                  {/* Live Auto-Save Status Pill */}
-                  {syncState === 'saving' ? (
-                    <span className="px-2.5 py-0.5 bg-blue-500/20 border border-blue-400/40 text-blue-200 text-[11px] font-semibold rounded-md flex items-center gap-1">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Menyimpan jawaban...
-                    </span>
-                  ) : syncState === 'offline' || !isOnline ? (
-                    <span className="px-2.5 py-0.5 bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-bold rounded-md flex items-center gap-1">
-                      <WifiOff className="w-3 h-3" /> Kendala Jaringan (Jawaban Aman di Perangkat)
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-0.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-[11px] font-semibold rounded-md flex items-center gap-1">
-                      <Cloud className="w-3 h-3 text-emerald-300" /> Jawaban Tersimpan Otomatis
-                    </span>
-                  )}
+                    {/* Live Auto-Save Status */}
+                    {syncState === 'saving' ? (
+                      <span className="px-2 py-0.5 bg-blue-500/20 border border-blue-400/40 text-blue-200 text-[11px] font-semibold rounded-md flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Menyimpan...
+                      </span>
+                    ) : syncState === 'offline' || !isOnline ? (
+                      <span className="px-2 py-0.5 bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-bold rounded-md flex items-center gap-1">
+                        <WifiOff className="w-3 h-3" /> Kendala Jaringan (Tersimpan Lokal)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-[11px] font-semibold rounded-md flex items-center gap-1">
+                        <Cloud className="w-3 h-3 text-emerald-300" /> Tersimpan Otomatis
+                      </span>
+                    )}
 
-                  {violationCount > 0 && (
-                    <span className="px-2.5 py-0.5 bg-red-600 text-white text-[11px] font-extrabold rounded-md flex items-center gap-1 animate-pulse">
-                      <ShieldAlert className="w-3.5 h-3.5" /> Pelanggaran Terdeteksi: {violationCount}x
-                    </span>
-                  )}
+                    {violationCount > 0 && (
+                      <span className="px-2 py-0.5 bg-red-600 text-white text-[11px] font-extrabold rounded-md flex items-center gap-1 animate-pulse">
+                        <ShieldAlert className="w-3.5 h-3.5" /> Pelanggaran: {violationCount} dari 3x
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Header Actions */}
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        markInternalAction();
+                        setViewMode(prev => (prev === 'focus' ? 'all' : 'focus'));
+                      }}
+                      className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                      title="Ganti Mode Tampilan"
+                    >
+                      <Layers className="w-3.5 h-3.5 text-blue-300" />
+                      <span className="hidden sm:inline">
+                        {viewMode === 'focus' ? 'Mode Fokus (Ringan)' : 'Semua Soal'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={safeToggleFullscreen}
+                      className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                      title="Layar Penuh (Bebas / Tidak Termasuk Pelanggaran)"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Layar Penuh</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        markInternalAction();
+                        handleCloseExam();
+                      }}
+                      className="text-gray-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition"
+                      title="Simpan & Keluar Sementara"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold text-white mt-1">{activeTask.title}</h3>
-                <p className="text-xs text-indigo-200">
-                  Mata Pelajaran: {activeTask.subject_name} · Soal yang sudah dijawab otomatis tersimpan ke server
-                </p>
+
+                {/* Exam Title & Durasi Hitung Mundur */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-white/10">
+                  <div className="min-w-0">
+                    <h3 className="text-base sm:text-lg font-bold text-white truncate">{activeTask.title}</h3>
+                    <p className="text-xs text-indigo-200 truncate">
+                      {activeTask.subject_name || 'Mata Pelajaran'} · Total {parsedQuestions.length} Butir Soal
+                    </p>
+                  </div>
+
+                  {/* Durasi Mundur & Minimal Durasi Indicators */}
+                  <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    {/* Live Countdown Timer */}
+                    <div
+                      className={`px-3 py-1 rounded-xl flex items-center gap-1.5 shadow-sm ${
+                        remainingSeconds <= 300
+                          ? 'bg-red-600 text-white animate-pulse border border-red-400'
+                          : remainingSeconds <= 600
+                          ? 'bg-amber-500 text-white border border-amber-400'
+                          : 'bg-slate-800 text-amber-300 border border-slate-700'
+                      }`}
+                    >
+                      <Clock className="w-4 h-4 shrink-0" />
+                      <div className="flex flex-col items-start leading-none">
+                        <span className="text-[9px] uppercase tracking-wider opacity-80 font-semibold">Sisa Waktu</span>
+                        <span className="font-mono text-sm sm:text-base font-black tracking-wider">
+                          {formattedCountdown}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Minimum Duration Badge */}
+                    {minDurationMinutes > 0 && (
+                      <div
+                        className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 text-xs font-bold border ${
+                          isMinDurationReached
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                            : 'bg-amber-500/20 text-amber-200 border-amber-400/40'
+                        }`}
+                        title={
+                          isMinDurationReached
+                            ? 'Batas minimal pengerjaan telah terpenuhi'
+                            : `Minimal pengerjaan ${minDurationMinutes} menit. Sisa ${minRemMin}m ${minRemSec}s`
+                        }
+                      >
+                        <Hourglass className="w-3.5 h-3.5 shrink-0" />
+                        <div className="flex flex-col items-start leading-none">
+                          <span className="text-[9px] uppercase tracking-wider opacity-80">Min. Pengerjaan</span>
+                          <span className="text-[11px]">
+                            {isMinDurationReached ? '✓ Terpenuhi' : `Sisa ${minRemMin}m ${minRemSec}s`}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 self-end sm:self-center">
+              {/* Number Navigation Bar (Grid & Quick Jump Bar) */}
+              <div className="p-2 sm:px-4 bg-slate-50 border-b border-gray-200 flex items-center justify-between gap-2 overflow-hidden">
                 <button
                   type="button"
                   onClick={() => {
-                    if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-                      document.documentElement.requestFullscreen().catch(() => {});
-                    }
+                    markInternalAction();
+                    setShowNumberGridModal(true);
                   }}
-                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                  title="Aktifkan Layar Penuh"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-sm transition"
                 >
-                  <Maximize2 className="w-3.5 h-3.5" /> Layar Penuh
+                  <Grid className="w-3.5 h-3.5" />
+                  <span>Daftar Nomor Soal ({countAnsweredQuestions(answers)}/{parsedQuestions.length})</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handleCloseExam}
-                  className="text-gray-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition"
-                  title="Simpan & Keluar Sementara"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
 
-            {/* Copy/Shortcut Warning Banner */}
-            {copyWarning && (
-              <div className="bg-amber-500 text-white px-4 py-2 text-xs font-bold flex items-center justify-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{copyWarning}</span>
+                {/* Horizontal Scrollable Question Numbers for Quick Jump */}
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 scrollbar-thin">
+                  {parsedQuestions.map((q, idx) => {
+                    const isAnswered = answers[idx] !== undefined && String(answers[idx]).trim() !== '';
+                    const isCurrent = currentQuestionIdx === idx;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          markInternalAction();
+                          setCurrentQuestionIdx(idx);
+                          if (viewMode === 'all') {
+                            document.getElementById(`soal-${idx}`)?.scrollIntoView({ behavior: 'smooth' });
+                          }
+                        }}
+                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs font-black shrink-0 transition flex items-center justify-center border ${
+                          isCurrent
+                            ? 'ring-2 ring-blue-600 ring-offset-1 border-blue-600 bg-blue-600 text-white shadow-sm'
+                            : isAnswered
+                            ? 'bg-emerald-600 text-white border-emerald-700 font-bold'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                        }`}
+                        title={`Soal #${idx + 1} (${isAnswered ? 'Sudah Dijawab: ' + answers[idx] : 'Belum Dijawab'})`}
+                      >
+                        {idx + 1}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            )}
 
-            {/* Questions List */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {activeTask.content?.map((q: any, idx: number) => {
-                const isAnswered = answers[idx] !== undefined && String(answers[idx]).trim() !== '';
-                return (
-                  <div
-                    key={idx}
-                    className={`p-5 rounded-2xl border space-y-3 transition ${
-                      isAnswered ? 'bg-blue-50/20 border-blue-200' : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded-md">
-                        Soal #{idx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})
-                      </span>
-                      {isAnswered && (
-                        <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Tersimpan
-                        </span>
-                      )}
+              {/* Copy/Shortcut Warning Banner */}
+              {copyWarning && (
+                <div className="bg-amber-500 text-white px-4 py-1.5 text-xs font-bold flex items-center justify-center gap-2 shrink-0 animate-fadeIn">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{copyWarning}</span>
+                </div>
+              )}
+
+              {/* Main Questions View Area */}
+              <div className="p-3 sm:p-6 overflow-y-auto flex-1 space-y-4">
+                {/* MODE FOKUS PER SOAL: Lightweight, instant rendering, no lag on mobile */}
+                {viewMode === 'focus' && parsedQuestions.length > 0 && (() => {
+                  const q = parsedQuestions[currentQuestionIdx] || parsedQuestions[0];
+                  const idx = q.idx;
+                  const isAnswered = answers[idx] !== undefined && String(answers[idx]).trim() !== '';
+
+                  return (
+                    <div className="space-y-4 max-w-3xl mx-auto">
+                      <div className="p-4 sm:p-6 bg-white rounded-2xl border-2 border-indigo-100 shadow-sm space-y-4">
+                        <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="px-3 py-1 bg-indigo-100 text-indigo-900 text-xs sm:text-sm font-black rounded-lg">
+                              Soal #{idx + 1} dari {parsedQuestions.length}
+                            </span>
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-semibold rounded-md">
+                              {q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'}
+                            </span>
+                          </div>
+
+                          {isAnswered ? (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Sudah Dijawab {q.type === 'pg' ? `(${answers[idx]})` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                              Belum Dijawab
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Question Text */}
+                        <p className="font-bold text-gray-900 text-base sm:text-lg leading-relaxed whitespace-pre-line">
+                          {q.question}
+                        </p>
+
+                        {/* Options for Pilihan Ganda */}
+                        {q.type === 'pg' && Array.isArray(q.options) && q.options.length > 0 && (
+                          <div className="space-y-2.5 pt-2">
+                            {q.options.map((opt: string, oIdx: number) => {
+                              const letter = String.fromCharCode(65 + oIdx);
+                              const isSelected = answers[idx] === letter || answers[idx] === opt;
+                              return (
+                                <label
+                                  key={oIdx}
+                                  onClick={() => handleAnswerChange(idx, letter)}
+                                  className={`flex items-start sm:items-center p-3.5 rounded-xl border-2 cursor-pointer text-sm sm:text-base transition ${
+                                    isSelected
+                                      ? 'bg-blue-50 border-blue-600 font-bold text-blue-950 shadow-xs'
+                                      : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50 hover:border-gray-300'
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`focus_q_${idx}`}
+                                    checked={isSelected}
+                                    onChange={() => handleAnswerChange(idx, letter)}
+                                    className="mr-3 mt-1 sm:mt-0 text-blue-600 focus:ring-blue-500 w-4 h-4 shrink-0"
+                                  />
+                                  <span className="font-black mr-2 text-indigo-700 shrink-0">{letter}.</span>
+                                  <span className="leading-snug">{opt}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Essay Textarea */}
+                        {q.type === 'essay' && (
+                          <div className="pt-2">
+                            <label className="block text-xs font-bold text-gray-700 mb-1">Tuliskan Jawaban Esai:</label>
+                            <textarea
+                              rows={4}
+                              value={answers[idx] || ''}
+                              onChange={e => handleAnswerChange(idx, e.target.value)}
+                              placeholder="Ketik jawaban esai Anda secara lengkap di sini..."
+                              className="w-full p-3.5 bg-gray-50 border border-gray-300 rounded-xl text-sm sm:text-base focus:ring-2 focus:ring-blue-500 focus:bg-white select-text"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Navigation buttons for Focus Mode */}
+                      <div className="flex items-center justify-between gap-2 pt-2">
+                        <button
+                          type="button"
+                          disabled={currentQuestionIdx === 0}
+                          onClick={() => {
+                            markInternalAction();
+                            setCurrentQuestionIdx(prev => Math.max(0, prev - 1));
+                          }}
+                          className="px-4 py-2.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-800 font-bold rounded-xl text-xs sm:text-sm transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                        >
+                          <ChevronLeft className="w-4 h-4" /> Soal Sebelumnya
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            markInternalAction();
+                            setShowNumberGridModal(true);
+                          }}
+                          className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs sm:text-sm transition flex items-center gap-1.5 border border-slate-300"
+                        >
+                          <Grid className="w-4 h-4 text-indigo-600" />
+                          <span>Pilih Nomor Soal</span>
+                        </button>
+
+                        {currentQuestionIdx < parsedQuestions.length - 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              markInternalAction();
+                              setCurrentQuestionIdx(prev => Math.min(parsedQuestions.length - 1, prev + 1));
+                            }}
+                            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center gap-1.5 shadow-sm"
+                          >
+                            Soal Selanjutnya <ChevronRight className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleAttemptSubmitTask}
+                            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center gap-1.5 shadow-sm"
+                          >
+                            <Check className="w-4 h-4" /> Selesaikan Ujian
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <p className="font-bold text-gray-900 text-base">{q.question}</p>
+                  );
+                })()}
 
-                    {q.type === 'pg' && q.options && (
-                      <div className="space-y-2 pt-2">
-                        {q.options.map((opt: string, oIdx: number) => {
-                          const letter = String.fromCharCode(65 + oIdx);
-                          const isSelected = answers[idx] === letter || answers[idx] === opt;
-                          return (
-                            <label
-                              key={oIdx}
-                              onClick={() => handleAnswerChange(idx, letter)}
-                              className={`flex items-center p-3 rounded-xl border cursor-pointer text-sm transition ${
-                                isSelected
-                                  ? 'bg-blue-50 border-blue-500 font-bold text-blue-900'
-                                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={`q_${idx}`}
-                                checked={isSelected}
-                                onChange={() => handleAnswerChange(idx, letter)}
-                                className="mr-3 text-blue-600"
+                {/* MODE SEMUA SOAL: Vertical List View */}
+                {viewMode === 'all' && (
+                  <div className="space-y-6 max-w-3xl mx-auto">
+                    {parsedQuestions.map((q, idx) => {
+                      const isAnswered = answers[idx] !== undefined && String(answers[idx]).trim() !== '';
+                      const isCurrent = currentQuestionIdx === idx;
+
+                      return (
+                        <div
+                          key={idx}
+                          id={`soal-${idx}`}
+                          onClick={() => setCurrentQuestionIdx(idx)}
+                          className={`p-5 rounded-2xl border transition ${
+                            isCurrent
+                              ? 'ring-2 ring-blue-500 bg-white border-blue-300 shadow-md'
+                              : isAnswered
+                              ? 'bg-blue-50/20 border-blue-200'
+                              : 'bg-gray-50 border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 text-xs font-bold rounded-md">
+                              Soal #{idx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})
+                            </span>
+                            {isAnswered && (
+                              <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Tersimpan
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-bold text-gray-900 text-base">{q.question}</p>
+
+                          {q.type === 'pg' && Array.isArray(q.options) && (
+                            <div className="space-y-2 pt-2">
+                              {q.options.map((opt: string, oIdx: number) => {
+                                const letter = String.fromCharCode(65 + oIdx);
+                                const isSelected = answers[idx] === letter || answers[idx] === opt;
+                                return (
+                                  <label
+                                    key={oIdx}
+                                    onClick={() => handleAnswerChange(idx, letter)}
+                                    className={`flex items-center p-3 rounded-xl border cursor-pointer text-sm transition ${
+                                      isSelected
+                                        ? 'bg-blue-50 border-blue-500 font-bold text-blue-900'
+                                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
+                                    }`}
+                                  >
+                                    <input
+                                      type="radio"
+                                      name={`all_q_${idx}`}
+                                      checked={isSelected}
+                                      onChange={() => handleAnswerChange(idx, letter)}
+                                      className="mr-3 text-blue-600"
+                                    />
+                                    <span className="font-bold mr-2">{letter}.</span> {opt}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {q.type === 'essay' && (
+                            <div className="pt-2">
+                              <textarea
+                                rows={3}
+                                value={answers[idx] || ''}
+                                onChange={e => handleAnswerChange(idx, e.target.value)}
+                                placeholder="Tuliskan jawaban esai Anda di sini..."
+                                className="w-full p-3 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 select-text"
                               />
-                              <span className="font-bold mr-2">{letter}.</span> {opt}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {q.type === 'essay' && (
-                      <div className="pt-2">
-                        <textarea
-                          rows={3}
-                          value={answers[idx] || ''}
-                          onChange={e => handleAnswerChange(idx, e.target.value)}
-                          placeholder="Tuliskan jawaban esai Anda di sini..."
-                          className="w-full p-3 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 select-text"
-                        />
-                      </div>
-                    )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                )}
 
-              {/* Violation Log History inside Exam if any */}
-              {violationLogs.length > 0 && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2">
-                  <h4 className="text-xs font-bold text-red-900 flex items-center gap-1.5">
-                    <ShieldAlert className="w-4 h-4 text-red-600" />
-                    Riwayat Peringatan Pengawas Ujian ({violationCount}x Pelanggaran)
-                  </h4>
-                  <div className="space-y-1 max-h-28 overflow-y-auto text-xs text-red-800">
-                    {violationLogs.map((v, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <span className="font-mono font-bold">[{v.time}]</span>
-                        <span>{v.reason}</span>
+                {/* Violation Log History inside Exam if any */}
+                {violationLogs.length > 0 && (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2 max-w-3xl mx-auto">
+                    <h4 className="text-xs font-bold text-red-900 flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-red-600" />
+                      Riwayat Peringatan Pengawas Ujian ({violationCount}x Pelanggaran)
+                    </h4>
+                    <div className="space-y-1 max-h-24 overflow-y-auto text-xs text-red-800">
+                      {violationLogs.map((v, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="font-mono font-bold">[{v.time}]</span>
+                          <span>{v.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Submit Bar */}
+              <div className="p-3 sm:p-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-gray-50 shrink-0">
+                <div className="text-xs text-gray-700 font-medium flex items-center gap-2">
+                  <span>
+                    Terjawab & Tersimpan:{' '}
+                    <strong className="text-blue-900 font-bold">{countAnsweredQuestions(answers)}</strong> dari{' '}
+                    <strong>{parsedQuestions.length}</strong> soal
+                  </span>
+                  {countAnsweredQuestions(answers) === parsedQuestions.length ? (
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> (Semua Terisi)
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 font-semibold">
+                      (Sisa {parsedQuestions.length - countAnsweredQuestions(answers)} belum terisi)
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      markInternalAction();
+                      handleCloseExam();
+                    }}
+                    className="px-3.5 py-2 text-gray-600 font-semibold hover:bg-gray-200 rounded-xl text-xs sm:text-sm transition"
+                  >
+                    Simpan & Keluar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAttemptSubmitTask}
+                    disabled={submitting}
+                    className="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs sm:text-sm hover:bg-blue-700 transition flex items-center disabled:opacity-50 shadow-md shadow-blue-200"
+                  >
+                    {submitting ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                    ) : (
+                      <Send className="w-4 h-4 mr-1.5" />
+                    )}
+                    {submitting ? 'Mengumpulkan...' : 'Selesaikan & Kumpulkan Ujian'}
+                  </button>
+                </div>
+              </div>
+
+              {/* MODAL 1: DAFTAR NOMOR SOAL GRID MODAL */}
+              {showNumberGridModal && (
+                <div className="absolute inset-0 z-40 bg-gray-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                  <div className="bg-white rounded-2xl w-full max-w-lg p-5 shadow-2xl border border-gray-200 space-y-4">
+                    <div className="flex items-center justify-between border-b pb-3">
+                      <div>
+                        <h4 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                          <Grid className="w-5 h-5 text-indigo-600" /> Daftar Nomor Soal
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Klik nomor soal untuk langsung menuju dan mengisi butir soal tersebut.
+                        </p>
                       </div>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          markInternalAction();
+                          setShowNumberGridModal(false);
+                        }}
+                        className="text-gray-400 hover:text-gray-700 p-1 rounded-lg"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {/* Legend */}
+                    <div className="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3.5 h-3.5 bg-emerald-600 rounded-sm inline-block"></span>
+                        <span>Sudah Dijawab</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3.5 h-3.5 bg-white border border-gray-400 rounded-sm inline-block"></span>
+                        <span>Belum Dijawab</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3.5 h-3.5 ring-2 ring-blue-600 bg-blue-100 rounded-sm inline-block"></span>
+                        <span>Sedang Dibuka</span>
+                      </div>
+                    </div>
+
+                    {/* Number Grid */}
+                    <div className="grid grid-cols-5 sm:grid-cols-6 gap-2 max-h-64 overflow-y-auto p-1">
+                      {parsedQuestions.map((q, idx) => {
+                        const isAnswered = answers[idx] !== undefined && String(answers[idx]).trim() !== '';
+                        const isCurrent = currentQuestionIdx === idx;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              markInternalAction();
+                              setCurrentQuestionIdx(idx);
+                              setShowNumberGridModal(false);
+                              if (viewMode === 'all') {
+                                document.getElementById(`soal-${idx}`)?.scrollIntoView({ behavior: 'smooth' });
+                              }
+                            }}
+                            className={`p-2.5 rounded-xl text-xs font-black transition flex flex-col items-center justify-center border ${
+                              isCurrent
+                                ? 'ring-2 ring-blue-600 ring-offset-2 border-blue-600 bg-blue-50 text-blue-900 shadow-md'
+                                : isAnswered
+                                ? 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700 shadow-xs'
+                                : 'bg-white text-gray-800 border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+                            }`}
+                          >
+                            <span className="text-sm">{idx + 1}</span>
+                            {isAnswered && (
+                              <span className="text-[10px] font-bold opacity-90 truncate max-w-full">
+                                {answers[idx] || '✓'}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-2 border-t flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          markInternalAction();
+                          setShowNumberGridModal(false);
+                        }}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition"
+                      >
+                        Tutup
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Bottom Submit Bar */}
-            <div className="p-4 border-t border-gray-200 flex items-center justify-between gap-3 bg-gray-50">
-              <div className="text-xs text-gray-600 font-medium">
-                Terjawab & Tersimpan: <strong>{countAnsweredQuestions(answers)}</strong> dari{' '}
-                <strong>{activeTask.content?.length || 0}</strong> soal
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleCloseExam}
-                  className="px-4 py-2 text-gray-600 font-semibold hover:bg-gray-200 rounded-xl text-sm transition"
-                >
-                  Simpan & Keluar Sementara
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmitTask}
-                  disabled={submitting}
-                  className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-xl text-sm hover:bg-blue-700 transition flex items-center disabled:opacity-50 shadow-md shadow-blue-200"
-                >
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-                  {submitting ? 'Mengumpulkan...' : 'Selesaikan & Kumpulkan Ujian'}
-                </button>
-              </div>
-            </div>
+              {/* MODAL 2: NOTIFIKASI SOAL BELUM TERJAWAB (TIDAK BISA DISELESAIKAN) */}
+              {unansweredModalOpen && (
+                <div className="absolute inset-0 z-50 bg-gray-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                  <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border-2 border-amber-300 space-y-4 text-center">
+                    <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
+                      <AlertTriangle className="w-8 h-8" />
+                    </div>
 
-            {/* Full-Screen Anti-Cheat Alarm & Notification Overlay when student opens another app */}
-            {alarmActive && (
-              <div className="absolute inset-0 z-50 bg-red-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white animate-fadeIn">
-                <div className="w-20 h-20 rounded-full bg-red-600 flex items-center justify-center mb-4 animate-bounce shadow-lg shadow-red-600/50 border-4 border-red-300">
-                  <ShieldAlert className="w-11 h-11 text-white" />
+                    <h4 className="text-lg font-black text-gray-900">
+                      Masih Ada {unansweredList.length} Soal Belum Terjawab!
+                    </h4>
+
+                    <p className="text-xs text-gray-600 leading-relaxed text-left">
+                      Ujian <strong>tidak dapat diselesaikan</strong> karena masih ada soal yang belum dikerjakan. Seluruh butir soal wajib dijawab sebelum mengumpulkan:
+                    </p>
+
+                    {/* Unanswered Numbers Chips */}
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-left max-h-36 overflow-y-auto space-y-1.5">
+                      <span className="text-[11px] font-bold text-amber-900 block">Nomor Soal yang Belum Diisi:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {unansweredList.map(num => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => {
+                              markInternalAction();
+                              setCurrentQuestionIdx(num - 1);
+                              setUnansweredModalOpen(false);
+                              if (viewMode === 'all') {
+                                document.getElementById(`soal-${num - 1}`)?.scrollIntoView({ behavior: 'smooth' });
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-white hover:bg-amber-600 hover:text-white border border-amber-300 text-amber-900 font-black rounded-lg text-xs transition shadow-2xs"
+                          >
+                            Soal #{num}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          markInternalAction();
+                          setUnansweredModalOpen(false);
+                        }}
+                        className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl text-xs transition"
+                      >
+                        Tutup & Lengkapi
+                      </button>
+                      {unansweredList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            markInternalAction();
+                            setCurrentQuestionIdx(unansweredList[0] - 1);
+                            setUnansweredModalOpen(false);
+                            if (viewMode === 'all') {
+                              document.getElementById(`soal-${unansweredList[0] - 1}`)?.scrollIntoView({ behavior: 'smooth' });
+                            }
+                          }}
+                          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-sm"
+                        >
+                          Buka Soal No. {unansweredList[0]}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
+              )}
 
-                <span className="px-3 py-1 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-md border border-red-400 mb-2">
-                  🔊 NOTIFIKASI SUARA: "ANDA KELUAR APLIKASI UJIAN"
-                </span>
+              {/* MODAL 3: NOTIFIKASI MINIMAL DURASI BELUM TERCAPAI */}
+              {minDurationModalOpen && (
+                <div className="absolute inset-0 z-50 bg-gray-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                  <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border-2 border-indigo-300 space-y-4 text-center">
+                    <div className="w-14 h-14 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center mx-auto">
+                      <Hourglass className="w-8 h-8 animate-spin" />
+                    </div>
 
-                <h2 className="text-2xl sm:text-3xl font-black text-white max-w-xl">
-                  ANDA KELUAR APLIKASI UJIAN!
-                </h2>
+                    <h4 className="text-lg font-black text-gray-900">
+                      Belum Mencapai Batas Minimal Pengerjaan Ujian!
+                    </h4>
 
-                <p className="text-red-200 text-sm sm:text-base max-w-lg mt-2 leading-relaxed">
-                  {latestViolationReason || 'Sistem mendeteksi Anda membuka tab baru atau menggunakan fitur floating aplikasi pada handphone.'}
-                </p>
+                    <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-xl text-left text-xs space-y-2 text-indigo-950">
+                      <p className="leading-relaxed">
+                        Guru telah menentukan bahwa <strong>minimal durasi pengerjaan</strong> untuk ujian ini adalah{' '}
+                        <strong className="text-indigo-900 font-black">{minDurationMinutes} menit</strong>.
+                      </p>
+                      <div className="flex items-center justify-between border-t border-indigo-200 pt-2 font-semibold">
+                        <span>Waktu Pengerjaan Anda:</span>
+                        <span className="font-bold text-gray-900">
+                          {elapsedMin} menit {elapsedSec} detik
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between font-bold text-amber-800">
+                        <span>Waktu Minimal Tersisa:</span>
+                        <span className="font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded">
+                          {minRemMin} menit {minRemSec} detik lagi
+                        </span>
+                      </div>
+                    </div>
 
-                <div className="my-5 p-4 bg-red-900/80 border border-red-500/60 rounded-2xl max-w-md w-full text-left space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-amber-300">
-                    <span>Pelanggaran Saat Ini:</span>
-                    <span className="text-sm font-black text-white bg-red-600 px-2.5 py-0.5 rounded-md">
-                      Ke-{violationCount} dari 3 Kali
-                    </span>
+                    <p className="text-xs text-gray-600">
+                      Silakan manfaatkan waktu yang ada untuk memeriksa kembali butir soal dan jawaban Anda hingga batas minimal terpenuhi.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        markInternalAction();
+                        setMinDurationModalOpen(false);
+                      }}
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition shadow-sm"
+                    >
+                      Kembali Periksa Jawaban
+                    </button>
                   </div>
-                  <div className="flex items-center justify-between text-xs font-bold text-amber-200">
-                    <span>Sisa Batas Toleransi:</span>
-                    <span className="text-sm font-black text-amber-300 bg-amber-950/80 px-2.5 py-0.5 rounded-md border border-amber-500/40">
-                      {Math.max(0, 3 - violationCount)} Kali Lagi
-                    </span>
+                </div>
+              )}
+
+              {/* MODAL 4: KONFIRMASI KUMPULKAN UJIAN */}
+              {confirmSubmitModalOpen && (
+                <div className="absolute inset-0 z-50 bg-gray-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                  <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border border-gray-200 space-y-4 text-center">
+                    <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                      <CheckCircle2 className="w-8 h-8" />
+                    </div>
+
+                    <h4 className="text-lg font-black text-gray-900">
+                      Kumpulkan & Selesaikan Ujian?
+                    </h4>
+
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      Seluruh <strong>{parsedQuestions.length} soal</strong> telah terjawab lengkap dan syarat minimal waktu pengerjaan ({minDurationMinutes} menit) telah terpenuhi.
+                    </p>
+
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 text-left font-medium">
+                      ✅ Setelah dikumpulkan, nilai dan lembar jawaban Anda akan langsung terekam ke sistem ujian pengawas.
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          markInternalAction();
+                          setConfirmSubmitModalOpen(false);
+                        }}
+                        className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl text-xs transition"
+                      >
+                        Batal, Periksa Lagi
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => handleSubmitTask(false)}
+                        className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-1.5"
+                      >
+                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        Ya, Kumpulkan Sekarang
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-red-100 leading-relaxed pt-1 border-t border-red-800">
-                    ⚠️ <strong>PERINGATAN KERAS:</strong> Anda memiliki batas toleransi maksimal 3 kali. Jika mencapai 3 kali pelanggaran, sesi ujian Anda akan langsung <strong>TERKUNCI</strong>, akun di-reset ke halaman login, dan Anda wajib meminta <strong>Reset Login</strong> kepada Guru Pengawas!
+                </div>
+              )}
+
+              {/* MODAL 5: FULL-SCREEN ANTI-CHEAT ALARM OVERLAY (3 KALI TOLERANSI) */}
+              {alarmActive && (
+                <div className="absolute inset-0 z-50 bg-red-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white animate-fadeIn">
+                  <div className="w-20 h-20 rounded-full bg-red-600 flex items-center justify-center mb-4 animate-bounce shadow-lg shadow-red-600/50 border-4 border-red-300">
+                    <ShieldAlert className="w-11 h-11 text-white" />
+                  </div>
+
+                  <span className="px-3 py-1 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-md border border-red-400 mb-2">
+                    🔊 NOTIFIKASI SUARA: "ANDA KELUAR APLIKASI UJIAN"
+                  </span>
+
+                  <h2 className="text-2xl sm:text-3xl font-black text-white max-w-xl">
+                    ANDA KELUAR APLIKASI UJIAN!
+                  </h2>
+
+                  <p className="text-red-200 text-sm sm:text-base max-w-lg mt-2 leading-relaxed">
+                    {latestViolationReason || 'Sistem mendeteksi Anda membuka tab baru atau berpindah ke aplikasi lain.'}
                   </p>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={handleDismissAlarmAndResume}
-                  className="px-8 py-3.5 bg-white text-red-900 hover:bg-red-50 font-black rounded-xl text-sm shadow-xl transition flex items-center gap-2 cursor-pointer"
-                >
-                  <VolumeX className="w-5 h-5 text-red-700" />
-                  Matikan Alarm & Kembali Kerjakan (Sisa Toleransi {Math.max(0, 3 - violationCount)}x)
-                </button>
-              </div>
-            )}
+                  <div className="my-5 p-4 bg-red-900/80 border border-red-500/60 rounded-2xl max-w-md w-full text-left space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+                      <span>Pelanggaran Saat Ini:</span>
+                      <span className="text-sm font-black text-white bg-red-600 px-2.5 py-0.5 rounded-md">
+                        Ke-{violationCount} dari 3 Kali
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-200">
+                      <span>Sisa Batas Toleransi:</span>
+                      <span className="text-sm font-black text-amber-300 bg-amber-950/80 px-2.5 py-0.5 rounded-md border border-amber-500/40">
+                        {Math.max(0, 3 - violationCount)} Kali Lagi
+                      </span>
+                    </div>
+                    <p className="text-xs text-red-100 leading-relaxed pt-1 border-t border-red-800">
+                      ⚠️ <strong>PERINGATAN KERAS:</strong> Anda memiliki batas toleransi maksimal 3 kali. Jika mencapai 3 kali pelanggaran, sesi ujian Anda akan langsung <strong>TERKUNCI</strong>, akun di-reset ke halaman login, dan Anda wajib meminta <strong>Reset Login</strong> kepada Guru Pengawas!
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDismissAlarmAndResume}
+                    className="px-8 py-3.5 bg-white text-red-900 hover:bg-red-50 font-black rounded-xl text-sm shadow-xl transition flex items-center gap-2 cursor-pointer"
+                  >
+                    <VolumeX className="w-5 h-5 text-red-700" />
+                    Matikan Alarm & Kembali Kerjakan (Sisa Toleransi {Math.max(0, 3 - violationCount)}x)
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </ExamErrorBoundary>
       )}
     </div>
   );

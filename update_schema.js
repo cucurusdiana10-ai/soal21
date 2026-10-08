@@ -22,6 +22,9 @@ export async function syncSupabaseSchema() {
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'pg';
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS content JSONB;
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS kkm NUMERIC DEFAULT 75;
+      ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS min_duration INT DEFAULT 0;
+      ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS max_duration INT DEFAULT 0;
+      ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS duration INT DEFAULT 0;
 
       -- Tabel Arsip Lembar Kerja Peserta Didik (LKPD)
       CREATE TABLE IF NOT EXISTS public.lkpd_records (
@@ -89,6 +92,9 @@ export async function syncSupabaseSchema() {
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
         ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS kkm NUMERIC DEFAULT 75;
+        ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS min_duration INT DEFAULT 0;
+        ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS max_duration INT DEFAULT 0;
+        ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS duration INT DEFAULT 0;
         ALTER TABLE public.users ADD COLUMN IF NOT EXISTS active_session_token TEXT;
         ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;
         ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_exam_locked BOOLEAN DEFAULT FALSE;

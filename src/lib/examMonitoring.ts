@@ -12,6 +12,7 @@ export interface LocalExamProgress {
   violationCount: number;
   violationLogs: ViolationLogItem[];
   updatedAt: string;
+  startedAt?: string;
 }
 
 const DEVICE_TOKEN_KEY = 'sman21_exam_device_token';
@@ -45,15 +46,18 @@ export function saveLocalExamProgress(
   taskId: string,
   answers: Record<number, string>,
   violationCount: number = 0,
-  violationLogs: ViolationLogItem[] = []
+  violationLogs: ViolationLogItem[] = [],
+  startedAt?: string
 ): void {
   try {
+    const existing = getLocalExamProgress(studentId, taskId);
     const payload: LocalExamProgress = {
       taskId,
       studentId,
       answers,
       violationCount,
       violationLogs,
+      startedAt: startedAt || existing?.startedAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     localStorage.setItem(getLocalProgressKey(studentId, taskId), JSON.stringify(payload));
@@ -139,8 +143,9 @@ export async function syncExamProgressToSupabase(params: {
   answers: Record<number, string>;
   violationCount: number;
   violationLogs: ViolationLogItem[];
-  sessionToken: string;
+  sessionToken: string | null;
   isLocked?: boolean;
+  startedAt?: string;
 }): Promise<{ data: any | null; error: any | null }> {
   if (!supabase) return { data: null, error: new Error('Supabase belum siap') };
 
@@ -151,13 +156,14 @@ export async function syncExamProgressToSupabase(params: {
     violationCount,
     violationLogs,
     sessionToken,
-    isLocked = false
+    isLocked = false,
+    startedAt
   } = params;
 
   const nowIso = new Date().toISOString();
 
   // Save to localStorage first
-  saveLocalExamProgress(studentId, taskId, answers, violationCount, violationLogs);
+  saveLocalExamProgress(studentId, taskId, answers, violationCount, violationLogs, startedAt);
 
   try {
     // Check existing submission row
@@ -192,13 +198,13 @@ export async function syncExamProgressToSupabase(params: {
         Array.isArray(violationLogs) && violationLogs.length > 0
           ? violationLogs
           : existing?.violation_logs || [],
+      started_at: existing?.started_at || startedAt || nowIso,
       last_active_at: nowIso,
       updated_at: nowIso,
       feedback: `Sedang mengerjakan (${countAnsweredQuestions(mergedAnswers)} soal terjawab)`
     };
 
     if (!existing) {
-      fullPayload.started_at = nowIso;
       fullPayload.score = null;
       const { data, error } = await supabase
         .from('task_submissions')

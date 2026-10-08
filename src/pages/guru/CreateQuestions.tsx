@@ -45,7 +45,9 @@ export default function CreateQuestions() {
     type: 'pg', // 'pg', 'essay', 'mixed'
     count: 5,
     optionCount: 5, // 3 (A-C), 4 (A-D), 5 (A-E)
-    kkm: 75 // Kriteria Ketuntasan Minimal
+    kkm: 75, // Kriteria Ketuntasan Minimal
+    min_duration: 15, // Minimal durasi pengerjaan sebelum boleh mengumpulkan (menit)
+    max_duration: 60 // Durasi maksimal pengerjaan / waktu mundur (menit)
   });
 
   // Multi-select classes state (pilihan beberapa kelas)
@@ -67,13 +69,17 @@ export default function CreateQuestions() {
     title: string;
     type: string;
     kkm: number;
+    min_duration: number;
+    max_duration: number;
   }>({
     class_id: '',
     class_ids: [],
     subject_name: '',
     title: '',
     type: 'pg',
-    kkm: 75
+    kkm: 75,
+    min_duration: 15,
+    max_duration: 60
   });
 
   const [editingQuestionIdx, setEditingQuestionIdx] = useState<number | null>(null);
@@ -262,7 +268,9 @@ export default function CreateQuestions() {
         subject_name: form.subject_name,
         title: form.title,
         type: form.type,
-        kkm: form.kkm || 75
+        kkm: form.kkm || 75,
+        min_duration: Number(form.min_duration !== undefined ? form.min_duration : 15),
+        max_duration: Number(form.max_duration || 60)
       };
 
       setGeneratedQuestions(formatted);
@@ -302,6 +310,13 @@ export default function CreateQuestions() {
       return;
     }
 
+    const minDur = Number(meta.min_duration !== undefined ? meta.min_duration : (form.min_duration || 0));
+    const maxDur = Number(meta.max_duration || form.max_duration || 60);
+    if (minDur > maxDur) {
+      alert(`Minimal durasi pengerjaan (${minDur} menit) tidak boleh melebihi durasi maksimal ujian (${maxDur} menit)! Silakan sesuaikan kembali.`);
+      return;
+    }
+
     setSaving(true);
     try {
       const effectivePublishTime = scheduleType === 'SCHEDULED' && scheduledAt
@@ -320,6 +335,9 @@ export default function CreateQuestions() {
         title: meta.title,
         type: meta.type,
         kkm: Number(meta.kkm || form.kkm || 75),
+        min_duration: minDur,
+        max_duration: maxDur,
+        duration: maxDur,
         content: questionsWithSchedule
       }));
 
@@ -332,12 +350,13 @@ export default function CreateQuestions() {
         .map(n => `Kelas ${n}`)
         .join(', ');
 
+      const durInfo = `Durasi: Maksimal ${maxDur} menit${minDur > 0 ? `, Minimal ${minDur} menit` : ''}`;
       const isFuture = new Date(effectivePublishTime).getTime() > Date.now();
       const formattedTime = new Date(effectivePublishTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
       if (isFuture) {
-        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) telah dijadwalkan terbit ke ${inserts.length} kelas (${targetNames}) pada ${formattedTime} WIB.`);
+        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal, ${durInfo}) telah dijadwalkan terbit ke ${inserts.length} kelas (${targetNames}) pada ${formattedTime} WIB.`);
       } else {
-        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal) berhasil diterbitkan ke ${inserts.length} kelas (${targetNames}).`);
+        alert(`✅ Sukses! Paket soal "${meta.title}" (${questionsToPublish.length} butir soal, ${durInfo}) berhasil diterbitkan ke ${inserts.length} kelas (${targetNames}).`);
       }
 
       // Clear draft after publish
@@ -426,7 +445,9 @@ export default function CreateQuestions() {
         subject_name: form.subject_name || (teacherSubjects[0] || 'Mata Pelajaran'),
         title: form.title || 'Paket Soal Manual Baru',
         type: form.type || 'pg',
-        kkm: form.kkm || 75
+        kkm: form.kkm || 75,
+        min_duration: Number(form.min_duration || 0),
+        max_duration: Number(form.max_duration || 60)
       });
       setEditingQuestionIdx(0);
     }
@@ -491,7 +512,9 @@ export default function CreateQuestions() {
         subject_name: form.subject_name || (teacherSubjects[0] || 'Mata Pelajaran'),
         title: form.title || (importFileName ? importFileName.replace(/\.[^.]+$/, '') : 'Paket Soal Import Word'),
         type: detectedType,
-        kkm: form.kkm || 75
+        kkm: form.kkm || 75,
+        min_duration: Number(form.min_duration || 0),
+        max_duration: Number(form.max_duration || 60)
       });
     }
 
@@ -503,6 +526,14 @@ export default function CreateQuestions() {
   // Save changes to existing task
   const handleSaveEditedTask = async () => {
     if (!editingExistingTask) return;
+
+    const editMinDur = Number(editingExistingTask.min_duration || 0);
+    const editMaxDur = Number(editingExistingTask.max_duration || editingExistingTask.duration || 60);
+    if (editMinDur > editMaxDur) {
+      alert(`Minimal durasi pengerjaan (${editMinDur} menit) tidak boleh melebihi durasi maksimal ujian (${editMaxDur} menit)! Silakan sesuaikan kembali.`);
+      return;
+    }
+
     setSavingEditTask(true);
 
     try {
@@ -514,6 +545,9 @@ export default function CreateQuestions() {
           class_id: editingExistingTask.class_id,
           type: editingExistingTask.type,
           kkm: Number(editingExistingTask.kkm || 75),
+          min_duration: editMinDur,
+          max_duration: editMaxDur,
+          duration: editMaxDur,
           content: editingExistingTask.content
         })
         .eq('id', editingExistingTask.id);
@@ -808,6 +842,66 @@ export default function CreateQuestions() {
               </p>
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-blue-600" />
+                  Durasi Maksimal (Waktu Ujian)
+                </span>
+                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                  Hitung Mundur
+                </span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={1}
+                  max={360}
+                  required
+                  value={form.max_duration}
+                  onChange={e => setForm({ ...form, max_duration: Math.max(1, Number(e.target.value)) })}
+                  placeholder="Contoh: 60"
+                  className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 pr-16"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-500">
+                  Menit
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Waktu maksimal pengerjaan soal. Durasi mundur akan tampil otomatis di layar siswa.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Lock className="w-4 h-4 text-amber-600" />
+                  Minimal Durasi Pengerjaan
+                </span>
+                <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                  Kunci Kumpul
+                </span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={0}
+                  max={form.max_duration || 360}
+                  required
+                  value={form.min_duration}
+                  onChange={e => setForm({ ...form, min_duration: Math.max(0, Number(e.target.value)) })}
+                  placeholder="Contoh: 15"
+                  className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-bold text-amber-900 focus:ring-2 focus:ring-amber-500 pr-16"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-500">
+                  Menit
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Siswa tidak dapat mengumpulkan ujian sebelum minimal durasi ini tercapai.
+              </p>
+            </div>
+
             <div className="md:col-span-2 lg:col-span-3">
               <label className="flex items-center gap-2 p-3 bg-blue-50/70 border border-blue-200 rounded-xl cursor-pointer w-full text-xs font-semibold text-blue-900 hover:bg-blue-100 transition">
                 <input 
@@ -999,8 +1093,8 @@ export default function CreateQuestions() {
 
           {/* Draft Metadata Customizer (Supports Multiple Classes) */}
           <div className="p-4 bg-blue-50/60 border-b border-blue-200 space-y-3 text-xs">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
+            <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="sm:col-span-2 md:col-span-2">
                 <label className="block font-bold text-gray-700 mb-1">Judul Paket Soal</label>
                 <input
                   type="text"
@@ -1017,6 +1111,48 @@ export default function CreateQuestions() {
                   onChange={e => setDraftMetadata({ ...draftMetadata, subject_name: e.target.value })}
                   className="w-full p-2 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900"
                 />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">KKM (Nilai Kelulusan)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={draftMetadata.kkm || 75}
+                  onChange={e => setDraftMetadata({ ...draftMetadata, kkm: Number(e.target.value) })}
+                  className="w-full p-2 bg-white border border-gray-300 rounded-lg font-bold text-emerald-800"
+                />
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3 pt-1 border-t border-blue-200/60">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-blue-600" /> Durasi Maksimal Ujian (Menit)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={360}
+                  value={draftMetadata.max_duration || 60}
+                  onChange={e => setDraftMetadata({ ...draftMetadata, max_duration: Math.max(1, Number(e.target.value)) })}
+                  className="w-full p-2 bg-white border border-gray-300 rounded-lg font-bold text-blue-900"
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">Waktu hitung mundur ujian siswa.</p>
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1 flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5 text-amber-600" /> Minimal Durasi Pengerjaan (Menit)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={draftMetadata.max_duration || 360}
+                  value={draftMetadata.min_duration ?? 15}
+                  onChange={e => setDraftMetadata({ ...draftMetadata, min_duration: Math.max(0, Number(e.target.value)) })}
+                  className="w-full p-2 bg-white border border-gray-300 rounded-lg font-bold text-amber-900"
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">Siswa tidak boleh mengumpulkan sebelum menit ini.</p>
               </div>
             </div>
 
@@ -1749,6 +1885,35 @@ export default function CreateQuestions() {
                     value={editingExistingTask.kkm !== undefined ? editingExistingTask.kkm : 75}
                     onChange={e => setEditingExistingTask({ ...editingExistingTask, kkm: Math.min(100, Math.max(0, Number(e.target.value))) })}
                     className="w-full p-2 border border-gray-300 rounded-lg text-sm font-bold text-emerald-800"
+                  />
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" /> Durasi Maksimal Ujian (Menit)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={360}
+                    value={editingExistingTask.max_duration || editingExistingTask.duration || 60}
+                    onChange={e => setEditingExistingTask({ ...editingExistingTask, max_duration: Math.max(1, Number(e.target.value)), duration: Math.max(1, Number(e.target.value)) })}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-sm font-bold text-blue-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" /> Minimal Durasi Pengerjaan (Menit)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={editingExistingTask.max_duration || 360}
+                    value={editingExistingTask.min_duration !== undefined ? editingExistingTask.min_duration : 15}
+                    onChange={e => setEditingExistingTask({ ...editingExistingTask, min_duration: Math.max(0, Number(e.target.value)) })}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-sm font-bold text-amber-900"
                   />
                 </div>
               </div>

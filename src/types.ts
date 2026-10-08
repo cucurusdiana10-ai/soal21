@@ -30,10 +30,18 @@ export interface Material {
 
 export interface Task {
   id: string;
-  material_id: string;
+  material_id?: string;
   title: string;
   content: any;
   created_at: string;
+  type?: string;
+  class_id?: string;
+  guru_id?: string;
+  subject_name?: string;
+  kkm?: number;
+  min_duration?: number;
+  max_duration?: number;
+  duration?: number;
 }
 
 export interface Submission {
