@@ -8,7 +8,7 @@ import {
   Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar,
   KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered, Activity
 } from 'lucide-react';
-import { generateQuestionsApi } from '../../lib/aiService';
+import { generateQuestionsApi, formatAiErrorMessage } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
 import {
   downloadWordQuestionTemplate,
@@ -281,7 +281,7 @@ export default function CreateQuestions() {
         await publishQuestionsDirectly(formatted, nextMeta);
       }
     } catch (err: any) {
-      alert(err.message || 'Gagal meracik soal dari AI. Pastikan server aktif dan koneksi stabil.');
+      alert(formatAiErrorMessage(err));
     } finally {
       setLoading(false);
     }

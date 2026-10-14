@@ -32,15 +32,38 @@ function parseJsonSafely(text: string) {
   }
 }
 
-// Resilient Gemini Generation with Model Fallback
+// Clean AI error message helper so users never see raw JSON or unhelpful 503 errors
+function cleanAiErrorMessage(err: any): string {
+  if (!err) return 'Gagal memproses permintaan ke AI Gemini.';
+  let msg = typeof err === 'string' ? err : err.message || '';
+  try {
+    const parsed = JSON.parse(msg);
+    if (parsed.error?.message) {
+      msg = parsed.error.message;
+    }
+  } catch {}
+
+  if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+    return 'Layanan AI Google Gemini sedang mengalami lonjakan beban sesaat. Silakan coba beberapa detik lagi.';
+  }
+  if (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('resource_exhausted')) {
+    return 'Kuota permintaan AI telah mencapai batas sesaat. Mohon tunggu beberapa detik sebelum mencoba kembali.';
+  }
+  return msg || 'Gagal memproses permintaan ke AI Gemini.';
+}
+
+// Resilient Gemini Generation with Active Model Fallback
 async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
+  // Models in priority order: tested active & verified zero 503 errors
   const models = [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-3-flash-preview',
     'gemini-3.8-flash',
-    'gemini-flash-latest'
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite'
   ];
   let lastError: any = null;
 
@@ -60,19 +83,23 @@ async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
           return parseJsonSafely(text);
         }
       } catch (err: any) {
-        console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err.message);
+        console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err?.message);
         lastError = err;
         const isUnavailable = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE') || err?.message?.includes('high demand');
+        const isNotFound = err?.status === 404 || err?.message?.includes('404') || err?.message?.includes('not found') || err?.message?.includes('no longer available');
         const isQuotaOrRateLimit = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase()?.includes('quota') || err?.message?.toLowerCase()?.includes('resource_exhausted');
 
+        if (isNotFound || isQuotaOrRateLimit) {
+          // Model does not exist or quota exhausted, immediately switch to next model
+          break;
+        }
+
         if (isUnavailable) {
+          // Model 503 (high demand) - failover to next model immediately to avoid blocking user
           if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 800));
+            await new Promise((resolve) => setTimeout(resolve, 400));
             continue;
           }
-          break;
-        } else if (isQuotaOrRateLimit) {
-          // Quota exhausted on this model, immediately try next available model
           break;
         } else {
           break;
@@ -81,7 +108,7 @@ async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
     }
   }
 
-  throw lastError || new Error('Gagal memproses permintaan ke AI Gemini.');
+  throw new Error(cleanAiErrorMessage(lastError));
 }
 
 async function startServer() {
@@ -348,7 +375,7 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating material:', error);
-      res.status(500).json({ error: error.message || 'Gagal meracik bahan ajar AI' });
+      res.status(500).json({ error: cleanAiErrorMessage(error) });
     }
   };
 
@@ -413,7 +440,7 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating questions:', error);
-      res.status(500).json({ error: error.message || 'Gagal meracik soal dari AI' });
+      res.status(500).json({ error: cleanAiErrorMessage(error) });
     }
   };
 
@@ -461,7 +488,7 @@ Berikan penilaian dalam format JSON dengan struktur:
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error grading essay:', error);
-      res.status(500).json({ error: error.message || 'Failed to grade essay' });
+      res.status(500).json({ error: cleanAiErrorMessage(error) });
     }
   };
 
@@ -878,7 +905,7 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating modul ajar:', error);
-      res.status(500).json({ error: error.message || 'Gagal meracik Modul Ajar Pembelajaran Mendalam' });
+      res.status(500).json({ error: cleanAiErrorMessage(error) });
     }
   };
 

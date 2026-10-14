@@ -27,7 +27,7 @@ import {
   Bookmark,
   ClipboardList
 } from 'lucide-react';
-import { generateModulAjarApi } from '../../lib/aiService';
+import { generateModulAjarApi, formatAiErrorMessage } from '../../lib/aiService';
 import { exportModulAjarToDocx } from '../../lib/modulDocxGenerator';
 import ModulAjarEditor, { DELAPAN_DIMENSI_LULUSAN } from './ModulAjarEditor';
 import {
@@ -460,7 +460,7 @@ export default function CreateModulAjar() {
         }
       }
     } catch (err: any) {
-      alert(err.message || 'Gagal meracik Modul Ajar AI.');
+      alert(formatAiErrorMessage(err));
     } finally {
       setLoading(false);
     }

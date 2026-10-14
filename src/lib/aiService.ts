@@ -28,6 +28,25 @@ export function parseJsonSafely(text: string) {
   }
 }
 
+export function formatAiErrorMessage(err: any): string {
+  if (!err) return 'Terjadi kendala saat memproses permintaan AI.';
+  let msg = typeof err === 'string' ? err : err.message || '';
+  try {
+    const parsed = JSON.parse(msg);
+    if (parsed.error?.message) {
+      msg = parsed.error.message;
+    }
+  } catch {}
+
+  if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+    return 'Layanan AI Google Gemini sedang mengalami lonjakan beban sesaat. Silakan klik tombol buat/racik kembali.';
+  }
+  if (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('resource_exhausted')) {
+    return 'Kuota permintaan AI telah mencapai batas sesaat. Mohon tunggu beberapa saat sebelum mencoba kembali.';
+  }
+  return msg || 'Gagal memproses AI.';
+}
+
 export function getClientGeminiApiKey(): string {
   const metaEnv = (import.meta as any).env || {};
   if (metaEnv.VITE_GEMINI_API_KEY && typeof metaEnv.VITE_GEMINI_API_KEY === 'string' && metaEnv.VITE_GEMINI_API_KEY.trim()) {
@@ -59,12 +78,14 @@ async function executeClientGemini(prompt: string) {
   });
 
   const models = [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-3-flash-preview',
     'gemini-3.8-flash',
-    'gemini-flash-latest'
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite'
   ];
   let lastErr: any = null;
 
@@ -82,17 +103,20 @@ async function executeClientGemini(prompt: string) {
         console.warn(`[Client AI] Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err?.message);
         lastErr = err;
         const isUnavailable = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE') || err?.message?.includes('high demand');
+        const isNotFound = err?.status === 404 || err?.message?.includes('404') || err?.message?.includes('not found') || err?.message?.includes('no longer available');
         const isQuotaOrRateLimit = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase()?.includes('quota') || err?.message?.toLowerCase()?.includes('resource_exhausted');
 
+        if (isNotFound || isQuotaOrRateLimit) {
+          // Model deprecated or quota hit, switch to next model immediately
+          break;
+        }
+
         if (isUnavailable) {
-          // Model 503 (high demand). Retrying after short delay before moving to next model
+          // Model 503 (high demand) - switch to next model quickly
           if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 800));
+            await new Promise((resolve) => setTimeout(resolve, 400));
             continue;
           }
-          break;
-        } else if (isQuotaOrRateLimit) {
-          // Quota exhausted on this model, switch immediately to next available model
           break;
         } else {
           break;
@@ -101,7 +125,7 @@ async function executeClientGemini(prompt: string) {
     }
   }
 
-  throw lastErr || new Error('Gagal menghubungi AI Gemini.');
+  throw new Error(formatAiErrorMessage(lastErr));
 }
 
 // Client-side fallback for generating material with meetings & gamification
@@ -724,7 +748,7 @@ async function postApiWithFallback(
       'Gagal memproses AI. Jika Anda menggunakan hosting Vercel, pastikan variabel GEMINI_API_KEY telah ditambahkan di Vercel Dashboard (Settings -> Environment Variables) lalu lakukan REDEPLOY.';
   }
 
-  throw new Error(lastErrorMsg);
+  throw new Error(formatAiErrorMessage(lastErrorMsg));
 }
 
 export interface GenerateMaterialPayload {

@@ -3,7 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
 import { BookOpen, Sparkles, Loader2, Save, Trash2, Eye, X, Send, Edit3, Maximize2, Minimize2, Image, PlusCircle, Check, Film, Video, ExternalLink, FileText, CheckCircle2, Search, LayoutGrid, List, Calendar, Layers, HelpCircle } from 'lucide-react';
-import { generateMaterialApi } from '../../lib/aiService';
+import { generateMaterialApi, formatAiErrorMessage } from '../../lib/aiService';
 import { resolveRelevantYoutubeVideo } from '../../lib/youtubeLibrary';
 import MediaViewer from '../../components/MediaViewer';
 import CreateQuestions from './CreateQuestions';
@@ -253,7 +253,7 @@ function MaterialGenerator() {
       data.mediaType = form.mediaPreference || 'both';
       setResult(data);
     } catch (err: any) {
-      alert(err.message || 'Gagal meracik bahan ajar');
+      alert(formatAiErrorMessage(err));
     } finally {
       setLoading(false);
     }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
-import { searchCpApi, CpSearchResult } from '../../lib/aiService';
+import { searchCpApi, CpSearchResult, formatAiErrorMessage } from '../../lib/aiService';
 import {
   SavedCpItem,
   getTeacherSavedCps,
@@ -249,9 +249,7 @@ export default function GuruLihatCp() {
       setSearchResult(res);
     } catch (err: any) {
       console.error('Error searching CP:', err);
-      setSearchError(
-        err.message || 'Gagal mencari Capaian Pembelajaran dari dokumen BSKAP 046/2025.'
-      );
+      setSearchError(formatAiErrorMessage(err));
     } finally {
       setSearching(false);
     }
