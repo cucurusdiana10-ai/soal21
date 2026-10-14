@@ -6,7 +6,8 @@ import {
   FileText, Sparkles, Loader2, Send, Trash2, Eye, X, CheckCircle2, 
   PlusCircle, Edit2, AlertCircle, Save, Check, ArrowUp, ArrowDown, 
   Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar,
-  KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered, Activity
+  KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered, Activity,
+  Share2, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
 import { generateQuestionsApi, formatAiErrorMessage } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
@@ -88,6 +89,24 @@ export default function CreateQuestions() {
   const [savingEditTask, setSavingEditTask] = useState(false);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
+
+  // States for re-publishing/duplicating task to other classes
+  const [republishTask, setRepublishTask] = useState<any | null>(null);
+  const [republishClassIds, setRepublishClassIds] = useState<string[]>([]);
+  const [republishTitle, setRepublishTitle] = useState<string>('');
+  const [republishKkm, setRepublishKkm] = useState<number>(75);
+  const [republishMinDuration, setRepublishMinDuration] = useState<number>(15);
+  const [republishMaxDuration, setRepublishMaxDuration] = useState<number>(60);
+  const [republishScheduleType, setRepublishScheduleType] = useState<'NOW' | 'SCHEDULED'>('NOW');
+  const [republishScheduledAt, setRepublishScheduledAt] = useState<string>(() => {
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    d.setMinutes(0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [republishQuestions, setRepublishQuestions] = useState<any[]>([]);
+  const [savingRepublish, setSavingRepublish] = useState<boolean>(false);
+  const [showRepublishQuestionEditor, setShowRepublishQuestionEditor] = useState<boolean>(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -562,6 +581,161 @@ export default function CreateQuestions() {
     } finally {
       setSavingEditTask(false);
     }
+  };
+
+  // Open modal to re-publish an existing task to other classes
+  const openRepublishModal = (task: any) => {
+    const clonedQuestions = JSON.parse(JSON.stringify(task.content || []));
+    setRepublishTask(task);
+    setRepublishClassIds([]);
+    setRepublishTitle(task.title || '');
+    setRepublishKkm(task.kkm !== undefined && task.kkm !== null ? task.kkm : 75);
+    setRepublishMinDuration(task.min_duration !== undefined && task.min_duration !== null ? task.min_duration : 15);
+    setRepublishMaxDuration(task.max_duration || task.duration || 60);
+    setRepublishScheduleType('NOW');
+    setRepublishQuestions(clonedQuestions);
+    setShowRepublishQuestionEditor(false);
+  };
+
+  const toggleRepublishClass = (classId: string) => {
+    setRepublishClassIds(prev => 
+      prev.includes(classId) ? prev.filter(id => id !== classId) : [...prev, classId]
+    );
+  };
+
+  const handleSelectAllOtherClasses = () => {
+    if (!republishTask) return;
+    const otherClassIds = classes.filter(c => c.id !== republishTask.class_id).map(c => c.id);
+    if (republishClassIds.length === otherClassIds.length) {
+      setRepublishClassIds([]);
+    } else {
+      setRepublishClassIds(otherClassIds);
+    }
+  };
+
+  // Execute re-publishing to selected classes
+  const handleExecuteRepublish = async () => {
+    if (!republishTask || !user) return;
+    if (republishClassIds.length === 0) {
+      alert('Mohon pilih minimal 1 Target Kelas untuk menerbitkan paket soal ini!');
+      return;
+    }
+    if (!republishTitle.trim()) {
+      alert('Judul paket soal tidak boleh kosong!');
+      return;
+    }
+    if (!Array.isArray(republishQuestions) || republishQuestions.length === 0) {
+      alert('Paket soal harus memiliki minimal 1 butir pertanyaan!');
+      return;
+    }
+
+    const minDur = Number(republishMinDuration || 0);
+    const maxDur = Number(republishMaxDuration || 60);
+    if (minDur > maxDur) {
+      alert(`Minimal durasi pengerjaan (${minDur} menit) tidak boleh melebihi durasi maksimal ujian (${maxDur} menit)! Silakan sesuaikan kembali.`);
+      return;
+    }
+
+    setSavingRepublish(true);
+    try {
+      const effectivePublishTime = republishScheduleType === 'SCHEDULED' && republishScheduledAt
+        ? new Date(republishScheduledAt).toISOString()
+        : new Date().toISOString();
+
+      const questionsWithSchedule = republishQuestions.map(q => ({
+        ...q,
+        published_at: effectivePublishTime
+      }));
+
+      const inserts = republishClassIds.map(cid => ({
+        guru_id: user.id,
+        class_id: cid,
+        subject_name: republishTask.subject_name || form.subject_name || 'Mata Pelajaran',
+        title: republishTitle.trim(),
+        type: republishTask.type || 'pg',
+        kkm: Number(republishKkm || 75),
+        min_duration: minDur,
+        max_duration: maxDur,
+        duration: maxDur,
+        content: questionsWithSchedule
+      }));
+
+      const { error } = await supabase.from('tasks').insert(inserts);
+      if (error) throw error;
+
+      const targetNames = republishClassIds
+        .map(id => classes.find(c => c.id === id)?.name)
+        .filter(Boolean)
+        .map(n => `Kelas ${n}`)
+        .join(', ');
+
+      const isFuture = new Date(effectivePublishTime).getTime() > Date.now();
+      const formattedTime = new Date(effectivePublishTime).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
+
+      if (isFuture) {
+        alert(`✅ Sukses! Paket soal "${republishTitle}" (${republishQuestions.length} butir) telah dijadwalkan terbit ke ${inserts.length} kelas (${targetNames}) pada ${formattedTime} WIB.`);
+      } else {
+        alert(`✅ Sukses! Paket soal "${republishTitle}" (${republishQuestions.length} butir) berhasil diterbitkan ke ${inserts.length} kelas (${targetNames}).`);
+      }
+
+      setRepublishTask(null);
+      fetchTasks();
+    } catch (err: any) {
+      alert('Gagal menerbitkan paket soal ke kelas lain: ' + (err?.message || String(err)));
+    } finally {
+      setSavingRepublish(false);
+    }
+  };
+
+  // Load published task into Draft Editor for comprehensive editing and multi-class publishing
+  const handleLoadTaskToDraft = (task: any) => {
+    const content = JSON.parse(JSON.stringify(task.content || []));
+    if (!Array.isArray(content) || content.length === 0) {
+      alert('Paket soal tidak memiliki butir pertanyaan.');
+      return;
+    }
+
+    if (generatedQuestions && generatedQuestions.length > 0) {
+      const confirmReplace = confirm(
+        'Saat ini terdapat draf soal yang sedang dibuka di editor. Apakah Anda ingin memuat paket soal ini ke dalam draf editor?'
+      );
+      if (!confirmReplace) return;
+    }
+
+    setGeneratedQuestions(content);
+    setDraftMetadata({
+      class_id: '',
+      class_ids: [],
+      subject_name: task.subject_name || '',
+      title: task.title || '',
+      type: task.type || 'pg',
+      kkm: task.kkm !== undefined && task.kkm !== null ? task.kkm : 75,
+      min_duration: task.min_duration !== undefined && task.min_duration !== null ? task.min_duration : 15,
+      max_duration: task.max_duration || task.duration || 60
+    });
+    setForm(prev => ({
+      ...prev,
+      subject_name: task.subject_name || prev.subject_name,
+      title: task.title || prev.title,
+      type: task.type || 'pg',
+      kkm: task.kkm !== undefined && task.kkm !== null ? task.kkm : 75,
+      min_duration: task.min_duration !== undefined && task.min_duration !== null ? task.min_duration : 15,
+      max_duration: task.max_duration || task.duration || 60
+    }));
+    setSelectedClassIds([]);
+    setEditingQuestionIdx(null);
+
+    // Close any open modals
+    setSelectedTask(null);
+    setEditingExistingTask(null);
+    setRepublishTask(null);
+
+    // Smooth scroll to top draft editor section
+    setTimeout(() => {
+      window.scrollTo({ top: 400, behavior: 'smooth' });
+    }, 150);
+
+    alert(`✅ Paket soal "${task.title}" (${content.length} butir) berhasil dimuat ke Editor Draf!\n\nAnda dapat mengedit soal, kunci jawaban, dan memilih kelas target lainnya di bagian draf untuk diterbitkan.`);
   };
 
   const handleDownloadTaskWord = async (task: any) => {
@@ -1648,7 +1822,7 @@ export default function CreateQuestions() {
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <Link
                         to={`/dashboard/monitoring?taskId=${task.id}`}
                         className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold transition flex items-center gap-1"
@@ -1679,6 +1853,20 @@ export default function CreateQuestions() {
                         <Edit2 className="w-3.5 h-3.5" /> Edit
                       </button>
                       <button 
+                        onClick={() => openRepublishModal(task)}
+                        className="px-3 py-2 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-2xs"
+                        title="Gunakan atau Terbitkan Lagi Paket Soal Ini untuk Kelas Lainnya"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-purple-600" /> Terbitkan ke Kelas Lain
+                      </button>
+                      <button 
+                        onClick={() => handleLoadTaskToDraft(task)}
+                        className="px-3 py-2 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-2xs"
+                        title="Muat ke Editor Draf untuk Diedit Bebas & Diterbitkan Ulang"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-sky-600" /> Muat ke Draf
+                      </button>
+                      <button 
                         onClick={() => handleDeleteTask(task.id)}
                         className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
                         title="Hapus Tugas"
@@ -1705,14 +1893,49 @@ export default function CreateQuestions() {
                   Kelas {selectedTask.className || getClassName(selectedTask.class_id)} • {selectedTask.subject_name} • KKM: <span className="font-bold text-emerald-700">{selectedTask.kkm || 75}</span>
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = selectedTask;
+                    setSelectedTask(null);
+                    openRepublishModal(t);
+                  }}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                  title="Gunakan paket soal ini untuk diterbitkan ke kelas lainnya"
+                >
+                  <Share2 className="w-3.5 h-3.5" /> Terbitkan ke Kelas Lain
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = selectedTask;
+                    handleLoadTaskToDraft(t);
+                  }}
+                  className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                  title="Muat soal ke editor draf utama untuk modifikasi menyeluruh"
+                >
+                  <Layers className="w-3.5 h-3.5" /> Muat ke Draf
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = JSON.parse(JSON.stringify(selectedTask));
+                    setSelectedTask(null);
+                    setEditingExistingTask(t);
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                  title="Edit paket soal ini"
+                >
+                  <Edit2 className="w-3.5 h-3.5" /> Edit
+                </button>
                 <button
                   type="button"
                   onClick={() => handleDownloadTaskWord(selectedTask)}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
                   title="Download Naskah Soal Lengkap (.docx)"
                 >
-                  <Download className="w-3.5 h-3.5" /> Download Soal (.docx)
+                  <Download className="w-3.5 h-3.5" /> Download (.docx)
                 </button>
                 <button 
                   onClick={() => setSelectedTask(null)}
@@ -2098,23 +2321,442 @@ export default function CreateQuestions() {
               </div>
             </div>
 
-            <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const taskToRepublish = JSON.parse(JSON.stringify(editingExistingTask));
+                    setEditingExistingTask(null);
+                    openRepublishModal(taskToRepublish);
+                  }}
+                  className="px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+                  title="Gunakan hasil editan ini untuk diterbitkan ke kelas lainnya"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-purple-600" /> Terbitkan Salinan ke Kelas Lain...
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const taskToDraft = JSON.parse(JSON.stringify(editingExistingTask));
+                    setEditingExistingTask(null);
+                    handleLoadTaskToDraft(taskToDraft);
+                  }}
+                  className="px-3 py-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+                  title="Pindahkan soal editan ini ke Editor Draf utama"
+                >
+                  <Layers className="w-3.5 h-3.5 text-sky-600" /> Muat ke Draf Utama
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingExistingTask(null)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-100 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={savingEditTask}
+                  onClick={handleSaveEditedTask}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 disabled:opacity-70 shadow-sm"
+                >
+                  {savingEditTask ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {savingEditTask ? 'Menyimpan...' : 'Simpan Perubahan Paket Soal'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Re-Publish / Duplicate Task to Other Classes Modal */}
+      {republishTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-gray-200">
+            <div className="flex items-center justify-between p-6 border-b border-purple-100 bg-gradient-to-r from-purple-900 via-indigo-900 to-purple-950 text-white">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
+                  <Share2 className="w-3.5 h-3.5" /> Duplikasi & Terbitkan Ulang
+                </span>
+                <h3 className="text-lg font-bold mt-1 flex items-center gap-2">
+                  Terbitkan Paket Soal ke Kelas Lainnya
+                </h3>
+                <p className="text-xs text-purple-200 mt-0.5">
+                  Gunakan paket soal yang sudah ada, sesuaikan judul atau butir soal bila perlu, lalu terbitkan ke kelas-kelas lain.
+                </p>
+              </div>
+              <button 
+                onClick={() => setRepublishTask(null)}
+                className="text-white/70 hover:text-white p-2 rounded-lg hover:bg-white/10 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {/* Origin Information Card */}
+              <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-purple-950">Paket Asal:</span>
+                    <span className="text-xs px-2.5 py-0.5 bg-white text-purple-800 font-bold rounded border border-purple-200 shadow-2xs">
+                      Kelas {getClassName(republishTask.class_id)}
+                    </span>
+                    <span className="text-xs text-purple-800 font-medium">
+                      · {republishTask.subject_name} · {republishQuestions.length} Butir Soal
+                    </span>
+                  </div>
+                  <p className="text-xs text-purple-700 font-semibold">
+                    "{republishTask.title}"
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleLoadTaskToDraft(republishTask)}
+                  className="px-3 py-1.5 bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0 shadow-2xs"
+                  title="Pindah ke editor draf utama bila ingin meracik lebih leluasa"
+                >
+                  <Layers className="w-3.5 h-3.5 text-purple-600" /> Buka di Editor Draf
+                </button>
+              </div>
+
+              {/* Target Class Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-purple-600" />
+                    <span>Pilih Target Kelas Tujuan Penerbitan ({republishClassIds.length} Dipilih)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllOtherClasses}
+                    className="text-xs font-bold text-purple-700 hover:text-purple-900"
+                  >
+                    {republishClassIds.length > 0 ? 'Reset Pilihan' : '✓ Pilih Semua Kelas Lainnya'}
+                  </button>
+                </div>
+
+                <div className="p-3 bg-gray-50 border border-gray-300 rounded-xl max-h-44 overflow-y-auto">
+                  {classes.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-2 text-center">Belum ada daftar kelas.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {classes.map(c => {
+                        const isOrigin = c.id === republishTask.class_id;
+                        const isChecked = republishClassIds.includes(c.id);
+                        return (
+                          <label
+                            key={c.id}
+                            className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border text-xs cursor-pointer transition ${
+                              isChecked
+                                ? 'bg-purple-600 text-white font-bold border-purple-600 shadow-2xs'
+                                : isOrigin
+                                ? 'bg-purple-50 text-purple-900 border-purple-200 font-semibold'
+                                : 'bg-white hover:bg-purple-50/50 text-gray-700 border-gray-200 font-medium'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleRepublishClass(c.id)}
+                                className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+                              />
+                              <span className="truncate">Kelas {c.name}</span>
+                            </div>
+                            {isOrigin && (
+                              <span className={`text-[10px] px-1.5 py-0.2 rounded shrink-0 font-bold ${
+                                isChecked ? 'bg-purple-800 text-purple-100' : 'bg-purple-200 text-purple-800'
+                              }`}>
+                                Asal
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Centang satu atau beberapa kelas lain yang akan menerima paket soal ini.
+                </p>
+              </div>
+
+              {/* Title & Grading Settings */}
+              <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="sm:col-span-2 md:col-span-2">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Judul Paket Soal untuk Kelas Lain</label>
+                  <input
+                    type="text"
+                    required
+                    value={republishTitle}
+                    onChange={e => setRepublishTitle(e.target.value)}
+                    placeholder="Contoh: Penilaian Harian Matematika"
+                    className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Mata Pelajaran</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={republishTask.subject_name || '-'}
+                    className="w-full p-2 bg-gray-100 border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">KKM (Minimal Tuntas)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={republishKkm}
+                    onChange={e => setRepublishKkm(Math.min(100, Math.max(0, Number(e.target.value))))}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold text-emerald-800 focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" /> Durasi Maksimal Ujian (Menit)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={360}
+                    value={republishMaxDuration}
+                    onChange={e => setRepublishMaxDuration(Math.max(1, Number(e.target.value)))}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold text-blue-900 focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" /> Minimal Durasi Pengerjaan (Menit)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={republishMaxDuration}
+                    value={republishMinDuration}
+                    onChange={e => setRepublishMinDuration(Math.max(0, Number(e.target.value)))}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold text-amber-900 focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+
+              {/* Schedule Type */}
+              <div className="p-3.5 bg-purple-50/50 border border-purple-200 rounded-xl space-y-2.5">
+                <label className="block text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-purple-700" />
+                  Waktu Diterbitkan ke Siswa
+                </label>
+                <div className="grid sm:grid-cols-2 gap-2 text-xs">
+                  <label className={`p-2.5 rounded-lg border cursor-pointer transition flex items-center gap-2 ${
+                    republishScheduleType === 'NOW' ? 'bg-white border-purple-600 shadow-2xs font-bold text-purple-950' : 'bg-white/80 border-gray-200 text-gray-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="republishScheduleType"
+                      checked={republishScheduleType === 'NOW'}
+                      onChange={() => setRepublishScheduleType('NOW')}
+                      className="text-purple-600 focus:ring-purple-500"
+                    />
+                    <span>⚡ Terbitkan Sekarang (Aktif Langsung)</span>
+                  </label>
+                  <label className={`p-2.5 rounded-lg border cursor-pointer transition flex items-center gap-2 ${
+                    republishScheduleType === 'SCHEDULED' ? 'bg-white border-purple-600 shadow-2xs font-bold text-purple-950' : 'bg-white/80 border-gray-200 text-gray-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="republishScheduleType"
+                      checked={republishScheduleType === 'SCHEDULED'}
+                      onChange={() => setRepublishScheduleType('SCHEDULED')}
+                      className="text-purple-600 focus:ring-purple-500"
+                    />
+                    <span>📅 Jadwalkan Waktu Tertentu</span>
+                  </label>
+                </div>
+
+                {republishScheduleType === 'SCHEDULED' && (
+                  <div className="pt-2 flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                    <label className="text-[11px] font-bold text-gray-700">Pilih Jadwal Buka Soal:</label>
+                    <input
+                      type="datetime-local"
+                      value={republishScheduledAt}
+                      onChange={e => setRepublishScheduledAt(e.target.value)}
+                      className="p-1.5 border border-purple-300 bg-white rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Collapsible Questions Preview & Editor */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowRepublishQuestionEditor(!showRepublishQuestionEditor)}
+                  className="w-full p-3.5 bg-gray-50 hover:bg-gray-100 flex items-center justify-between text-xs font-bold text-gray-800 transition"
+                >
+                  <span className="flex items-center gap-2">
+                    <Edit2 className="w-3.5 h-3.5 text-purple-600" />
+                    Review & Sesuaikan Butir Soal ({republishQuestions.length} Soal)
+                  </span>
+                  <div className="flex items-center gap-2 text-purple-700">
+                    <span>{showRepublishQuestionEditor ? 'Tutup Editor Soal' : 'Klik untuk Mengedit Soal'}</span>
+                    {showRepublishQuestionEditor ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
+                </button>
+
+                {showRepublishQuestionEditor && (
+                  <div className="p-4 bg-white space-y-4 max-h-96 overflow-y-auto">
+                    <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+                      <span className="text-xs text-gray-500">Anda dapat mengubah redaksi soal atau kunci jawaban sebelum diterbitkan ke kelas lain.</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newQ = {
+                            type: republishTask.type === 'essay' ? 'essay' : 'pg',
+                            question: 'Tulis pertanyaan baru...',
+                            options: republishTask.type === 'essay' ? [] : buildDefaultOptions(form.optionCount),
+                            answer: 'A'
+                          };
+                          setRepublishQuestions([...republishQuestions, newQ]);
+                        }}
+                        className="text-xs font-bold text-purple-700 hover:text-purple-900 bg-purple-50 px-2.5 py-1 rounded-lg flex items-center gap-1"
+                      >
+                        <PlusCircle className="w-3.5 h-3.5" /> + Tambah Soal
+                      </button>
+                    </div>
+
+                    {republishQuestions.map((q: any, qIdx: number) => (
+                      <div key={qIdx} className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-gray-700">Soal #{qIdx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = republishQuestions.filter((_: any, i: number) => i !== qIdx);
+                              setRepublishQuestions(updated);
+                            }}
+                            className="text-red-500 hover:text-red-700 p-1"
+                            title="Hapus butir soal"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-gray-600 mb-0.5">Pertanyaan</label>
+                          <textarea
+                            rows={2}
+                            value={q.question}
+                            onChange={e => {
+                              const updated = [...republishQuestions];
+                              updated[qIdx].question = e.target.value;
+                              setRepublishQuestions(updated);
+                            }}
+                            className="w-full p-2 bg-white border border-gray-300 rounded-lg text-xs"
+                          />
+                        </div>
+
+                        {q.type === 'pg' && Array.isArray(q.options) && (
+                          <div className="space-y-1.5 bg-white p-2.5 rounded-lg border border-gray-200">
+                            <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                              Pilihan Jawaban (Klik tombol huruf untuk menentukan Kunci Jawaban):
+                            </label>
+                            {q.options.map((opt: string, oIdx: number) => {
+                              const letter = String.fromCharCode(65 + oIdx);
+                              const isCorrect = q.answer === letter;
+                              return (
+                                <div key={oIdx} className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = [...republishQuestions];
+                                      updated[qIdx].answer = letter;
+                                      setRepublishQuestions(updated);
+                                    }}
+                                    className={`w-6 h-6 rounded text-xs font-bold shrink-0 ${
+                                      isCorrect ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
+                                    }`}
+                                    title={`Jadikan ${letter} sebagai Kunci Jawaban`}
+                                  >
+                                    {letter}
+                                  </button>
+                                  <input
+                                    type="text"
+                                    value={opt}
+                                    onChange={e => {
+                                      const updated = [...republishQuestions];
+                                      updated[qIdx].options[oIdx] = e.target.value;
+                                      setRepublishQuestions(updated);
+                                    }}
+                                    className="flex-1 p-1 text-xs bg-gray-50 border border-gray-300 rounded"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {q.type === 'essay' && (
+                          <div>
+                            <label className="block text-[11px] font-bold text-amber-800 mb-0.5">Kunci Jawaban Esai:</label>
+                            <textarea
+                              rows={2}
+                              value={q.answerKey || q.answer || ''}
+                              onChange={e => {
+                                const updated = [...republishQuestions];
+                                updated[qIdx].answerKey = e.target.value;
+                                updated[qIdx].answer = e.target.value;
+                                setRepublishQuestions(updated);
+                              }}
+                              className="w-full p-2 bg-white border border-amber-200 rounded-lg text-xs"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
               <button
                 type="button"
-                onClick={() => setEditingExistingTask(null)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-100 transition"
+                onClick={() => handleLoadTaskToDraft(republishTask)}
+                className="px-3.5 py-2 text-purple-700 hover:bg-purple-50 border border-purple-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                title="Buka seluruh butir soal di editor draf utama"
               >
-                Batal
+                <Layers className="w-4 h-4 text-purple-600" /> Buka di Draf Utama
               </button>
-              <button
-                type="button"
-                disabled={savingEditTask}
-                onClick={handleSaveEditedTask}
-                className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 disabled:opacity-70 shadow-sm"
-              >
-                {savingEditTask ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {savingEditTask ? 'Menyimpan...' : 'Simpan Perubahan Paket Soal'}
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRepublishTask(null)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-100 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={savingRepublish || republishClassIds.length === 0}
+                  onClick={handleExecuteRepublish}
+                  className="px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-sm font-extrabold transition flex items-center gap-2 disabled:opacity-50 shadow-md"
+                >
+                  {savingRepublish ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {savingRepublish
+                    ? 'Menerbitkan...'
+                    : `Terbitkan ke ${republishClassIds.length} Kelas Terpilih`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
