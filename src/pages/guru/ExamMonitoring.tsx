@@ -640,25 +640,28 @@ export default function ExamMonitoring() {
         </div>
       </div>
 
-      {/* Select Exam / Task Section */}
-      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+      {/* Select Exam / Task Section (Compact, Precise Table) */}
+      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200 shadow-2xs space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-base font-bold text-gray-900">Pilih Paket Soal / Ujian yang Dipantau</h2>
-            <p className="text-xs text-gray-500">
-              Pilih salah satu paket soal pada tabel di bawah untuk membuka monitoring ujian siswa secara langsung ({tasks.length} paket soal tersedia).
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+              <KeyRound className="w-4 h-4 text-indigo-600" />
+              Pilih Paket Soal Ujian yang Dipantau
+            </h2>
+            <p className="text-[11px] text-gray-500">
+              Pilih paket soal pada tabel untuk menampilkan monitoring live di bawah ({tasks.length} paket soal).
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="relative min-w-[200px]">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[180px]">
+              <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Cari paket soal / mapel..."
+                placeholder="Cari paket / mapel..."
                 value={taskSearch}
                 onChange={e => setTaskSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 font-medium"
+                className="w-full pl-7 pr-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 font-medium"
               />
             </div>
 
@@ -666,7 +669,7 @@ export default function ExamMonitoring() {
               <select
                 value={taskClassFilter}
                 onChange={e => setTaskClassFilter(e.target.value)}
-                className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700"
+                className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700"
               >
                 <option value="ALL">Semua Kelas ({uniqueTaskClasses.length})</option>
                 {uniqueTaskClasses.map((cls: any, i: number) => (
@@ -678,35 +681,35 @@ export default function ExamMonitoring() {
         </div>
 
         {loadingTasks ? (
-          <div className="py-8 text-center text-gray-500 text-sm flex items-center justify-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> Memuat daftar paket soal...
+          <div className="py-6 text-center text-gray-500 text-xs flex items-center justify-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" /> Memuat daftar paket soal...
           </div>
         ) : filteredTasks.length === 0 ? (
-          <div className="p-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200 space-y-2">
-            <p className="text-sm font-semibold text-gray-700">Tidak ada paket soal yang cocok dengan pencarian.</p>
+          <div className="p-6 text-center bg-gray-50 rounded-lg border border-dashed border-gray-200 space-y-1.5">
+            <p className="text-xs font-semibold text-gray-700">Tidak ada paket soal yang cocok dengan pencarian.</p>
             <Link
               to="/dashboard/soal"
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition"
+              className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition"
             >
               Buat Soal Sekarang →
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-2xs">
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-slate-50 border-b border-gray-200 text-gray-700 font-bold">
-                  <th className="p-3 w-12 text-center">No</th>
-                  <th className="p-3 min-w-[220px]">Paket Soal & Mata Pelajaran</th>
-                  <th className="p-3">Target Kelas</th>
-                  <th className="p-3">Tipe & Butir</th>
-                  <th className="p-3 text-center">KKM</th>
-                  <th className="p-3 min-w-[170px]">Token Ujian (30 Mnt)</th>
-                  <th className="p-3">Tanggal Dibuat</th>
-                  <th className="p-3 text-right">Aksi</th>
+                <tr className="bg-slate-100/80 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] tracking-wider">
+                  <th className="py-2 px-2.5 w-10 text-center">No</th>
+                  <th className="py-2 px-2.5 min-w-[200px]">Paket Soal & Mata Pelajaran</th>
+                  <th className="py-2 px-2.5">Kelas</th>
+                  <th className="py-2 px-2.5">Tipe & Butir</th>
+                  <th className="py-2 px-2.5 text-center">KKM</th>
+                  <th className="py-2 px-2.5 min-w-[150px]">Token (30 Mnt)</th>
+                  <th className="py-2 px-2.5">Tanggal</th>
+                  <th className="py-2 px-2.5 text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-100 text-[11px]">
                 {filteredTasks.map((task, idx) => {
                   const isSelected = selectedTask?.id === task.id;
                   const activeToken = generateTaskToken(task.id, nowMs);
@@ -718,38 +721,38 @@ export default function ExamMonitoring() {
                       onClick={() => setSelectedTask(task)}
                       className={`transition cursor-pointer ${
                         isSelected
-                          ? 'bg-indigo-50/80 font-medium'
+                          ? 'bg-indigo-50/90 font-medium border-l-2 border-l-indigo-600'
                           : 'hover:bg-slate-50/80 bg-white'
                       }`}
                     >
-                      <td className="p-3 text-center text-gray-500 font-semibold">{idx + 1}</td>
-                      <td className="p-3">
+                      <td className="py-2 px-2.5 text-center text-gray-400 font-semibold">{idx + 1}</td>
+                      <td className="py-2 px-2.5">
                         <div className="space-y-0.5">
-                          <p className="font-bold text-gray-900 text-sm hover:text-indigo-600 transition">
+                          <p className={`font-bold text-xs truncate max-w-[240px] ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
                             {task.title}
                           </p>
-                          <p className="text-[11px] text-gray-500 font-medium">{task.subject_name}</p>
+                          <p className="text-[10px] text-gray-500 font-medium leading-tight">{task.subject_name || '-'}</p>
                         </div>
                       </td>
-                      <td className="p-3 whitespace-nowrap">
-                        <span className="px-2.5 py-1 bg-blue-100 text-blue-800 font-bold rounded-md text-xs">
+                      <td className="py-2 px-2.5 whitespace-nowrap">
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 font-bold rounded text-[10px]">
                           Kelas {task.class?.name || '-'}
                         </span>
                       </td>
-                      <td className="p-3 whitespace-nowrap">
-                        <span className="text-gray-800 font-semibold">
-                          {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'}
+                      <td className="py-2 px-2.5 whitespace-nowrap">
+                        <span className="text-gray-800 font-semibold text-[11px]">
+                          {task.type === 'pg' ? 'PG' : task.type === 'essay' ? 'Esai' : 'Campuran'}
                         </span>
-                        <span className="text-gray-500 block text-[11px]">{qCount} Butir Soal</span>
+                        <span className="text-gray-500 text-[10px] ml-1">({qCount} Soal)</span>
                       </td>
-                      <td className="p-3 text-center whitespace-nowrap">
-                        <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200">
+                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200 text-[10px]">
                           {task.kkm !== undefined && task.kkm !== null ? task.kkm : 75}
                         </span>
                       </td>
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-xs text-indigo-950 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      <td className="py-2 px-2.5 whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          <span className="font-mono font-bold text-[11px] text-indigo-950 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
                             {activeToken}
                           </span>
                           <button
@@ -760,40 +763,38 @@ export default function ExamMonitoring() {
                               setCopiedTokenId(task.id);
                               setTimeout(() => setCopiedTokenId(null), 2000);
                             }}
-                            className="p-1 text-indigo-700 hover:bg-indigo-100 rounded transition"
+                            className="p-0.5 text-indigo-700 hover:bg-indigo-100 rounded transition"
                             title="Salin Token Ujian"
                           >
                             {copiedTokenId === task.id ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              <Check className="w-3 h-3 text-emerald-600" />
                             ) : (
-                              <Copy className="w-3.5 h-3.5" />
+                              <Copy className="w-3 h-3" />
                             )}
                           </button>
-                          <span className="text-[10px] text-gray-500">({tokenTimer.formatted})</span>
                         </div>
                       </td>
-                      <td className="p-3 whitespace-nowrap text-gray-500">
+                      <td className="py-2 px-2.5 whitespace-nowrap text-gray-400 text-[10px]">
                         {new Date(task.created_at).toLocaleDateString('id-ID', {
                           day: 'numeric',
-                          month: 'short',
-                          year: 'numeric'
+                          month: 'short'
                         })}
                       </td>
-                      <td className="p-3 text-right whitespace-nowrap">
+                      <td className="py-2 px-2.5 text-right whitespace-nowrap">
                         <button
                           type="button"
                           onClick={e => {
                             e.stopPropagation();
                             setSelectedTask(task);
                           }}
-                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ml-auto shadow-2xs ${
+                          className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center gap-1 ml-auto shadow-2xs ${
                             isSelected
-                              ? 'bg-indigo-600 text-white shadow-indigo-200'
+                              ? 'bg-indigo-600 text-white'
                               : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
                           }`}
                         >
-                          <Activity className="w-3.5 h-3.5" />
-                          {isSelected ? '✓ Sedang Dipantau' : 'Pantau Ujian'}
+                          <Activity className="w-3 h-3" />
+                          {isSelected ? '✓ Dipantau' : 'Pantau'}
                         </button>
                       </td>
                     </tr>

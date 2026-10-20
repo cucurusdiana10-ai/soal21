@@ -70,7 +70,7 @@ class ExamErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
   render() {
     if (this.state.hasError) {
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 text-white select-none backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950 text-white select-none">
           <div className="bg-white text-gray-900 rounded-2xl max-w-md w-full p-6 text-center space-y-4 shadow-2xl border border-gray-200">
             <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-8 h-8" />
@@ -149,13 +149,13 @@ function SiswaTugas() {
   const lastInternalActionTimeRef = useRef<number>(0);
   const deviceToken = getOrCreateDeviceSessionToken();
 
-  const markInternalAction = () => {
+  const markInternalAction = (graceMs: number = 3000) => {
     isInternalActionRef.current = true;
-    lastInternalActionTimeRef.current = Date.now();
+    lastInternalActionTimeRef.current = Date.now() + Math.max(0, graceMs - 2500);
   };
 
   const safeToggleFullscreen = () => {
-    markInternalAction();
+    markInternalAction(6000);
     try {
       const doc = document as any;
       const el = document.documentElement as any;
@@ -476,6 +476,7 @@ function SiswaTugas() {
     // User requirement: "untuk fullscreen tidak termasuk pelanggaran"
     // Fullscreen is optional; exiting or changing fullscreen does NOT trigger any violation.
     const handleFullscreenChange = () => {
+      markInternalAction(6000);
       if (document.fullscreenElement) {
         hadFullscreenRef.current = true;
       }
@@ -690,15 +691,30 @@ function SiswaTugas() {
         }
       }
 
-      // Optional fullscreen, safe on all devices without throwing
-      try {
-        const el = document.documentElement as any;
-        if (el.requestFullscreen && !document.fullscreenElement) {
-          el.requestFullscreen().catch(() => {});
+      // Fullscreen policy for low-spec/entry-level mobile devices (Vivo Y04, Oppo A57, Infinix Smart 6, etc.):
+      // Do NOT trigger automatic requestFullscreen() on mobile devices upon exam entry.
+      // On entry-level Android WebViews (ColorOS, Funtouch OS, Android Go), automatic requestFullscreen causes
+      // asynchronous system-bar resize which drops the Skia compositor surface and freezes to a blank screen.
+      // On mobile, the exam overlay naturally fills 100% of the screen (fixed inset-0 w-full h-full).
+      // Students can still tap the "Layar Penuh" button anytime if their device supports it smoothly.
+      const isMobileDevice =
+        /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '') ||
+        ('ontouchstart' in window) ||
+        (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+
+      if (!isMobileDevice) {
+        try {
+          const el = document.documentElement as any;
+          if (el.requestFullscreen && !document.fullscreenElement) {
+            el.requestFullscreen().catch(() => {});
+          }
+        } catch {
+          // Ignore desktop fullscreen restriction
         }
-      } catch {
-        // Ignore fullscreen restriction
       }
+
+      // Generous grace period (6 seconds) during exam launch so Android keyboard / orientation / system bars never trigger false violations
+      markInternalAction(6000);
 
       setPendingTokenTask(null);
       setTokenInput('');
@@ -761,13 +777,21 @@ function SiswaTugas() {
     setAlarmActive(false);
     lastViolationTimestampRef.current = Date.now();
 
-    try {
-      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        hadFullscreenRef.current = true;
+    markInternalAction(6000);
+
+    const isMobileDevice =
+      /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '') ||
+      ('ontouchstart' in window);
+
+    if (!isMobileDevice) {
+      try {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+          hadFullscreenRef.current = true;
+        }
+      } catch {
+        // Ignore fullscreen restriction
       }
-    } catch {
-      // Ignore fullscreen restriction
     }
   };
 
@@ -1221,7 +1245,7 @@ function SiswaTugas() {
         );
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/80">
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-200">
               <div className="p-6 bg-gradient-to-r from-indigo-900 to-blue-900 text-white flex items-start justify-between gap-4">
                 <div>
@@ -1405,7 +1429,8 @@ function SiswaTugas() {
       {activeTask && (
         <ExamErrorBoundary onReset={() => fetchStudentTasks()}>
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-4 bg-gray-950/90 backdrop-blur-md select-none"
+            className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3 bg-slate-950 select-none overflow-hidden"
+            style={{ minHeight: '100%', height: '100%' }}
             onContextMenu={e => {
               e.preventDefault();
               markInternalAction();
@@ -1426,7 +1451,10 @@ function SiswaTugas() {
               setTimeout(() => setCopyWarning(null), 2500);
             }}
           >
-            <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[98vh] max-h-[98vh] relative border border-gray-200">
+            <div
+              className="bg-white rounded-none sm:rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-full sm:h-[98vh] sm:max-h-[98vh] relative border-0 sm:border border-gray-200"
+              style={{ minHeight: '100%', height: '100%' }}
+            >
               {/* Top Header Bar */}
               <div className="p-3 sm:p-4 border-b border-gray-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-col gap-2.5">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1888,7 +1916,7 @@ function SiswaTugas() {
 
               {/* MODAL 1: DAFTAR NOMOR SOAL GRID MODAL */}
               {showNumberGridModal && (
-                <div className="absolute inset-0 z-40 bg-gray-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                <div className="absolute inset-0 z-40 bg-gray-950/80 flex items-center justify-center p-4 animate-fadeIn">
                   <div className="bg-white rounded-2xl w-full max-w-lg p-5 shadow-2xl border border-gray-200 space-y-4">
                     <div className="flex items-center justify-between border-b pb-3">
                       <div>
@@ -1981,7 +2009,7 @@ function SiswaTugas() {
 
               {/* MODAL 2: NOTIFIKASI SOAL BELUM TERJAWAB (TIDAK BISA DISELESAIKAN) */}
               {unansweredModalOpen && (
-                <div className="absolute inset-0 z-50 bg-gray-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                <div className="absolute inset-0 z-50 bg-gray-950/85 flex items-center justify-center p-4 animate-fadeIn">
                   <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border-2 border-amber-300 space-y-4 text-center">
                     <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
                       <AlertTriangle className="w-8 h-8" />
@@ -2053,7 +2081,7 @@ function SiswaTugas() {
 
               {/* MODAL 3: NOTIFIKASI MINIMAL DURASI BELUM TERCAPAI */}
               {minDurationModalOpen && (
-                <div className="absolute inset-0 z-50 bg-gray-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                <div className="absolute inset-0 z-50 bg-gray-950/85 flex items-center justify-center p-4 animate-fadeIn">
                   <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border-2 border-indigo-300 space-y-4 text-center">
                     <div className="w-14 h-14 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center mx-auto">
                       <Hourglass className="w-8 h-8 animate-spin" />
@@ -2102,7 +2130,7 @@ function SiswaTugas() {
 
               {/* MODAL 4: KONFIRMASI KUMPULKAN UJIAN */}
               {confirmSubmitModalOpen && (
-                <div className="absolute inset-0 z-50 bg-gray-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                <div className="absolute inset-0 z-50 bg-gray-950/85 flex items-center justify-center p-4 animate-fadeIn">
                   <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border border-gray-200 space-y-4 text-center">
                     <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
                       <CheckCircle2 className="w-8 h-8" />
@@ -2147,7 +2175,7 @@ function SiswaTugas() {
 
               {/* MODAL 5: FULL-SCREEN ANTI-CHEAT ALARM OVERLAY (3 KALI TOLERANSI) */}
               {alarmActive && (
-                <div className="absolute inset-0 z-50 bg-red-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white animate-fadeIn">
+                <div className="absolute inset-0 z-50 bg-red-950 flex flex-col items-center justify-center p-6 text-center text-white animate-fadeIn">
                   <div className="w-20 h-20 rounded-full bg-red-600 flex items-center justify-center mb-4 animate-bounce shadow-lg shadow-red-600/50 border-4 border-red-300">
                     <ShieldAlert className="w-11 h-11 text-white" />
                   </div>
