@@ -47,6 +47,7 @@ export default function ExamMonitoring() {
   const [loadingRows, setLoadingRows] = useState<boolean>(false);
 
   // Filters & Auto-refresh
+  const [taskSearch, setTaskSearch] = useState<string>('');
   const [studentSearch, setStudentSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [taskClassFilter, setTaskClassFilter] = useState<string>('ALL');
@@ -57,7 +58,7 @@ export default function ExamMonitoring() {
 
   // Action loading states
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
-  const [detailModalItem, setDetailModalItem] = useState<any | null>(null);
+  const [violationLogsModalItem, setViolationLogsModalItem] = useState<any | null>(null);
   const [syncingSchema, setSyncingSchema] = useState<boolean>(false);
 
   // In-memory cache & debounce to prevent heavy Supabase egress & log flooding
@@ -154,8 +155,8 @@ export default function ExamMonitoring() {
         setMonitoringRows(combined);
         setLastRefreshedAt(new Date());
 
-        // Keep detail modal fresh if open
-        setDetailModalItem((prev: any) => {
+        // Keep violation logs modal fresh if open
+        setViolationLogsModalItem((prev: any) => {
           if (!prev) return null;
           const updated = combined.find((c: any) => c.student.id === prev.student.id);
           return updated || prev;
@@ -509,7 +510,6 @@ export default function ExamMonitoring() {
         .eq('id', item.submission.id);
 
       if (error) throw error;
-      setDetailModalItem(null);
       await fetchMonitoringData(selectedTask, true);
       alert(`✅ Ujian siswa "${st.name}" telah direset ke 0.`);
     } catch (err: any) {
@@ -550,9 +550,14 @@ export default function ExamMonitoring() {
     new Set(tasks.map(t => t.class?.name).filter(Boolean))
   );
 
-  const filteredTasks = tasks.filter(t =>
-    taskClassFilter === 'ALL' ? true : t.class?.name === taskClassFilter
-  );
+  const filteredTasks = tasks.filter(t => {
+    const matchClass = taskClassFilter === 'ALL' ? true : t.class?.name === taskClassFilter;
+    const matchSearch =
+      !taskSearch ||
+      (t.title || '').toLowerCase().includes(taskSearch.toLowerCase()) ||
+      (t.subject_name || '').toLowerCase().includes(taskSearch.toLowerCase());
+    return matchClass && matchSearch;
+  });
 
   const filteredMonitoringRows = monitoringRows.filter(item => {
     const st = item.student;
@@ -637,26 +642,39 @@ export default function ExamMonitoring() {
 
       {/* Select Exam / Task Section */}
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-gray-900">Pilih Paket Soal / Ujian yang Dipantau</h2>
             <p className="text-xs text-gray-500">
-              Menampilkan daftar paket soal yang dibuat oleh akun Anda ({tasks.length} paket soal).
+              Pilih salah satu paket soal pada tabel di bawah untuk membuka monitoring ujian siswa secara langsung ({tasks.length} paket soal tersedia).
             </p>
           </div>
 
-          {uniqueTaskClasses.length > 1 && (
-            <select
-              value={taskClassFilter}
-              onChange={e => setTaskClassFilter(e.target.value)}
-              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700"
-            >
-              <option value="ALL">Semua Kelas ({uniqueTaskClasses.length})</option>
-              {uniqueTaskClasses.map((cls: any, i: number) => (
-                <option key={i} value={cls}>Kelas {cls}</option>
-              ))}
-            </select>
-          )}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative min-w-[200px]">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Cari paket soal / mapel..."
+                value={taskSearch}
+                onChange={e => setTaskSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 font-medium"
+              />
+            </div>
+
+            {uniqueTaskClasses.length > 1 && (
+              <select
+                value={taskClassFilter}
+                onChange={e => setTaskClassFilter(e.target.value)}
+                className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700"
+              >
+                <option value="ALL">Semua Kelas ({uniqueTaskClasses.length})</option>
+                {uniqueTaskClasses.map((cls: any, i: number) => (
+                  <option key={i} value={cls}>Kelas {cls}</option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
 
         {loadingTasks ? (
@@ -665,7 +683,7 @@ export default function ExamMonitoring() {
           </div>
         ) : filteredTasks.length === 0 ? (
           <div className="p-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200 space-y-2">
-            <p className="text-sm font-semibold text-gray-700">Belum ada paket soal ujian yang diterbitkan.</p>
+            <p className="text-sm font-semibold text-gray-700">Tidak ada paket soal yang cocok dengan pencarian.</p>
             <Link
               to="/dashboard/soal"
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition"
@@ -674,63 +692,115 @@ export default function ExamMonitoring() {
             </Link>
           </div>
         ) : (
-          <div className="grid md:grid-cols-3 gap-3.5">
-            {filteredTasks.map(task => {
-              const isSelected = selectedTask?.id === task.id;
-              const activeToken = generateTaskToken(task.id, nowMs);
-              const qCount = Array.isArray(task.content) ? task.content.length : 0;
+          <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-2xs">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-gray-200 text-gray-700 font-bold">
+                  <th className="p-3 w-12 text-center">No</th>
+                  <th className="p-3 min-w-[220px]">Paket Soal & Mata Pelajaran</th>
+                  <th className="p-3">Target Kelas</th>
+                  <th className="p-3">Tipe & Butir</th>
+                  <th className="p-3 text-center">KKM</th>
+                  <th className="p-3 min-w-[170px]">Token Ujian (30 Mnt)</th>
+                  <th className="p-3">Tanggal Dibuat</th>
+                  <th className="p-3 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredTasks.map((task, idx) => {
+                  const isSelected = selectedTask?.id === task.id;
+                  const activeToken = generateTaskToken(task.id, nowMs);
+                  const qCount = Array.isArray(task.content) ? task.content.length : 0;
 
-              return (
-                <div
-                  key={task.id}
-                  onClick={() => setSelectedTask(task)}
-                  className={`p-4 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
-                    isSelected
-                      ? 'bg-indigo-50/70 border-indigo-600 ring-2 ring-indigo-500/20 shadow-sm'
-                      : 'bg-white border-gray-200 hover:border-indigo-300'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded-md">
-                        Kelas {task.class?.name || '-'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.stopPropagation();
-                          navigator.clipboard.writeText(activeToken);
-                          setCopiedTokenId(task.id);
-                          setTimeout(() => setCopiedTokenId(null), 2000);
-                        }}
-                        className="px-2 py-0.5 bg-indigo-900 text-white rounded text-[11px] font-mono font-bold flex items-center gap-1 hover:bg-indigo-800 transition"
-                        title="Salin Token Ujian Aktif"
-                      >
-                        <KeyRound className="w-3 h-3 text-amber-300" />
-                        {activeToken}
-                        {copiedTokenId === task.id ? (
-                          <Check className="w-3 h-3 text-emerald-300" />
-                        ) : (
-                          <Copy className="w-2.5 h-2.5 text-indigo-200" />
-                        )}
-                      </button>
-                    </div>
-
-                    <h3 className="font-bold text-gray-900 text-sm line-clamp-1">{task.title}</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {task.subject_name} · {qCount} Soal
-                    </p>
-                  </div>
-
-                  <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
-                    <span>Reset token: {tokenTimer.formatted}</span>
-                    <span className={`font-bold ${isSelected ? 'text-indigo-700' : 'text-gray-400'}`}>
-                      {isSelected ? '● Sedang Dipantau' : 'Pantau →'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+                  return (
+                    <tr
+                      key={task.id}
+                      onClick={() => setSelectedTask(task)}
+                      className={`transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-50/80 font-medium'
+                          : 'hover:bg-slate-50/80 bg-white'
+                      }`}
+                    >
+                      <td className="p-3 text-center text-gray-500 font-semibold">{idx + 1}</td>
+                      <td className="p-3">
+                        <div className="space-y-0.5">
+                          <p className="font-bold text-gray-900 text-sm hover:text-indigo-600 transition">
+                            {task.title}
+                          </p>
+                          <p className="text-[11px] text-gray-500 font-medium">{task.subject_name}</p>
+                        </div>
+                      </td>
+                      <td className="p-3 whitespace-nowrap">
+                        <span className="px-2.5 py-1 bg-blue-100 text-blue-800 font-bold rounded-md text-xs">
+                          Kelas {task.class?.name || '-'}
+                        </span>
+                      </td>
+                      <td className="p-3 whitespace-nowrap">
+                        <span className="text-gray-800 font-semibold">
+                          {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'}
+                        </span>
+                        <span className="text-gray-500 block text-[11px]">{qCount} Butir Soal</span>
+                      </td>
+                      <td className="p-3 text-center whitespace-nowrap">
+                        <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200">
+                          {task.kkm !== undefined && task.kkm !== null ? task.kkm : 75}
+                        </span>
+                      </td>
+                      <td className="p-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-xs text-indigo-950 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                            {activeToken}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(activeToken);
+                              setCopiedTokenId(task.id);
+                              setTimeout(() => setCopiedTokenId(null), 2000);
+                            }}
+                            className="p-1 text-indigo-700 hover:bg-indigo-100 rounded transition"
+                            title="Salin Token Ujian"
+                          >
+                            {copiedTokenId === task.id ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <span className="text-[10px] text-gray-500">({tokenTimer.formatted})</span>
+                        </div>
+                      </td>
+                      <td className="p-3 whitespace-nowrap text-gray-500">
+                        {new Date(task.created_at).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
+                      </td>
+                      <td className="p-3 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setSelectedTask(task);
+                          }}
+                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ml-auto shadow-2xs ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white shadow-indigo-200'
+                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                          }`}
+                        >
+                          <Activity className="w-3.5 h-3.5" />
+                          {isSelected ? '✓ Sedang Dipantau' : 'Pantau Ujian'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -900,7 +970,9 @@ export default function ExamMonitoring() {
                     <th className="px-4 py-3.5">Nama Siswa & NISN</th>
                     <th className="px-4 py-3.5">Status Sesi & Jaringan</th>
                     <th className="px-4 py-3.5">Progres Soal Tersimpan</th>
-                    <th className="px-4 py-3.5">Pengawas & Aktivitas</th>
+                    <th className="px-4 py-3.5" title="Hitungan pelanggaran terakumulasi selama siswa melaksanakan ujian tanpa dibatasi waktu">
+                      Pelanggaran Selama Ujian
+                    </th>
                     <th className="px-4 py-3.5 text-right">Aksi Kendali Guru</th>
                   </tr>
                 </thead>
@@ -1034,10 +1106,20 @@ export default function ExamMonitoring() {
                           <td className="px-4 py-4">
                             <div className="space-y-1">
                               {mState.violationCount > 0 ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-800 text-xs font-bold rounded-md">
+                                <button
+                                  type="button"
+                                  onClick={() => setViolationLogsModalItem(item)}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 text-xs font-bold rounded-lg border border-red-200 transition"
+                                  title="Klik untuk melihat riwayat jam pelanggaran anti-curang"
+                                >
                                   <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
-                                  {mState.violationCount}x Keluar Aplikasi
-                                </span>
+                                  <span>{mState.violationCount}x Keluar Aplikasi</span>
+                                  {mState.isLocked && (
+                                    <span className="px-1.5 py-0.2 bg-red-700 text-white rounded text-[10px] uppercase font-black tracking-wider">
+                                      Terkunci
+                                    </span>
+                                  )}
+                                </button>
                               ) : sub ? (
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
                                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -1061,11 +1143,11 @@ export default function ExamMonitoring() {
                                 onClick={() => handleResetStudentLogin(item)}
                                 disabled={actionLoadingId === `reset_login_${st.id}`}
                                 className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 border ${
-                                  mState.hasNetworkIssue
+                                  mState.isLocked || mState.hasNetworkIssue
                                     ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-xs'
                                     : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200'
                                 } disabled:opacity-50`}
-                                title="Reset Login karena kendala jaringan / pindah HP (Soal yang sudah dikerjakan TIDAK hilang)"
+                                title="Reset Login karena kendala jaringan / pindah HP / terkunci pelanggaran (Soal yang sudah dikerjakan TIDAK hilang)"
                               >
                                 {actionLoadingId === `reset_login_${st.id}` ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1096,16 +1178,6 @@ export default function ExamMonitoring() {
                                   Selesaikan Ujian
                                 </button>
                               )}
-
-                              {/* Detail Progress Modal */}
-                              <button
-                                type="button"
-                                onClick={() => setDetailModalItem(item)}
-                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition flex items-center gap-1"
-                                title="Lihat detail jawaban tersimpan & log aktivitas siswa"
-                              >
-                                <Eye className="w-3.5 h-3.5" /> Detail
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1119,160 +1191,94 @@ export default function ExamMonitoring() {
         </>
       )}
 
-      {/* Student Live Progress & Control Modal */}
-      {detailModalItem && selectedTask && (() => {
-        const st = detailModalItem.student;
-        const sub = detailModalItem.submission;
-        const mState = getStudentMonitoringState(detailModalItem);
-        const savedAnswers = normalizeAndMergeAnswers(sub?.answers, null);
-        const questions = Array.isArray(selectedTask.content) ? selectedTask.content : [];
+      {/* Violation Logs Modal for Supervisor */}
+      {violationLogsModalItem && selectedTask && (() => {
+        const st = violationLogsModalItem.student;
+        const sub = violationLogsModalItem.submission;
+        const mState = getStudentMonitoringState(violationLogsModalItem);
+        const logs = Array.isArray(sub?.violation_logs) ? sub.violation_logs : [];
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-gray-200">
-              <div className="p-5 bg-slate-900 text-white flex items-start justify-between gap-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[85vh] border border-gray-200">
+              <div className="p-5 bg-gradient-to-r from-red-900 to-slate-900 text-white flex items-start justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 text-[11px] font-bold rounded-md">
-                      Detail Monitoring Siswa
-                    </span>
-                    <span className="text-xs text-emerald-300 font-semibold">
-                      {mState.answeredCount} dari {mState.totalQuestions} Soal Terjawab ({mState.progressPercent}%)
-                    </span>
-                  </div>
+                  <span className="px-2.5 py-0.5 bg-red-500/30 border border-red-400/40 text-red-200 text-[11px] font-bold rounded-md">
+                    Catatan Pelanggaran Pengawas Ujian
+                  </span>
                   <h3 className="text-lg font-bold mt-1">{st.name}</h3>
-                  <p className="text-xs text-slate-300">
-                    NISN: {st.username} • Status: {mState.label} • Aktivitas terakhir: {mState.lastActiveText}
+                  <p className="text-xs text-red-200">
+                    NISN: {st.username} • Total Pelanggaran: <strong>{mState.violationCount}x Keluar Aplikasi</strong>
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setDetailModalItem(null)}
-                  className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10"
+                  onClick={() => setViolationLogsModalItem(null)}
+                  className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="p-6 overflow-y-auto space-y-5 flex-1">
-                {/* Quick Action Banner inside Modal */}
-                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="text-xs text-indigo-950 space-y-0.5">
-                    <p className="font-bold">Kendali Cepat Sesi Ujian Siswa:</p>
-                    <p className="text-indigo-800">
-                      • <strong>Reset Login</strong>: Membuka kunci login saat siswa kendala jaringan, <strong>jawaban yang sudah dikerjakan tetap aman</strong>.<br />
-                      • <strong>Selesaikan Ujian</strong>: Mengumpulkan dan menilai ujian jika siswa lupa menekan selesai.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleResetStudentLogin(detailModalItem)}
-                      disabled={actionLoadingId === `reset_login_${st.id}`}
-                      className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-xs"
-                    >
-                      <Unlock className="w-3.5 h-3.5" /> Reset Login
-                    </button>
-                    {!mState.isCompleted && (
-                      <button
-                        type="button"
-                        onClick={() => handleForceFinishStudentExam(detailModalItem)}
-                        disabled={actionLoadingId === `finish_${st.id}`}
-                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-xs"
-                      >
-                        <Send className="w-3.5 h-3.5" /> Selesaikan Ujian
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Violation Logs if any */}
-                {mState.violationLogs.length > 0 && (
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2">
-                    <h4 className="text-xs font-bold text-red-900 flex items-center gap-1.5">
+              <div className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
+                {mState.isLocked && (
+                  <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-red-900">
+                    <p className="font-bold flex items-center gap-1.5">
                       <ShieldAlert className="w-4 h-4 text-red-600" />
-                      Riwayat Pelanggaran Anti-Curang ({mState.violationCount}x)
-                    </h4>
-                    <div className="max-h-28 overflow-y-auto space-y-1 text-xs text-red-800">
-                      {mState.violationLogs.map((v: any, i: number) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="font-mono font-bold">[{v.time}]</span>
-                          <span>{v.reason}</span>
-                        </div>
-                      ))}
-                    </div>
+                      Status Akun: TERKUNCI (Melebihi Toleransi)
+                    </p>
+                    <p className="mt-1 text-[11px] text-red-700">
+                      Siswa telah otomatis dilogout dari ujian dan tidak dapat masuk kembali sebelum Anda menekan tombol <strong>Reset Login</strong> di bawah.
+                    </p>
                   </div>
                 )}
 
-                {/* Question Answer Grid / List */}
-                <div className="space-y-3">
-                  <h4 className="font-bold text-gray-900 text-sm">
-                    Pantauan Jawaban Siswa Real-Time ({mState.answeredCount}/{mState.totalQuestions} Terjawab)
+                <div>
+                  <h4 className="font-bold text-gray-900 text-xs mb-2">
+                    Riwayat Jam Keluar Aplikasi / Pindah Layar ({logs.length} Kejadian Tercatat):
                   </h4>
-
-                  <div className="space-y-2.5">
-                    {questions.map((q: any, idx: number) => {
-                      const ans = savedAnswers[idx] ?? '';
-                      const isAnswered = String(ans).trim() !== '';
-                      return (
-                        <div
-                          key={idx}
-                          className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
-                            isAnswered
-                              ? 'bg-emerald-50/40 border-emerald-200'
-                              : 'bg-gray-50 border-gray-200'
-                          }`}
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-gray-900">Soal #{idx + 1}</span>
-                              <span className="px-2 py-0.5 bg-white border border-gray-200 rounded text-[10px] font-semibold text-gray-600">
-                                {q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'}
-                              </span>
-                              {isAnswered ? (
-                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold">
-                                  ✓ Terjawab & Tersimpan
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] font-semibold">
-                                  Belum Dijawab
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-gray-700 line-clamp-2">{q.question}</p>
-                          </div>
-
-                          <div className="sm:text-right shrink-0">
-                            <span className="text-[11px] text-gray-500 block">Jawaban Siswa:</span>
-                            <span className="font-bold text-gray-900">
-                              {isAnswered ? String(ans) : '-'}
-                            </span>
-                          </div>
+                  {logs.length === 0 ? (
+                    <p className="text-gray-400 italic py-2">Belum ada catatan pelanggaran tersimpan.</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto border border-gray-200 rounded-xl p-2.5 bg-gray-50">
+                      {logs.map((log: any, i: number) => (
+                        <div key={i} className="p-2 bg-white rounded-lg border border-gray-200 flex items-start justify-between gap-2">
+                          <span className="font-mono font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded text-[11px]">
+                            {log.time}
+                          </span>
+                          <span className="text-gray-700 text-right flex-1">{log.reason}</span>
                         </div>
-                      );
-                    })}
-                  </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-950 space-y-1">
+                  <p className="font-bold">Apakah ingin membuka kunci siswa ini?</p>
+                  <p className="text-indigo-800 text-[11px]">
+                    Tekan <strong>Reset Login</strong> untuk mengizinkan siswa masuk kembali ke ujian. Seluruh <strong>{mState.answeredCount} jawaban</strong> yang telah dikerjakan siswa tetap tersimpan aman.
+                  </p>
                 </div>
               </div>
 
               <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
-                <div>
-                  {sub && (
-                    <button
-                      type="button"
-                      onClick={() => handleFullResetFromZero(detailModalItem)}
-                      className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition flex items-center gap-1"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" /> Hapus & Ulang dari 0
-                    </button>
-                  )}
-                </div>
                 <button
                   type="button"
-                  onClick={() => setDetailModalItem(null)}
-                  className="px-5 py-2 bg-gray-900 text-white hover:bg-gray-800 rounded-xl text-xs font-bold transition"
+                  onClick={() => setViolationLogsModalItem(null)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-xs font-bold hover:bg-gray-100 transition"
                 >
-                  Tutup Detail
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleResetStudentLogin(violationLogsModalItem);
+                    setViolationLogsModalItem(null);
+                  }}
+                  disabled={actionLoadingId === `reset_login_${st.id}`}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Unlock className="w-3.5 h-3.5" /> Buka Kunci / Reset Login
                 </button>
               </div>
             </div>

@@ -284,7 +284,7 @@ function SiswaTugas() {
             taskId: activeTask.id,
             studentId: user.id,
             answers: answersRef.current,
-            violationCount: 3,
+            violationCount: nextCount,
             violationLogs: nextLogs,
             sessionToken: null
           }).catch(() => {});
@@ -294,9 +294,9 @@ function SiswaTugas() {
             .update({
               is_locked: true,
               session_token: null,
-              violation_count: 3,
+              violation_count: nextCount,
               violation_logs: nextLogs,
-              feedback: 'Akun ujian terkunci karena telah melakukan 3 kali batas toleransi pelanggaran. Memerlukan Reset Login oleh Guru.'
+              feedback: `Akun ujian terkunci karena telah melakukan ${nextCount} kali pelanggaran selama ujian. Memerlukan Reset Login oleh Guru Pengawas.`
             })
             .eq('task_id', activeTask.id)
             .eq('student_id', user.id)
@@ -306,7 +306,7 @@ function SiswaTugas() {
             .from('users')
             .update({
               is_exam_locked: true,
-              exam_locked_reason: 'Terkunci otomatis karena melakukan 3 kali batas toleransi pelanggaran ujian (keluar aplikasi / beralih layar)',
+              exam_locked_reason: `Terkunci otomatis karena melakukan ${nextCount} kali pelanggaran selama ujian (keluar aplikasi / beralih layar)`,
               exam_locked_at: new Date().toISOString(),
               active_session_token: null
             })

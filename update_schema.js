@@ -47,6 +47,7 @@ export async function syncSupabaseSchema() {
 
       -- Kolom Monitoring Ujian, Auto-Save Jawaban, dan Reset Login pada task_submissions
       ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS answers JSONB DEFAULT '{}'::jsonb;
+      ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS essay_scores JSONB DEFAULT '{}'::jsonb;
       ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
       ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS score NUMERIC DEFAULT NULL;
       ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'in_progress';
@@ -79,6 +80,7 @@ export async function syncSupabaseSchema() {
       AS $func$
       BEGIN
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS answers JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS essay_scores JSONB DEFAULT '{}'::jsonb;
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS score NUMERIC DEFAULT NULL;
         ALTER TABLE public.task_submissions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'in_progress';
