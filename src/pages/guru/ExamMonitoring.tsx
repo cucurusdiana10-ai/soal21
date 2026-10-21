@@ -258,10 +258,7 @@ export default function ExamMonitoring() {
 
     let lastActiveText = '-';
     if (lastActiveMs > 0) {
-      if (diffSec < 15) lastActiveText = 'Baru saja (Aktif)';
-      else if (diffSec < 60) lastActiveText = `${diffSec} dtk lalu`;
-      else if (diffSec < 3600) lastActiveText = `${Math.floor(diffSec / 60)} mnt lalu`;
-      else lastActiveText = new Date(lastActiveMs).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      lastActiveText = new Date(lastActiveMs).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
     }
 
     if (isCompleted) {
@@ -605,9 +602,9 @@ export default function ExamMonitoring() {
                 Auto-Sync Kolom Supabase Aktif
               </button>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">Monitoring Ujian & Kendali Sesi Siswa</h1>
-            <p className="text-indigo-200 text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed">
-              Pantau progres pengerjaan soal siswa secara langsung, bantu <strong>Selesaikan Ujian</strong> jika siswa lupa menekan tombol kumpul, atau lakukan <strong>Reset Login</strong> saat siswa mengalami kendala jaringan tanpa menghilangkan soal yang sudah dikerjakan.
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Monitoring Ujian & Kendali Sesi Siswa</h1>
+            <p className="text-indigo-200 text-xs mt-0.5 max-w-2xl leading-relaxed">
+              Pantau pengerjaan siswa live, bantu <strong>Selesaikan Ujian</strong>, atau lakukan <strong>Reset Login</strong> saat siswa terkunci tanpa menghilangkan jawaban.
             </p>
           </div>
 
@@ -615,14 +612,14 @@ export default function ExamMonitoring() {
             <button
               type="button"
               onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${
                 autoRefresh
                   ? 'bg-emerald-600/30 border-emerald-400/50 text-emerald-200'
                   : 'bg-white/10 border-white/20 text-gray-300'
               }`}
             >
               <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-emerald-400 animate-ping' : 'bg-gray-400'}`} />
-              Auto-Refresh 5 dtk: {autoRefresh ? 'ON' : 'OFF'}
+              Auto-Refresh 5s: {autoRefresh ? 'ON' : 'OFF'}
             </button>
 
             {selectedTask && (
@@ -630,38 +627,43 @@ export default function ExamMonitoring() {
                 type="button"
                 onClick={() => fetchMonitoringData(selectedTask, false)}
                 disabled={loadingRows}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loadingRows ? 'animate-spin' : ''}`} />
-                Segarkan Sekarang
+                Segarkan
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Select Exam / Task Section (Compact, Precise Table) */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200 shadow-2xs space-y-2.5">
+      {/* Select Exam / Task Section (Ultra-Compact, Space-Efficient Table) */}
+      <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-              <KeyRound className="w-4 h-4 text-indigo-600" />
+          <div className="flex items-center gap-2 flex-wrap">
+            <KeyRound className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <h2 className="text-xs sm:text-sm font-bold text-gray-900">
               Pilih Paket Soal Ujian yang Dipantau
             </h2>
-            <p className="text-[11px] text-gray-500">
-              Pilih paket soal pada tabel untuk menampilkan monitoring live di bawah ({tasks.length} paket soal).
-            </p>
+            <span className="text-[10px] text-gray-500 font-medium hidden sm:inline">
+              ({tasks.length} paket soal)
+            </span>
+            {selectedTask && (
+              <span className="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-200 truncate max-w-[240px]">
+                Dipantau: {selectedTask.title}
+              </span>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[180px]">
-              <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="relative min-w-[160px]">
+              <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Cari paket / mapel..."
                 value={taskSearch}
                 onChange={e => setTaskSearch(e.target.value)}
-                className="w-full pl-7 pr-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 font-medium"
+                className="w-full pl-6 pr-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-indigo-500 font-medium"
               />
             </div>
 
@@ -669,7 +671,7 @@ export default function ExamMonitoring() {
               <select
                 value={taskClassFilter}
                 onChange={e => setTaskClassFilter(e.target.value)}
-                className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700"
+                className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs font-semibold text-gray-700"
               >
                 <option value="ALL">Semua Kelas ({uniqueTaskClasses.length})</option>
                 {uniqueTaskClasses.map((cls: any, i: number) => (
@@ -681,35 +683,35 @@ export default function ExamMonitoring() {
         </div>
 
         {loadingTasks ? (
-          <div className="py-6 text-center text-gray-500 text-xs flex items-center justify-center gap-2">
+          <div className="py-4 text-center text-gray-500 text-xs flex items-center justify-center gap-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" /> Memuat daftar paket soal...
           </div>
         ) : filteredTasks.length === 0 ? (
-          <div className="p-6 text-center bg-gray-50 rounded-lg border border-dashed border-gray-200 space-y-1.5">
+          <div className="p-4 text-center bg-gray-50 rounded-lg border border-dashed border-gray-200 space-y-1">
             <p className="text-xs font-semibold text-gray-700">Tidak ada paket soal yang cocok dengan pencarian.</p>
             <Link
               to="/dashboard/soal"
-              className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition"
+              className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 text-white rounded text-xs font-bold hover:bg-indigo-700 transition"
             >
               Buat Soal Sekarang →
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-100/80 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] tracking-wider">
-                  <th className="py-2 px-2.5 w-10 text-center">No</th>
-                  <th className="py-2 px-2.5 min-w-[200px]">Paket Soal & Mata Pelajaran</th>
-                  <th className="py-2 px-2.5">Kelas</th>
-                  <th className="py-2 px-2.5">Tipe & Butir</th>
-                  <th className="py-2 px-2.5 text-center">KKM</th>
-                  <th className="py-2 px-2.5 min-w-[150px]">Token (30 Mnt)</th>
-                  <th className="py-2 px-2.5">Tanggal</th>
-                  <th className="py-2 px-2.5 text-right">Aksi</th>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-52 sm:max-h-60 overflow-y-auto">
+            <table className="w-full text-left border-collapse text-[11px]">
+              <thead className="sticky top-0 bg-slate-100 z-10 shadow-2xs">
+                <tr className="border-b border-gray-200 text-gray-600 font-bold uppercase text-[9px] tracking-wider">
+                  <th className="py-1.5 px-2 w-8 text-center">No</th>
+                  <th className="py-1.5 px-2 min-w-[170px]">Paket Soal & Mapel</th>
+                  <th className="py-1.5 px-2 whitespace-nowrap">Kelas</th>
+                  <th className="py-1.5 px-2 whitespace-nowrap">Tipe & Butir</th>
+                  <th className="py-1.5 px-2 text-center whitespace-nowrap">KKM</th>
+                  <th className="py-1.5 px-2 min-w-[130px] whitespace-nowrap">Token (30 Mnt)</th>
+                  <th className="py-1.5 px-2 whitespace-nowrap">Tanggal</th>
+                  <th className="py-1.5 px-2 text-right whitespace-nowrap w-20">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 text-[11px]">
+              <tbody className="divide-y divide-gray-100">
                 {filteredTasks.map((task, idx) => {
                   const isSelected = selectedTask?.id === task.id;
                   const activeToken = generateTaskToken(task.id, nowMs);
@@ -725,34 +727,34 @@ export default function ExamMonitoring() {
                           : 'hover:bg-slate-50/80 bg-white'
                       }`}
                     >
-                      <td className="py-2 px-2.5 text-center text-gray-400 font-semibold">{idx + 1}</td>
-                      <td className="py-2 px-2.5">
-                        <div className="space-y-0.5">
-                          <p className={`font-bold text-xs truncate max-w-[240px] ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
+                      <td className="py-1 px-2 text-center text-gray-400 font-semibold">{idx + 1}</td>
+                      <td className="py-1 px-2">
+                        <div className="leading-tight">
+                          <p className={`font-bold text-xs truncate max-w-[210px] ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
                             {task.title}
                           </p>
-                          <p className="text-[10px] text-gray-500 font-medium leading-tight">{task.subject_name || '-'}</p>
+                          <p className="text-[9px] text-gray-500 font-medium truncate">{task.subject_name || '-'}</p>
                         </div>
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 font-bold rounded text-[10px]">
+                      <td className="py-1 px-2 whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 font-bold rounded text-[9px]">
                           Kelas {task.class?.name || '-'}
                         </span>
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap">
-                        <span className="text-gray-800 font-semibold text-[11px]">
+                      <td className="py-1 px-2 whitespace-nowrap">
+                        <span className="text-gray-800 font-semibold text-[10px]">
                           {task.type === 'pg' ? 'PG' : task.type === 'essay' ? 'Esai' : 'Campuran'}
                         </span>
-                        <span className="text-gray-500 text-[10px] ml-1">({qCount} Soal)</span>
+                        <span className="text-gray-500 text-[9px] ml-1">({qCount} Soal)</span>
                       </td>
-                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
-                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200 text-[10px]">
+                      <td className="py-1 px-2 text-center whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200 text-[9px]">
                           {task.kkm !== undefined && task.kkm !== null ? task.kkm : 75}
                         </span>
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap">
+                      <td className="py-1 px-2 whitespace-nowrap">
                         <div className="flex items-center gap-1">
-                          <span className="font-mono font-bold text-[11px] text-indigo-950 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                          <span className="font-mono font-bold text-[10px] text-indigo-950 bg-indigo-50 px-1 py-0.5 rounded border border-indigo-200">
                             {activeToken}
                           </span>
                           <button
@@ -774,27 +776,27 @@ export default function ExamMonitoring() {
                           </button>
                         </div>
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap text-gray-400 text-[10px]">
+                      <td className="py-1 px-2 whitespace-nowrap text-gray-400 text-[9px]">
                         {new Date(task.created_at).toLocaleDateString('id-ID', {
                           day: 'numeric',
                           month: 'short'
                         })}
                       </td>
-                      <td className="py-2 px-2.5 text-right whitespace-nowrap">
+                      <td className="py-1 px-2 text-right whitespace-nowrap">
                         <button
                           type="button"
                           onClick={e => {
                             e.stopPropagation();
                             setSelectedTask(task);
                           }}
-                          className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center gap-1 ml-auto shadow-2xs ${
+                          className={`px-2 py-0.5 rounded font-bold text-[10px] transition flex items-center gap-1 ml-auto shadow-2xs ${
                             isSelected
                               ? 'bg-indigo-600 text-white'
                               : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
                           }`}
                         >
-                          <Activity className="w-3 h-3" />
-                          {isSelected ? '✓ Dipantau' : 'Pantau'}
+                          <Activity className="w-2.5 h-2.5" />
+                          {isSelected ? 'Dipantau' : 'Pantau'}
                         </button>
                       </td>
                     </tr>
@@ -964,30 +966,30 @@ export default function ExamMonitoring() {
 
             {/* Monitoring Table */}
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-gray-600">
-                <thead className="bg-gray-100/80 text-gray-700 text-xs uppercase font-bold border-b border-gray-200">
+              <table className="w-full text-left text-xs text-gray-600 border-collapse">
+                <thead className="bg-gray-100/80 text-gray-700 text-[11px] uppercase font-bold border-b border-gray-200">
                   <tr>
-                    <th className="px-4 py-3.5 w-10">No</th>
-                    <th className="px-4 py-3.5">Nama Siswa & NISN</th>
-                    <th className="px-4 py-3.5">Status Sesi & Jaringan</th>
-                    <th className="px-4 py-3.5">Progres Soal Tersimpan</th>
-                    <th className="px-4 py-3.5" title="Hitungan pelanggaran terakumulasi selama siswa melaksanakan ujian tanpa dibatasi waktu">
+                    <th className="px-3 py-2 w-10">No</th>
+                    <th className="px-3 py-2">Nama Siswa & NISN</th>
+                    <th className="px-3 py-2">Status Sesi & Jaringan</th>
+                    <th className="px-3 py-2">Progres Soal Tersimpan</th>
+                    <th className="px-3 py-2" title="Hitungan pelanggaran terakumulasi selama siswa melaksanakan ujian tanpa dibatasi waktu">
                       Pelanggaran Selama Ujian
                     </th>
-                    <th className="px-4 py-3.5 text-right">Aksi Kendali Guru</th>
+                    <th className="px-3 py-2 text-right">Aksi Kendali Guru</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {loadingRows ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
-                        <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-600" />
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                        <Loader2 className="w-4 h-4 animate-spin mx-auto mb-1.5 text-indigo-600" />
                         Memuat data monitoring siswa...
                       </td>
                     </tr>
                   ) : filteredMonitoringRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-10 text-center text-gray-500 text-xs">
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-xs">
                         Tidak ada siswa yang sesuai dengan filter pencarian.
                       </td>
                     </tr>
@@ -1009,12 +1011,12 @@ export default function ExamMonitoring() {
                               : 'hover:bg-gray-50'
                           }`}
                         >
-                          <td className="px-4 py-4 font-semibold text-gray-500 text-xs">{idx + 1}</td>
+                          <td className="px-3 py-2.5 font-semibold text-gray-500 text-xs">{idx + 1}</td>
 
                           {/* Student Name & NISN */}
-                          <td className="px-4 py-4">
-                            <div className="font-bold text-gray-900">{st.name}</div>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <td className="px-3 py-2.5">
+                            <div className="font-bold text-gray-900 text-xs sm:text-sm">{st.name}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               <span className="text-xs text-gray-500 font-mono">NISN: {st.username}</span>
                               {resetCount > 0 && (
                                 <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-[10px] font-bold">
@@ -1025,51 +1027,51 @@ export default function ExamMonitoring() {
                           </td>
 
                           {/* Session & Network Status */}
-                          <td className="px-4 py-4">
+                          <td className="px-3 py-2.5">
                             {mState.code === 'NOT_STARTED' && (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded-lg">
-                                <Clock className="w-3.5 h-3.5 text-gray-400" />
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-semibold rounded-md">
+                                <Clock className="w-3 h-3 text-gray-400" />
                                 Belum Mulai
                               </span>
                             )}
 
                             {mState.code === 'IN_PROGRESS' && (
-                              <div className="space-y-1">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-lg">
-                                  <Wifi className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                              <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded-md">
+                                  <Wifi className="w-3 h-3 text-emerald-600 animate-pulse" />
                                   Sedang Mengerjakan • Online
                                 </span>
                               </div>
                             )}
 
                             {mState.code === 'NETWORK_ISSUE' && (
-                              <div className="space-y-1">
-                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg border ${
+                              <div className="space-y-0.5">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded-md border ${
                                   st.is_exam_locked || mState.violationCount >= 3
                                     ? 'bg-red-100 text-red-900 border-red-300'
                                     : 'bg-amber-100 text-amber-900 border-amber-300'
                                 }`}>
-                                  <Lock className="w-3.5 h-3.5 text-red-600" />
+                                  <Lock className="w-3 h-3 text-red-600" />
                                   {st.is_exam_locked || mState.violationCount >= 3
                                     ? '🚨 Terkunci (3x Pelanggaran)'
                                     : mState.isLocked
                                     ? 'Sesi Terkunci / Pindah HP'
                                     : 'Indikasi Kendala Jaringan'}
                                 </span>
-                                <p className="text-[11px] text-amber-800">
+                                <p className="text-[10px] text-amber-800">
                                   Klik <strong>Reset Login</strong> agar siswa bisa lanjut tanpa hilang jawaban
                                 </p>
                               </div>
                             )}
 
                             {mState.code === 'COMPLETED' && (
-                              <div className="space-y-1">
-                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg ${
+                              <div className="space-y-0.5">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded-md ${
                                   sub?.score !== null && sub?.score !== undefined && sub.score >= (selectedTask?.kkm || 75)
                                     ? 'bg-emerald-100 text-emerald-800'
                                     : 'bg-red-100 text-red-800'
                                 }`}>
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                   Selesai • Nilai: {sub?.score !== null && sub?.score !== undefined ? `${sub.score} (${sub.score >= (selectedTask?.kkm || 75) ? 'Tuntas' : 'Remedial'})` : 'Menunggu'}
                                 </span>
                               </div>
@@ -1077,14 +1079,14 @@ export default function ExamMonitoring() {
                           </td>
 
                           {/* Answered Questions Progress */}
-                          <td className="px-4 py-4 min-w-[190px]">
+                          <td className="px-3 py-2.5 min-w-[170px]">
                             <div className="flex items-center justify-between text-xs mb-1">
-                              <span className="font-bold text-gray-800">
+                              <span className="font-bold text-gray-800 text-[11px]">
                                 {mState.answeredCount} / {mState.totalQuestions} Soal
                               </span>
-                              <span className="font-bold text-indigo-700">{mState.progressPercent}%</span>
+                              <span className="font-bold text-indigo-700 text-[11px]">{mState.progressPercent}%</span>
                             </div>
-                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
                               <div
                                 className={`h-full transition-all duration-300 ${
                                   mState.isCompleted
@@ -1096,7 +1098,7 @@ export default function ExamMonitoring() {
                                 style={{ width: `${mState.progressPercent}%` }}
                               />
                             </div>
-                            <p className="text-[11px] text-gray-500 mt-1">
+                            <p className="text-[10px] text-gray-500 mt-0.5">
                               {mState.answeredCount > 0
                                 ? `☁️ ${mState.answeredCount} jawaban tersimpan aman`
                                 : 'Belum ada soal dijawab'}
@@ -1104,39 +1106,41 @@ export default function ExamMonitoring() {
                           </td>
 
                           {/* Violations & Last Activity */}
-                          <td className="px-4 py-4">
-                            <div className="space-y-1">
+                          <td className="px-3 py-2.5">
+                            <div className="space-y-0.5">
                               {mState.violationCount > 0 ? (
                                 <button
                                   type="button"
                                   onClick={() => setViolationLogsModalItem(item)}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 text-xs font-bold rounded-lg border border-red-200 transition"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 hover:bg-red-200 text-red-800 text-xs font-bold rounded-md border border-red-200 transition"
                                   title="Klik untuk melihat riwayat jam pelanggaran anti-curang"
                                 >
-                                  <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                                  <ShieldAlert className="w-3 h-3 text-red-600" />
                                   <span>{mState.violationCount}x Keluar Aplikasi</span>
                                   {mState.isLocked && (
-                                    <span className="px-1.5 py-0.2 bg-red-700 text-white rounded text-[10px] uppercase font-black tracking-wider">
+                                    <span className="px-1 py-0.2 bg-red-700 text-white rounded text-[9px] uppercase font-black tracking-wider">
                                       Terkunci
                                     </span>
                                   )}
                                 </button>
                               ) : sub ? (
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
                                   0 Pelanggaran
                                 </span>
                               ) : (
                                 <span className="text-xs text-gray-400">-</span>
                               )}
-                              <div className="text-[11px] text-gray-500">
-                                Aktivitas: <strong>{mState.lastActiveText}</strong>
-                              </div>
+                              {mState.lastActiveText !== '-' && mState.lastActiveText !== 'Belum masuk ujian' && (
+                                <div className="text-[10px] text-gray-500 font-medium">
+                                  Pukul: {mState.lastActiveText}
+                                </div>
+                              )}
                             </div>
                           </td>
 
                           {/* Teacher Actions: Reset Login & Selesaikan Ujian */}
-                          <td className="px-4 py-4 text-right whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
                               {/* Reset Login (keeps answers safe!) */}
                               <button

@@ -97,6 +97,19 @@ class ExamErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
   }
 }
 
+// Robust mobile & touch detection for entry-level Android devices (Vivo Y04, Oppo A57, Infinix Smart 6, etc.)
+// Prevents hardware GPU compositor crash and layout blanking when entering/toggling fullscreen.
+const checkIsMobileOrTouchDevice = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return (
+    /android|iphone|ipad|ipod|mobile|phone/i.test(navigator.userAgent || '') ||
+    Boolean(window.matchMedia && window.matchMedia('(max-width: 1024px)').matches) ||
+    Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+    ('ontouchstart' in window) ||
+    Boolean(navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
+  );
+};
+
 function SiswaTugas() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -147,6 +160,7 @@ function SiswaTugas() {
   const saveTimeoutRef = useRef<number | null>(null);
   const isInternalActionRef = useRef<boolean>(false);
   const lastInternalActionTimeRef = useRef<number>(0);
+  const initialLaunchGracePeriodRef = useRef<number>(0);
   const deviceToken = getOrCreateDeviceSessionToken();
 
   const markInternalAction = (graceMs: number = 3000) => {
@@ -158,13 +172,23 @@ function SiswaTugas() {
     markInternalAction(6000);
     try {
       const doc = document as any;
-      const el = document.documentElement as any;
+      const el = (document.getElementById('exam-viewport-root') || document.documentElement) as any;
       if (doc.fullscreenElement || doc.webkitFullscreenElement) {
         if (doc.exitFullscreen) doc.exitFullscreen().catch(() => {});
         else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen().catch(() => {});
       } else {
-        if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
-        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen().catch(() => {});
+        const isMobileOrTouch = checkIsMobileOrTouchDevice();
+        if (isMobileOrTouch) {
+          // On low-spec Androids (Vivo Y04, Oppo A57, Infinix Smart 6), the CSS fixed container
+          // already spans 100vw x 100dvh seamlessly. Safely request without crashing compositor surface.
+          window.scrollTo(0, 0);
+          if (el && el.requestFullscreen) {
+            el.requestFullscreen().catch(() => {});
+          }
+        } else {
+          if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+          else if (el && el.webkitRequestFullscreen) el.webkitRequestFullscreen().catch(() => {});
+        }
       }
     } catch {
       // Ignore
@@ -205,6 +229,26 @@ function SiswaTugas() {
   useEffect(() => {
     fetchStudentTasks();
   }, [user]);
+
+  // Viewport reflow & surface sync for low-spec Androids (Vivo Y04, Oppo A57, Infinix Smart 6)
+  useEffect(() => {
+    if (!activeTask) return;
+    const handleViewportReflow = () => {
+      window.requestAnimationFrame(() => {
+        const el = document.getElementById('exam-viewport-root');
+        if (el && typeof window !== 'undefined') {
+          el.style.height = `${window.innerHeight}px`;
+        }
+      });
+    };
+    handleViewportReflow();
+    window.addEventListener('resize', handleViewportReflow);
+    window.addEventListener('orientationchange', handleViewportReflow);
+    return () => {
+      window.removeEventListener('resize', handleViewportReflow);
+      window.removeEventListener('orientationchange', handleViewportReflow);
+    };
+  }, [activeTask]);
 
   // Clean up alarm on unmount
   useEffect(() => {
@@ -428,7 +472,7 @@ function SiswaTugas() {
     };
   }, [activeTask, user, deviceToken]);
 
-  // Anti-open-other-app, new tab & mobile floating app listeners while activeTask is open
+  // Anti-open-other-app, new tab, 3 navigation buttons & mobile floating app listeners while activeTask is open
   useEffect(() => {
     if (!activeTask) {
       antiCheatAlarm.stopAlarm();
@@ -439,6 +483,7 @@ function SiswaTugas() {
 
     const isInternalActionActive = () => {
       return (
+        Date.now() < initialLaunchGracePeriodRef.current ||
         isInternalActionRef.current ||
         showNumberGridModal ||
         unansweredModalOpen ||
@@ -451,6 +496,20 @@ function SiswaTugas() {
       );
     };
 
+    // 1. Deteksi Tombol Kembali (1 dari 3 tombol di HP) via History PopState Trap
+    try {
+      window.history.pushState({ sman21ExamLock: true }, '', window.location.href);
+    } catch {}
+
+    const handlePopState = () => {
+      if (isInternalActionActive()) return;
+      try {
+        window.history.pushState({ sman21ExamLock: true }, '', window.location.href);
+      } catch {}
+      triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi menekan tombol kembali (navigasi HP)');
+    };
+
+    // 2. Deteksi Tombol Home, Recent Apps & Buka Tab Baru di Browser
     const handleVisibilityChange = () => {
       if (document.hidden) {
         if (isInternalActionActive()) return;
@@ -458,22 +517,22 @@ function SiswaTugas() {
       }
     };
 
-    const handleWindowBlur = () => {
+    const handlePageHide = () => {
       if (isInternalActionActive()) return;
-      // On mobile / touch devices, virtual keyboard opening, scrolling, or tapping buttons causes window blur.
-      // Therefore, on touch devices we rely on document.hidden to avoid false alarms!
-      const isTouchDevice = 'ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
-      if (isTouchDevice) {
-        return;
-      }
-      setTimeout(() => {
-        if (!document.hasFocus() && !isInternalActionActive()) {
-          triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi keluar dari jendela ujian');
-        }
-      }, 700);
+      triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi meninggalkan halaman ujian');
     };
 
-    // User requirement: "untuk fullscreen tidak termasuk pelanggaran"
+    // 3. Deteksi Floating App (Aplikasi Mengambang / Kalkulator Pop-up / WhatsApp Mengambang / Split-Screen)
+    const handleWindowBlur = () => {
+      if (isInternalActionActive()) return;
+      setTimeout(() => {
+        // Jika fokus keluar dari dokumen web (misal mengetuk floating window, recent apps, atau split-screen):
+        if (!document.hasFocus() && !isInternalActionActive()) {
+          triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi berpindah aplikasi atau menggunakan floating app');
+        }
+      }, 400);
+    };
+
     // Fullscreen is optional; exiting or changing fullscreen does NOT trigger any violation.
     const handleFullscreenChange = () => {
       markInternalAction(6000);
@@ -494,16 +553,28 @@ function SiswaTugas() {
       }
     };
 
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = 'Ujian sedang berlangsung! Keluar dari aplikasi akan dicatat sebagai pelanggaran.';
+      return e.returnValue;
+    };
+
+    window.addEventListener('popstate', handlePopState);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('blur', handleWindowBlur);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
+      window.removeEventListener('popstate', handlePopState);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('blur', handleWindowBlur);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [
     activeTask,
@@ -623,11 +694,17 @@ function SiswaTugas() {
         .maybeSingle();
 
       // Check if session is locked on a different device and hasn't been Reset Login by Guru
+      // If student hasn't answered any questions yet (savedCount === 0) and violation_count === 0,
+      // do NOT block them! They are just opening or retrying on their phone, so let them claim the device token smoothly.
+      const savedCount = countAnsweredQuestions(latestSub?.answers);
+      const isAlreadyViolationLocked = Boolean(latestSub?.is_locked || Number(latestSub?.violation_count || 0) >= 3);
+
       if (
         latestSub &&
         latestSub.status === 'in_progress' &&
         latestSub.session_token &&
-        latestSub.session_token !== deviceToken
+        latestSub.session_token !== deviceToken &&
+        (savedCount > 0 || isAlreadyViolationLocked)
       ) {
         // Mark as locked so Teacher sees it highlighted on Monitoring Ujian
         await supabase
@@ -635,7 +712,6 @@ function SiswaTugas() {
           .update({ is_locked: true })
           .eq('id', latestSub.id);
 
-        const savedCount = countAnsweredQuestions(latestSub.answers);
         setSessionLockedError(
           `Sesi ujian Anda terdeteksi terkunci pada perangkat/jaringan sebelumnya (${savedCount} jawaban Anda sudah tersimpan aman). Silakan minta Guru menekan tombol "Reset Login" pada menu Monitoring Ujian agar Anda dapat melanjutkan pengerjaan.`
         );
@@ -692,15 +768,11 @@ function SiswaTugas() {
       }
 
       // Fullscreen policy for low-spec/entry-level mobile devices (Vivo Y04, Oppo A57, Infinix Smart 6, etc.):
-      // Do NOT trigger automatic requestFullscreen() on mobile devices upon exam entry.
+      // Do NOT trigger automatic native requestFullscreen() on mobile / touch devices upon exam entry.
       // On entry-level Android WebViews (ColorOS, Funtouch OS, Android Go), automatic requestFullscreen causes
       // asynchronous system-bar resize which drops the Skia compositor surface and freezes to a blank screen.
-      // On mobile, the exam overlay naturally fills 100% of the screen (fixed inset-0 w-full h-full).
-      // Students can still tap the "Layar Penuh" button anytime if their device supports it smoothly.
-      const isMobileDevice =
-        /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '') ||
-        ('ontouchstart' in window) ||
-        (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+      // On mobile, the exam overlay naturally fills 100% of the screen (CSS fixed inset-0 w-screen h-[100dvh] with hardware acceleration).
+      const isMobileDevice = checkIsMobileOrTouchDevice();
 
       if (!isMobileDevice) {
         try {
@@ -713,8 +785,9 @@ function SiswaTugas() {
         }
       }
 
-      // Generous grace period (6 seconds) during exam launch so Android keyboard / orientation / system bars never trigger false violations
-      markInternalAction(6000);
+      // Generous grace period (8 seconds) during exam launch so Android keyboard / orientation / system bars never trigger false violations
+      initialLaunchGracePeriodRef.current = Date.now() + 8000;
+      markInternalAction(8000);
 
       setPendingTokenTask(null);
       setTokenInput('');
@@ -779,14 +852,12 @@ function SiswaTugas() {
 
     markInternalAction(6000);
 
-    const isMobileDevice =
-      /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '') ||
-      ('ontouchstart' in window);
+    const isMobileDevice = checkIsMobileOrTouchDevice();
 
     if (!isMobileDevice) {
       try {
         if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-          await document.documentElement.requestFullscreen();
+          document.documentElement.requestFullscreen().catch(() => {});
           hadFullscreenRef.current = true;
         }
       } catch {
@@ -835,6 +906,12 @@ function SiswaTugas() {
       } catch {
         raw = [];
       }
+    }
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      if (Array.isArray(raw.questions)) raw = raw.questions;
+      else if (Array.isArray(raw.soal)) raw = raw.soal;
+      else if (Array.isArray(raw.items)) raw = raw.items;
+      else if (Array.isArray(raw.content)) raw = raw.content;
     }
     if (!Array.isArray(raw)) return [];
     return raw.map((q: any, i: number) => {
@@ -1429,8 +1506,13 @@ function SiswaTugas() {
       {activeTask && (
         <ExamErrorBoundary onReset={() => fetchStudentTasks()}>
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3 bg-slate-950 select-none overflow-hidden"
-            style={{ minHeight: '100%', height: '100%' }}
+            id="exam-viewport-root"
+            className="fixed inset-0 z-50 flex flex-col bg-slate-950 select-none overflow-hidden"
+            style={{
+              width: '100%',
+              height: '100%',
+              minHeight: '100%',
+            }}
             onContextMenu={e => {
               e.preventDefault();
               markInternalAction();
@@ -1452,8 +1534,11 @@ function SiswaTugas() {
             }}
           >
             <div
-              className="bg-white rounded-none sm:rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-full sm:h-[98vh] sm:max-h-[98vh] relative border-0 sm:border border-gray-200"
-              style={{ minHeight: '100%', height: '100%' }}
+              className="bg-white rounded-none sm:rounded-2xl w-full max-w-4xl mx-auto shadow-2xl overflow-hidden flex flex-col flex-1 sm:my-2 relative border-0 sm:border border-gray-200"
+              style={{
+                height: '100%',
+                maxHeight: '100%',
+              }}
             >
               {/* Top Header Bar */}
               <div className="p-3 sm:p-4 border-b border-gray-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-col gap-2.5">
@@ -1637,6 +1722,26 @@ function SiswaTugas() {
 
               {/* Main Questions View Area */}
               <div className="p-3 sm:p-6 overflow-y-auto flex-1 space-y-4">
+                {parsedQuestions.length === 0 && (
+                  <div className="p-8 text-center bg-white rounded-2xl border border-gray-200 max-w-md mx-auto my-12 space-y-3 shadow-xs">
+                    <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto" />
+                    <h3 className="font-bold text-gray-900 text-base">Soal Belum Siap Dimuat</h3>
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      Paket soal ini sedang dimuat atau belum memiliki butir soal aktif dari guru pengawas.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTask(null);
+                        fetchStudentTasks();
+                      }}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition"
+                    >
+                      Kembali ke Beranda Tugas
+                    </button>
+                  </div>
+                )}
+
                 {/* MODE FOKUS PER SOAL: Lightweight, instant rendering, no lag on mobile */}
                 {viewMode === 'focus' && parsedQuestions.length > 0 && (() => {
                   const q = parsedQuestions[currentQuestionIdx] || parsedQuestions[0];

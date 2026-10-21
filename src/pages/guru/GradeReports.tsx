@@ -627,59 +627,64 @@ export default function GradeReports() {
   }, [submissions, selectedTask, studentSearch, statusFilter]);
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto pb-16">
-      {/* Page Header */}
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+      {/* Page Header (Compact & Sleek) */}
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-5 text-white shadow-md">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-3 py-1 bg-blue-500/30 border border-blue-400/40 rounded-full text-xs font-bold text-blue-200 flex items-center gap-1.5">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className="px-2.5 py-0.5 bg-blue-500/25 border border-blue-400/30 rounded-md text-[11px] font-bold text-blue-200 flex items-center gap-1.5">
                 <CheckSquare className="w-3.5 h-3.5 text-blue-300" />
                 Laporan Nilai & Koreksi Esai
               </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
               Laporan Nilai, Koreksi Esai & Detail Hasil Ujian
             </h1>
-            <p className="text-blue-200 text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed">
-              Pilih salah satu paket soal pada tabel di bawah untuk melihat rekap nilai siswa yang tampil rapi di bawahnya. Anda dapat melihat <strong>Detail Jawaban Benar & Salah</strong> siswa serta melakukan <strong>Koreksi Nilai Esai per Butir Soal</strong> yang langsung menjumlah ke nilai akhir secara otomatis.
+            <p className="text-blue-200 text-xs mt-0.5 max-w-2xl leading-relaxed">
+              Pilih paket soal untuk melihat rekap nilai siswa di bawah. Dilengkapi <strong>Detail Jawaban Benar & Salah</strong> serta <strong>Koreksi Nilai Esai per Butir Soal</strong> otomatis.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <Link
               to="/dashboard/monitoring"
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs"
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
             >
-              <Activity className="w-4 h-4 text-emerald-400" />
+              <Activity className="w-3.5 h-3.5 text-emerald-400" />
               Monitoring Ujian Live
             </Link>
           </div>
         </div>
       </div>
 
-      {/* SECTION 1: TABEL PILIH PAKET SOAL (Compact & Precise Table) */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-3.5 sm:p-4 space-y-2.5">
+      {/* SECTION 1: TABEL PILIH PAKET SOAL (Ultra-Compact & Space-Efficient) */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-3 space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-indigo-600" />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Award className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <h2 className="text-xs sm:text-sm font-bold text-gray-900">
               Pilih Paket Soal Ujian
             </h2>
-            <p className="text-[11px] text-gray-500">
-              Klik <strong>"Lihat Laporan Nilai"</strong> untuk menampilkan daftar nilai siswa di bawah ({tasks.length} paket soal).
-            </p>
+            <span className="text-[10px] text-gray-500 font-medium hidden sm:inline">
+              ({tasks.length} paket soal)
+            </span>
+            {selectedTask && (
+              <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded border border-blue-200 truncate max-w-[240px]">
+                Dipilih: {selectedTask.title}
+              </span>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[180px]">
-              <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="relative min-w-[160px]">
+              <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Cari paket / mapel..."
                 value={taskSearch}
                 onChange={e => setTaskSearch(e.target.value)}
-                className="w-full pl-7 pr-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 font-medium"
+                className="w-full pl-6 pr-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-indigo-500 font-medium"
               />
             </div>
 
@@ -687,7 +692,7 @@ export default function GradeReports() {
               <select
                 value={taskClassFilter}
                 onChange={e => setTaskClassFilter(e.target.value)}
-                className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700"
+                className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs font-semibold text-gray-700"
               >
                 <option value="ALL">Semua Kelas ({uniqueTaskClasses.length})</option>
                 {uniqueTaskClasses.map((cls, i) => (
@@ -699,7 +704,7 @@ export default function GradeReports() {
             <button
               type="button"
               onClick={fetchTasks}
-              className="p-1 bg-white hover:bg-gray-100 text-gray-600 border border-gray-200 rounded-lg transition"
+              className="p-1 bg-white hover:bg-gray-100 text-gray-600 border border-gray-200 rounded transition"
               title="Segarkan Daftar Paket Soal"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingTasks ? 'animate-spin' : ''}`} />
@@ -708,30 +713,30 @@ export default function GradeReports() {
         </div>
 
         {loadingTasks ? (
-          <div className="py-6 text-center text-gray-500 text-xs flex items-center justify-center gap-2">
+          <div className="py-4 text-center text-gray-500 text-xs flex items-center justify-center gap-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" /> Memuat daftar paket soal...
           </div>
         ) : filteredTasks.length === 0 ? (
-          <div className="p-6 text-center text-gray-500 text-xs">
+          <div className="p-4 text-center text-gray-500 text-xs">
             Tidak ada paket soal yang cocok dengan pencarian Anda.
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-100/80 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] tracking-wider">
-                  <th className="py-2 px-2.5 w-10 text-center">No</th>
-                  <th className="py-2 px-2.5 min-w-[200px]">Paket Soal & Mata Pelajaran</th>
-                  <th className="py-2 px-2.5">Kelas</th>
-                  <th className="py-2 px-2.5">Tipe & Butir</th>
-                  <th className="py-2 px-2.5 text-center">KKM</th>
-                  <th className="py-2 px-2.5 min-w-[130px]">Pengumpulan</th>
-                  <th className="py-2 px-2.5 text-center">Rata-rata</th>
-                  <th className="py-2 px-2.5 min-w-[140px]">Token (30 Mnt)</th>
-                  <th className="py-2 px-2.5 text-right">Aksi</th>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-52 sm:max-h-60 overflow-y-auto">
+            <table className="w-full text-left border-collapse text-[11px]">
+              <thead className="sticky top-0 bg-slate-100 z-10 shadow-2xs">
+                <tr className="border-b border-gray-200 text-gray-600 font-bold uppercase text-[9px] tracking-wider">
+                  <th className="py-1.5 px-2 w-8 text-center">No</th>
+                  <th className="py-1.5 px-2 min-w-[170px]">Paket Soal & Mapel</th>
+                  <th className="py-1.5 px-2 whitespace-nowrap">Kelas</th>
+                  <th className="py-1.5 px-2 whitespace-nowrap">Tipe & Butir</th>
+                  <th className="py-1.5 px-2 text-center whitespace-nowrap">KKM</th>
+                  <th className="py-1.5 px-2 min-w-[120px] whitespace-nowrap">Pengumpulan</th>
+                  <th className="py-1.5 px-2 text-center whitespace-nowrap">Rata-rata</th>
+                  <th className="py-1.5 px-2 min-w-[130px] whitespace-nowrap">Token (30 Mnt)</th>
+                  <th className="py-1.5 px-2 text-right whitespace-nowrap w-24">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 text-[11px]">
+              <tbody className="divide-y divide-gray-100">
                 {filteredTasks.map((task, idx) => {
                   const isSelected = selectedTask?.id === task.id;
                   const qCount = Array.isArray(task.content) ? task.content.length : 0;
@@ -748,32 +753,32 @@ export default function GradeReports() {
                           : 'hover:bg-slate-50/80 bg-white'
                       }`}
                     >
-                      <td className="py-2 px-2.5 text-center text-gray-400 font-semibold">{idx + 1}</td>
-                      <td className="py-2 px-2.5">
-                        <div className="space-y-0.5">
-                          <p className={`font-bold text-xs truncate max-w-[240px] ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                      <td className="py-1 px-2 text-center text-gray-400 font-semibold">{idx + 1}</td>
+                      <td className="py-1 px-2">
+                        <div className="leading-tight">
+                          <p className={`font-bold text-xs truncate max-w-[210px] ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
                             {task.title}
                           </p>
-                          <p className="text-[10px] text-gray-500 font-medium leading-tight">{task.subject_name || '-'}</p>
+                          <p className="text-[9px] text-gray-500 font-medium truncate">{task.subject_name || '-'}</p>
                         </div>
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 font-bold rounded text-[10px]">
+                      <td className="py-1 px-2 whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 font-bold rounded text-[9px]">
                           Kelas {task.class?.name || '-'}
                         </span>
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap">
-                        <span className="font-semibold text-gray-800 text-[11px]">
+                      <td className="py-1 px-2 whitespace-nowrap">
+                        <span className="font-semibold text-gray-800 text-[10px]">
                           {task.type === 'pg' ? 'PG' : task.type === 'essay' ? 'Esai' : 'Campuran'}
                         </span>
-                        <span className="text-gray-500 text-[10px] ml-1">({qCount} Soal)</span>
+                        <span className="text-gray-500 text-[9px] ml-1">({qCount} Soal)</span>
                       </td>
-                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
-                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200 text-[10px]">
+                      <td className="py-1 px-2 text-center whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200 text-[9px]">
                           {task.kkm !== undefined && task.kkm !== null ? task.kkm : 75}
                         </span>
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap">
+                      <td className="py-1 px-2 whitespace-nowrap">
                         {stats ? (
                           <span className="text-xs font-bold text-gray-800 flex items-center gap-1">
                             <Users className="w-3 h-3 text-indigo-600" />
@@ -783,7 +788,7 @@ export default function GradeReports() {
                           <span className="text-gray-400 italic text-[10px]">Memuat...</span>
                         )}
                       </td>
-                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                      <td className="py-1 px-2 text-center whitespace-nowrap">
                         {stats?.avgScore !== null && stats?.avgScore !== undefined ? (
                           <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
                             stats.avgScore >= (task.kkm || 75)
@@ -793,29 +798,29 @@ export default function GradeReports() {
                             {stats.avgScore}
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-400 text-[10px]">-</span>
                         )}
                       </td>
-                      <td className="py-2 px-2.5 whitespace-nowrap">
-                        <span className="font-mono font-bold text-[11px] text-indigo-950 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                      <td className="py-1 px-2 whitespace-nowrap">
+                        <span className="font-mono font-bold text-[10px] text-indigo-950 bg-indigo-50 px-1 py-0.5 rounded border border-indigo-200">
                           {activeToken}
                         </span>
                       </td>
-                      <td className="py-2 px-2.5 text-right whitespace-nowrap">
+                      <td className="py-1 px-2 text-right whitespace-nowrap">
                         <button
                           type="button"
                           onClick={e => {
                             e.stopPropagation();
                             handleSelectTask(task, true);
                           }}
-                          className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center gap-1 ml-auto shadow-2xs ${
+                          className={`px-2 py-0.5 rounded font-bold text-[10px] transition flex items-center gap-1 ml-auto shadow-2xs ${
                             isSelected
                               ? 'bg-blue-600 text-white'
                               : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
                           }`}
                         >
-                          <Eye className="w-3 h-3" />
-                          {isSelected ? '✓ Dilihat' : 'Lihat Nilai'}
+                          <Eye className="w-2.5 h-2.5" />
+                          {isSelected ? 'Dilihat' : 'Lihat Nilai'}
                         </button>
                       </td>
                     </tr>
@@ -832,98 +837,98 @@ export default function GradeReports() {
         {selectedTask ? (
           <div className="space-y-4">
             {/* Stats Cards for Selected Task */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs">
-                <span className="text-xs text-gray-500 font-bold block">Total Siswa</span>
-                <span className="text-2xl font-black text-gray-900 mt-1 block">{reportStats.total}</span>
-                <span className="text-[11px] text-gray-500">Kelas {selectedTask.class?.name}</span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200 shadow-2xs">
+                <span className="text-[10px] text-gray-500 font-bold block">Total Siswa</span>
+                <span className="text-xl font-black text-gray-900 mt-0.5 block">{reportStats.total}</span>
+                <span className="text-[9px] text-gray-500">Kelas {selectedTask.class?.name}</span>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs">
-                <span className="text-xs text-blue-700 font-bold block">Sudah Mengumpulkan</span>
-                <span className="text-2xl font-black text-blue-700 mt-1 block">{reportStats.submitted}</span>
-                <span className="text-[11px] text-blue-600">{reportStats.inProgress} sedang mengerjakan</span>
+              <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200 shadow-2xs">
+                <span className="text-[10px] text-blue-700 font-bold block">Mengumpulkan</span>
+                <span className="text-xl font-black text-blue-700 mt-0.5 block">{reportStats.submitted}</span>
+                <span className="text-[9px] text-blue-600">{reportStats.inProgress} sedang ujian</span>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs">
-                <span className="text-xs text-amber-800 font-bold block">Perlu Koreksi Esai</span>
-                <span className="text-2xl font-black text-amber-700 mt-1 block">{reportStats.needsGrading}</span>
-                <span className="text-[11px] text-amber-700">Menunggu penilaian</span>
+              <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200 shadow-2xs">
+                <span className="text-[10px] text-amber-800 font-bold block">Perlu Koreksi Esai</span>
+                <span className="text-xl font-black text-amber-700 mt-0.5 block">{reportStats.needsGrading}</span>
+                <span className="text-[9px] text-amber-700">Menunggu penilaian</span>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs">
-                <span className="text-xs text-emerald-800 font-bold block">Tuntas KKM (≥{selectedTask.kkm || 75})</span>
-                <span className="text-2xl font-black text-emerald-700 mt-1 block">{reportStats.passed}</span>
-                <span className="text-[11px] text-emerald-600">Memenuhi standar</span>
+              <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200 shadow-2xs">
+                <span className="text-[10px] text-emerald-800 font-bold block">Tuntas (≥{selectedTask.kkm || 75})</span>
+                <span className="text-xl font-black text-emerald-700 mt-0.5 block">{reportStats.passed}</span>
+                <span className="text-[9px] text-emerald-600">Memenuhi standar</span>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs">
-                <span className="text-xs text-red-800 font-bold block">Remedial (&lt;{selectedTask.kkm || 75})</span>
-                <span className="text-2xl font-black text-red-600 mt-1 block">{reportStats.remedial}</span>
-                <span className="text-[11px] text-red-600">Perlu bimbingan</span>
+              <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200 shadow-2xs">
+                <span className="text-[10px] text-red-800 font-bold block">Remedial (&lt;{selectedTask.kkm || 75})</span>
+                <span className="text-xl font-black text-red-600 mt-0.5 block">{reportStats.remedial}</span>
+                <span className="text-[9px] text-red-600">Perlu bimbingan</span>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs">
-                <span className="text-xs text-indigo-800 font-bold block">Rata-rata Nilai</span>
-                <span className="text-2xl font-black text-indigo-700 mt-1 block">{reportStats.avg}</span>
-                <span className="text-[11px] text-indigo-600">Dari siswa dinilai</span>
+              <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200 shadow-2xs">
+                <span className="text-[10px] text-indigo-800 font-bold block">Rata-rata Nilai</span>
+                <span className="text-xl font-black text-indigo-700 mt-0.5 block">{reportStats.avg}</span>
+                <span className="text-[9px] text-indigo-600">Dari siswa dinilai</span>
               </div>
             </div>
 
             {/* Student Grade Report Table Box */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               {/* Header Box */}
-              <div className="p-6 bg-slate-50 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-lg font-bold text-gray-900">
-                      Laporan Nilai Siswa: {selectedTask.title}
+                    <h2 className="text-sm sm:text-base font-bold text-gray-900">
+                      Laporan Nilai: {selectedTask.title}
                     </h2>
-                    <span className="text-xs px-2.5 py-0.5 bg-blue-100 text-blue-800 font-bold rounded-md">
+                    <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded">
                       Kelas {selectedTask.class?.name}
                     </span>
-                    <span className="text-xs px-2.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md border border-emerald-300">
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-300">
                       KKM: {selectedTask.kkm !== undefined && selectedTask.kkm !== null ? selectedTask.kkm : 75}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Gunakan tombol <strong>Detail Jawaban</strong> untuk melihat rincian benar/salah, atau <strong>Koreksi & Nilai</strong> untuk mengisi nilai esai per butir soal.
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    Gunakan <strong>Detail Jawaban</strong> untuk melihat rincian benar/salah, atau <strong>Koreksi & Nilai</strong> untuk mengisi esai per butir.
                   </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
                     to={`/dashboard/monitoring?taskId=${selectedTask.id}`}
-                    className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-xs rounded-xl transition flex items-center gap-1.5"
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-xs rounded-lg transition flex items-center gap-1"
                   >
                     <Activity className="w-3.5 h-3.5 text-indigo-600" />
-                    Buka Monitoring Ujian Live
+                    Monitoring Live
                   </Link>
 
                   <button
                     type="button"
                     onClick={handleDownloadReport}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-2"
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5"
                   >
-                    <Download className="w-4 h-4" /> Download Laporan (CSV/Excel)
+                    <Download className="w-3.5 h-3.5" /> Download (Excel)
                   </button>
                 </div>
               </div>
 
               {/* Filter and Search inside Student Table */}
-              <div className="p-4 bg-white border-b border-gray-100 grid sm:grid-cols-2 gap-3">
+              <div className="p-3 bg-white border-b border-gray-100 grid sm:grid-cols-2 gap-2.5">
                 <div className="relative">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={studentSearch}
                     onChange={e => setStudentSearch(e.target.value)}
                     placeholder="Cari nama siswa atau NISN..."
-                    className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 font-medium"
+                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 font-medium"
                   />
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
                   {[
                     { id: 'ALL', label: `Semua (${submissions.length})` },
                     { id: 'PASSED', label: `Tuntas (${reportStats.passed})` },
@@ -936,7 +941,7 @@ export default function GradeReports() {
                       key={tab.id}
                       type="button"
                       onClick={() => setStatusFilter(tab.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${
+                      className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap transition ${
                         statusFilter === tab.id
                           ? 'bg-blue-600 text-white shadow-2xs'
                           : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
@@ -951,29 +956,29 @@ export default function GradeReports() {
               {/* Student Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-50 border-b border-gray-200 text-gray-700 font-bold uppercase text-[11px]">
+                  <thead className="bg-slate-50 border-b border-gray-200 text-gray-700 font-bold uppercase text-[10px] tracking-wider">
                     <tr>
-                      <th className="px-4 py-3.5 w-12 text-center">No</th>
-                      <th className="px-4 py-3.5 min-w-[200px]">Nama Siswa & NISN</th>
-                      <th className="px-4 py-3.5">Status Pengerjaan</th>
-                      <th className="px-4 py-3.5 text-center">Skor PG</th>
-                      <th className="px-4 py-3.5 text-center">Skor Esai</th>
-                      <th className="px-4 py-3.5 text-center">Nilai Akhir</th>
-                      <th className="px-4 py-3.5 text-center">Status KKM</th>
-                      <th className="px-4 py-3.5 text-right min-w-[240px]">Aksi Laporan</th>
+                      <th className="px-3 py-2 w-10 text-center">No</th>
+                      <th className="px-3 py-2 min-w-[180px]">Nama Siswa & NISN</th>
+                      <th className="px-3 py-2">Status Pengerjaan</th>
+                      <th className="px-3 py-2 text-center">Skor PG</th>
+                      <th className="px-3 py-2 text-center">Skor Esai</th>
+                      <th className="px-3 py-2 text-center">Nilai Akhir</th>
+                      <th className="px-3 py-2 text-center">Status KKM</th>
+                      <th className="px-3 py-2 text-right min-w-[210px]">Aksi Laporan</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {loadingSubmissions ? (
                       <tr>
-                        <td colSpan={8} className="px-6 py-12 text-center text-gray-500 text-sm">
-                          <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-600" />
+                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500 text-xs">
+                          <Loader2 className="w-4 h-4 animate-spin mx-auto mb-1.5 text-blue-600" />
                           Memuat data nilai siswa...
                         </td>
                       </tr>
                     ) : filteredSubmissions.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-6 py-12 text-center text-gray-500 text-xs">
+                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500 text-xs">
                           Tidak ada siswa yang sesuai dengan filter pencarian.
                         </td>
                       </tr>
@@ -996,58 +1001,58 @@ export default function GradeReports() {
 
                         return (
                           <tr key={st.id} className="hover:bg-slate-50 transition">
-                            <td className="px-4 py-4 text-center font-semibold text-gray-500">{idx + 1}</td>
-                            <td className="px-4 py-4">
-                              <div className="font-bold text-gray-900 text-sm">{st.name}</div>
-                              <div className="text-[11px] text-gray-500 font-mono">NISN: {st.username}</div>
+                            <td className="px-3 py-2 text-center font-semibold text-gray-500">{idx + 1}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-bold text-gray-900 text-xs sm:text-sm">{st.name}</div>
+                              <div className="text-[10px] text-gray-500 font-mono">NISN: {st.username}</div>
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
+                            <td className="px-3 py-2 whitespace-nowrap">
                               {!sub ? (
-                                <span className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded-lg flex items-center w-max gap-1">
+                                <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] font-semibold rounded flex items-center w-max gap-1">
                                   <Clock className="w-3 h-3 text-gray-400" /> Belum Mulai
                                 </span>
                               ) : isInProgress ? (
-                                <span className="px-2.5 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-lg flex items-center w-max gap-1">
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded flex items-center w-max gap-1">
                                   <Activity className="w-3 h-3 animate-pulse text-blue-600" /> Sedang Ujian ({answeredCount}/{totalQ})
                                 </span>
                               ) : isGraded ? (
-                                <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg flex items-center w-max gap-1">
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded flex items-center w-max gap-1">
                                   <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sudah Dinilai
                                 </span>
                               ) : (
-                                <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-lg flex items-center w-max gap-1">
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] font-bold rounded flex items-center w-max gap-1">
                                   <AlertCircle className="w-3 h-3 text-amber-600" /> Perlu Koreksi Esai
                                 </span>
                               )}
                             </td>
-                            <td className="px-4 py-4 text-center whitespace-nowrap">
+                            <td className="px-3 py-2 text-center whitespace-nowrap">
                               {sub && scoreBreakdown ? (
-                                <span className="font-semibold text-gray-800">{scoreBreakdown.pgScore}</span>
+                                <span className="font-semibold text-gray-800 text-xs">{scoreBreakdown.pgScore}</span>
                               ) : (
-                                <span className="text-gray-400">-</span>
+                                <span className="text-gray-400 text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-4 py-4 text-center whitespace-nowrap">
+                            <td className="px-3 py-2 text-center whitespace-nowrap">
                               {sub && scoreBreakdown ? (
-                                <span className="font-semibold text-indigo-700">
+                                <span className="font-semibold text-indigo-700 text-xs">
                                   {scoreBreakdown.essayPoints > 0 ? `+${scoreBreakdown.essayPoints}` : '0'}
                                 </span>
                               ) : (
-                                <span className="text-gray-400">-</span>
+                                <span className="text-gray-400 text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-4 py-4 text-center whitespace-nowrap">
+                            <td className="px-3 py-2 text-center whitespace-nowrap">
                               {sub && sub.score !== null && !isInProgress ? (
-                                <span className={`font-black text-base ${sub.score >= taskKkm ? 'text-emerald-700' : 'text-red-600'}`}>
+                                <span className={`font-black text-sm ${sub.score >= taskKkm ? 'text-emerald-700' : 'text-red-600'}`}>
                                   {sub.score}
                                 </span>
                               ) : (
-                                <span className="text-gray-400 font-bold">-</span>
+                                <span className="text-gray-400 font-bold text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-4 py-4 text-center whitespace-nowrap">
+                            <td className="px-3 py-2 text-center whitespace-nowrap">
                               {sub && sub.score !== null && !isInProgress ? (
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
                                   sub.score >= taskKkm
                                     ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                     : 'bg-red-50 text-red-800 border-red-200'
@@ -1055,36 +1060,36 @@ export default function GradeReports() {
                                   {sub.score >= taskKkm ? 'TUNTAS' : 'REMEDIAL'}
                                 </span>
                               ) : (
-                                <span className="text-gray-400">-</span>
+                                <span className="text-gray-400 text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-4 py-4 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1 flex-wrap">
                                 {/* DETAIL JAWABAN SISWA (Benar & Salah) */}
                                 <button
                                   type="button"
                                   onClick={() => openDetailModal(item)}
                                   disabled={!sub}
-                                  className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg font-bold text-xs transition flex items-center gap-1 disabled:opacity-40"
+                                  className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md font-bold text-[11px] transition flex items-center gap-1 disabled:opacity-40"
                                   title="Lihat Detail Butir Jawaban Benar & Salah Siswa"
                                 >
-                                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                                  Detail Jawaban
+                                  <FileText className="w-3 h-3 text-indigo-600" />
+                                  Detail
                                 </button>
 
                                 {/* KOREKSI ESAI & NILAI */}
                                 <button
                                   type="button"
                                   onClick={() => openGradingModal(item, false)}
-                                  className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition flex items-center gap-1 ${
+                                  className={`px-2 py-1 rounded-md font-bold text-[11px] transition flex items-center gap-1 ${
                                     isNeedsGrading
                                       ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-2xs'
                                       : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200'
                                   }`}
                                   title="Koreksi Esai & Atur Nilai Siswa"
                                 >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                  {isNeedsGrading ? 'Koreksi Esai' : 'Koreksi & Nilai'}
+                                  <Edit2 className="w-3 h-3" />
+                                  {isNeedsGrading ? 'Koreksi' : 'Nilai'}
                                 </button>
 
                                 {/* Reset Ujian Siswa dari 0 (Optional Retake) */}
@@ -1093,7 +1098,7 @@ export default function GradeReports() {
                                     type="button"
                                     onClick={() => handleResetStudentExam(item)}
                                     disabled={resettingId === st.id}
-                                    className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-semibold text-xs transition flex items-center gap-1 disabled:opacity-50"
+                                    className="px-1.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-md font-semibold text-[11px] transition flex items-center gap-0.5 disabled:opacity-50"
                                     title="Reset ujian dari 0 agar siswa bisa mengulang"
                                   >
                                     {resettingId === st.id ? (

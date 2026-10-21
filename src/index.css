@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+/* Viewport baseline & hardware acceleration for Android entry-level phones (Vivo Y04, Oppo A57, Infinix Smart 6) */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  -webkit-text-size-adjust: 100%;
+  background-color: #f8fafc;
+}
+
+/* Ensure fullscreen elements occupy full viewport with solid dark backdrop */
+:fullscreen, :-webkit-full-screen {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  background-color: #020617 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Fallback for low-spec PowerVR GE8320/GE8322 GPUs without backdrop-filter support */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .backdrop-blur-md, .backdrop-blur-sm, .backdrop-blur {
+    background-color: rgba(15, 23, 42, 0.95) !important;
+  }
+}
