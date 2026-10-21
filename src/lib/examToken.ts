@@ -92,10 +92,9 @@ class AntiCheatAlarmController {
       }
 
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.getVoices();
-        const silentUtterance = new SpeechSynthesisUtterance('');
-        silentUtterance.volume = 0;
-        window.speechSynthesis.speak(silentUtterance);
+        try {
+          window.speechSynthesis.getVoices();
+        } catch {}
       }
     } catch {
       // Ignore warmup errors

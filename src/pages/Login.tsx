@@ -122,13 +122,7 @@ export default function Login() {
         throw new Error('Akun Anda sedang dinonaktifkan oleh administrator.');
       }
 
-      if (userProfile.role === 'siswa' && userProfile.is_exam_locked) {
-        try { await supabase.auth.signOut(); } catch {}
-        throw new Error(
-          'Akun Anda saat ini TERKUNCI karena telah melakukan 3 kali batas toleransi pelanggaran saat ujian (keluar aplikasi / beralih layar). ' +
-          'Silakan lapor kepada Guru Pengawas Anda untuk melakukan Reset Login pada menu Monitoring Ujian agar akun dapat dibuka kembali.'
-        );
-      }
+      // Exam lock is enforced per exam session inside SiswaDashboard, so students can always log in to their portal
 
       // Record login timestamp & device session token in users table
       try {

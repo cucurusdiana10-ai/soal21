@@ -45,9 +45,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 .select('*')
                 .eq('id', parsed.id)
                 .maybeSingle();
-              if (verified && verified.status === 'active' && !(verified.role === 'siswa' && verified.is_exam_locked)) {
+              if (verified && verified.status === 'active') {
                 setUser(verified);
-              } else if (verified && (verified.status !== 'active' || (verified.role === 'siswa' && verified.is_exam_locked))) {
+              } else if (verified && verified.status !== 'active') {
                 setUser(null);
                 localStorage.removeItem('auth_user');
               }

@@ -143,6 +143,8 @@ function SiswaTugas() {
   const [violationCount, setViolationCount] = useState<number>(0);
   const [violationLogs, setViolationLogs] = useState<ViolationLogItem[]>([]);
   const [alarmActive, setAlarmActive] = useState<boolean>(false);
+  const [isExamStopped, setIsExamStopped] = useState<boolean>(false);
+  const [stopPenaltySeconds, setStopPenaltySeconds] = useState<number>(0);
   const [latestViolationReason, setLatestViolationReason] = useState<string>('');
   const [copyWarning, setCopyWarning] = useState<string | null>(null);
 
@@ -161,6 +163,9 @@ function SiswaTugas() {
   const isInternalActionRef = useRef<boolean>(false);
   const lastInternalActionTimeRef = useRef<number>(0);
   const initialLaunchGracePeriodRef = useRef<number>(0);
+  const wasHiddenRef = useRef<boolean>(false);
+  const wasBlurredRef = useRef<boolean>(false);
+  const blurredTimeRef = useRef<number>(0);
   const deviceToken = getOrCreateDeviceSessionToken();
 
   const markInternalAction = (graceMs: number = 3000) => {
@@ -226,28 +231,23 @@ function SiswaTugas() {
     return () => clearInterval(timer);
   }, []);
 
+  // Stop Pengerjaan mandatory freeze penalty countdown timer
+  useEffect(() => {
+    if (!isExamStopped || stopPenaltySeconds <= 0) return;
+    const penaltyTimer = window.setInterval(() => {
+      setStopPenaltySeconds(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(penaltyTimer);
+  }, [isExamStopped, stopPenaltySeconds]);
+
   useEffect(() => {
     fetchStudentTasks();
   }, [user]);
 
-  // Viewport reflow & surface sync for low-spec Androids (Vivo Y04, Oppo A57, Infinix Smart 6)
+  // Scroll to top on exam entry
   useEffect(() => {
     if (!activeTask) return;
-    const handleViewportReflow = () => {
-      window.requestAnimationFrame(() => {
-        const el = document.getElementById('exam-viewport-root');
-        if (el && typeof window !== 'undefined') {
-          el.style.height = `${window.innerHeight}px`;
-        }
-      });
-    };
-    handleViewportReflow();
-    window.addEventListener('resize', handleViewportReflow);
-    window.addEventListener('orientationchange', handleViewportReflow);
-    return () => {
-      window.removeEventListener('resize', handleViewportReflow);
-      window.removeEventListener('orientationchange', handleViewportReflow);
-    };
+    window.scrollTo(0, 0);
   }, [activeTask]);
 
   // Clean up alarm on unmount
@@ -312,17 +312,19 @@ function SiswaTugas() {
       setLatestViolationReason(reason);
 
       // SENSITIFITAS TOLERANSI PELANGGARAN: 3 KALI
-      // Pelanggaran 1 & 2: Peringatan keras & alarm suara
-      // Pelanggaran 3: Langsung terkunci, akun di-reset ke halaman login, harus minta reset login ke guru
+      // Pelanggaran 1 & 2: Peringatan keras, alarm suara, dan STOP PENGERJAAN (pembekuan layar)
+      // Pelanggaran 3: Sesi ujian terkunci total, harus minta reset login ke guru di Monitoring Ujian
       if (nextCount >= 3) {
         antiCheatAlarm.stopAlarm();
         setAlarmActive(false);
+        setIsExamStopped(false);
+        setStopPenaltySeconds(0);
 
         if (document.fullscreenElement && document.exitFullscreen) {
           document.exitFullscreen().catch(() => {});
         }
 
-        // Simpan jawaban terakhir & tandai akun terkunci di Supabase
+        // Simpan jawaban terakhir & tandai akun ujian terkunci di Supabase
         if (activeTask && user && supabase) {
           syncExamProgressToSupabase({
             taskId: activeTask.id,
@@ -340,7 +342,7 @@ function SiswaTugas() {
               session_token: null,
               violation_count: nextCount,
               violation_logs: nextLogs,
-              feedback: `Akun ujian terkunci karena telah melakukan ${nextCount} kali pelanggaran selama ujian. Memerlukan Reset Login oleh Guru Pengawas.`
+              feedback: `Ujian terkunci karena telah melakukan ${nextCount} kali pelanggaran (membuka tab baru / keluar aplikasi). Memerlukan Reset Login oleh Guru Pengawas.`
             })
             .eq('task_id', activeTask.id)
             .eq('student_id', user.id)
@@ -350,33 +352,31 @@ function SiswaTugas() {
             .from('users')
             .update({
               is_exam_locked: true,
-              exam_locked_reason: `Terkunci otomatis karena melakukan ${nextCount} kali pelanggaran selama ujian (keluar aplikasi / beralih layar)`,
-              exam_locked_at: new Date().toISOString(),
-              active_session_token: null
+              exam_locked_reason: `Ujian terkunci otomatis karena 3x pelanggaran (membuka tab baru / keluar aplikasi)`,
+              exam_locked_at: new Date().toISOString()
             })
             .eq('id', user.id)
             .then(() => {});
         }
 
         setActiveTask(null);
-        localStorage.removeItem('auth_user');
-        sessionStorage.setItem('exam_violation_locked', '1');
 
         alert(
           '🚨 UJIAN TERKUNCI KARENA 3 KALI PELANGGARAN!\n\n' +
-          'Anda telah mencapai batas toleransi 3 kali pelanggaran selama ujian (terdeteksi keluar aplikasi atau beralih layar).\n\n' +
-          '• Seluruh jawaban yang sudah Anda kerjakan telah TERSIMPAN AMAN di sistem.\n' +
-          '• Akun Anda telah di-reset ke halaman login.\n' +
-          '• Anda harus meminta RESET LOGIN kepada Guru Pengawas di kelas Anda untuk dapat masuk kembali dan melanjutkan ujian.'
+          'Anda telah mencapai batas toleransi 3 kali pelanggaran selama ujian (terdeteksi membuka tab baru atau keluar aplikasi).\n\n' +
+          '• Seluruh jawaban yang sudah Anda pilih telah TERSIMPAN AMAN di sistem.\n' +
+          '• Sesi ujian Anda telah TERKUNCI.\n' +
+          '• Silakan minta RESET LOGIN kepada Guru Pengawas Anda di menu Monitoring Ujian untuk membuka kunci dan melanjutkan ujian.'
         );
 
-        logout();
-        navigate('/login?role=siswa&locked=1', { replace: true });
+        fetchStudentTasks();
         return;
       }
 
-      // Jika masih dalam batas toleransi (< 3 kali)
+      // Jika masih dalam batas toleransi (< 3 kali): AKTIFKAN FITUR STOP PENGERJAAN
       setAlarmActive(true);
+      setIsExamStopped(true);
+      setStopPenaltySeconds(20); // 20 detik pembekuan layar wajib
 
       // Sound loud Web Audio API alarm + voice synthesis warning "Anda Keluar Aplikasi Ujian"
       antiCheatAlarm.startAlarm();
@@ -481,56 +481,42 @@ function SiswaTugas() {
       return;
     }
 
-    const isInternalActionActive = () => {
-      return (
-        Date.now() < initialLaunchGracePeriodRef.current ||
-        isInternalActionRef.current ||
-        showNumberGridModal ||
-        unansweredModalOpen ||
-        minDurationModalOpen ||
-        confirmSubmitModalOpen ||
-        testingAlarm ||
-        alarmActive ||
-        Boolean(copyWarning) ||
-        Date.now() - lastInternalActionTimeRef.current < 2500
-      );
-    };
-
     // 1. Deteksi Tombol Kembali (1 dari 3 tombol di HP) via History PopState Trap
     try {
       window.history.pushState({ sman21ExamLock: true }, '', window.location.href);
     } catch {}
 
     const handlePopState = () => {
-      if (isInternalActionActive()) return;
       try {
         window.history.pushState({ sman21ExamLock: true }, '', window.location.href);
       } catch {}
       triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi menekan tombol kembali (navigasi HP)');
     };
 
-    // 2. Deteksi Tombol Home, Recent Apps & Buka Tab Baru di Browser
+    // 2. Deteksi Buka Tab Baru di Browser, Tombol Home, Recent Apps & Beralih Aplikasi
+    // Ini dieksekusi SECARA PASTI saat siswa membuka tab baru, beralih tab, atau meminimalkan browser
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        if (isInternalActionActive()) return;
+      if (document.hidden || document.visibilityState === 'hidden') {
         triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi membuka tab baru atau berpindah aplikasi');
       }
     };
 
     const handlePageHide = () => {
-      if (isInternalActionActive()) return;
-      triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi meninggalkan halaman ujian');
+      triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi meninggalkan atau menutup halaman ujian');
     };
 
     // 3. Deteksi Floating App (Aplikasi Mengambang / Kalkulator Pop-up / WhatsApp Mengambang / Split-Screen)
     const handleWindowBlur = () => {
-      if (isInternalActionActive()) return;
+      // Abaikan jika siswa sedang berinteraksi dengan modal internal aplikasi ujian (daftar nomor / konfirmasi kumpul)
+      if (showNumberGridModal || unansweredModalOpen || minDurationModalOpen || confirmSubmitModalOpen) {
+        return;
+      }
       setTimeout(() => {
         // Jika fokus keluar dari dokumen web (misal mengetuk floating window, recent apps, atau split-screen):
-        if (!document.hasFocus() && !isInternalActionActive()) {
+        if (!document.hasFocus()) {
           triggerViolation('Anda Keluar Aplikasi Ujian: Terdeteksi berpindah aplikasi atau menggunakan floating app');
         }
-      }, 400);
+      }, 350);
     };
 
     // Fullscreen is optional; exiting or changing fullscreen does NOT trigger any violation.
@@ -694,8 +680,8 @@ function SiswaTugas() {
         .maybeSingle();
 
       // Check if session is locked on a different device and hasn't been Reset Login by Guru
-      // If student hasn't answered any questions yet (savedCount === 0) and violation_count === 0,
-      // do NOT block them! They are just opening or retrying on their phone, so let them claim the device token smoothly.
+      // If student hasn't answered any questions yet (savedCount === 0), NEVER block them!
+      // This prevents the infinite reset loop when a student opens the exam for the first time.
       const savedCount = countAnsweredQuestions(latestSub?.answers);
       const isAlreadyViolationLocked = Boolean(latestSub?.is_locked || Number(latestSub?.violation_count || 0) >= 3);
 
@@ -704,14 +690,9 @@ function SiswaTugas() {
         latestSub.status === 'in_progress' &&
         latestSub.session_token &&
         latestSub.session_token !== deviceToken &&
-        (savedCount > 0 || isAlreadyViolationLocked)
+        savedCount > 0 &&
+        isAlreadyViolationLocked
       ) {
-        // Mark as locked so Teacher sees it highlighted on Monitoring Ujian
-        await supabase
-          .from('task_submissions')
-          .update({ is_locked: true })
-          .eq('id', latestSub.id);
-
         setSessionLockedError(
           `Sesi ujian Anda terdeteksi terkunci pada perangkat/jaringan sebelumnya (${savedCount} jawaban Anda sudah tersimpan aman). Silakan minta Guru menekan tombol "Reset Login" pada menu Monitoring Ujian agar Anda dapat melanjutkan pengerjaan.`
         );
@@ -756,38 +737,22 @@ function SiswaTugas() {
         setSubmissions(prev => ({ ...prev, [taskToStart.id]: syncedRow }));
       }
 
-      // Unlock mobile audio & voice synthesis on direct user gesture
+      // Safely warm up audio context for alarm without blocking TTS queue
       antiCheatAlarm.warmUpAudioAndVoice();
 
+      // Fire and forget notification permission - NEVER await as it can hang on low-spec Android Go
       if ('Notification' in window && Notification.permission === 'default') {
         try {
-          await Notification.requestPermission();
+          Notification.requestPermission().catch(() => {});
         } catch {
           // Ignore
         }
       }
 
-      // Fullscreen policy for low-spec/entry-level mobile devices (Vivo Y04, Oppo A57, Infinix Smart 6, etc.):
-      // Do NOT trigger automatic native requestFullscreen() on mobile / touch devices upon exam entry.
-      // On entry-level Android WebViews (ColorOS, Funtouch OS, Android Go), automatic requestFullscreen causes
-      // asynchronous system-bar resize which drops the Skia compositor surface and freezes to a blank screen.
-      // On mobile, the exam overlay naturally fills 100% of the screen (CSS fixed inset-0 w-screen h-[100dvh] with hardware acceleration).
-      const isMobileDevice = checkIsMobileOrTouchDevice();
-
-      if (!isMobileDevice) {
-        try {
-          const el = document.documentElement as any;
-          if (el.requestFullscreen && !document.fullscreenElement) {
-            el.requestFullscreen().catch(() => {});
-          }
-        } catch {
-          // Ignore desktop fullscreen restriction
-        }
-      }
-
-      // Generous grace period (8 seconds) during exam launch so Android keyboard / orientation / system bars never trigger false violations
-      initialLaunchGracePeriodRef.current = Date.now() + 8000;
-      markInternalAction(8000);
+      // Zero-hang policy: do NOT trigger native requestFullscreen() automatically.
+      // Automatic requestFullscreen freezes compositor surfaces on entry-level Androids (Infinix Smart 7, Itel A90, Oppo A60)
+      // and causes a blank white screen. The exam uses solid CSS fixed inset-0 viewport.
+      initialLaunchGracePeriodRef.current = Date.now() + 1500;
 
       setPendingTokenTask(null);
       setTokenInput('');
@@ -797,6 +762,8 @@ function SiswaTugas() {
       setViolationCount(restoredViolations);
       setViolationLogs(restoredLogs);
       setAlarmActive(false);
+      setIsExamStopped(false);
+      setStopPenaltySeconds(0);
       lastViolationTimestampRef.current = Date.now();
       setActiveTask(taskToStart);
     } finally {
@@ -848,22 +815,9 @@ function SiswaTugas() {
   const handleDismissAlarmAndResume = async () => {
     antiCheatAlarm.stopAlarm();
     setAlarmActive(false);
+    setIsExamStopped(false);
+    setStopPenaltySeconds(0);
     lastViolationTimestampRef.current = Date.now();
-
-    markInternalAction(6000);
-
-    const isMobileDevice = checkIsMobileOrTouchDevice();
-
-    if (!isMobileDevice) {
-      try {
-        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(() => {});
-          hadFullscreenRef.current = true;
-        }
-      } catch {
-        // Ignore fullscreen restriction
-      }
-    }
   };
 
   const handleCloseExam = async () => {
@@ -2278,28 +2232,28 @@ function SiswaTugas() {
                 </div>
               )}
 
-              {/* MODAL 5: FULL-SCREEN ANTI-CHEAT ALARM OVERLAY (3 KALI TOLERANSI) */}
-              {alarmActive && (
-                <div className="absolute inset-0 z-50 bg-red-950 flex flex-col items-center justify-center p-6 text-center text-white animate-fadeIn">
-                  <div className="w-20 h-20 rounded-full bg-red-600 flex items-center justify-center mb-4 animate-bounce shadow-lg shadow-red-600/50 border-4 border-red-300">
+              {/* MODAL 5: FULL-SCREEN STOP PENGERJAAN & ANTI-CHEAT ALARM OVERLAY */}
+              {(alarmActive || isExamStopped) && (
+                <div className="absolute inset-0 z-50 bg-red-950 flex flex-col items-center justify-center p-4 sm:p-6 text-center text-white animate-fadeIn overflow-y-auto">
+                  <div className="w-20 h-20 rounded-full bg-red-600 flex items-center justify-center mb-3 animate-bounce shadow-lg shadow-red-600/50 border-4 border-red-300 shrink-0">
                     <ShieldAlert className="w-11 h-11 text-white" />
                   </div>
 
                   <span className="px-3 py-1 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-md border border-red-400 mb-2">
-                    🔊 NOTIFIKASI SUARA: "ANDA KELUAR APLIKASI UJIAN"
+                    🛑 PENGERJAAN DIHENTIKAN SEMENTARA (STOP PENGERJAAN)
                   </span>
 
-                  <h2 className="text-2xl sm:text-3xl font-black text-white max-w-xl">
-                    ANDA KELUAR APLIKASI UJIAN!
+                  <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white max-w-xl leading-tight">
+                    TERDETEKSI KELUAR APLIKASI / BUKA TAB BARU!
                   </h2>
 
-                  <p className="text-red-200 text-sm sm:text-base max-w-lg mt-2 leading-relaxed">
-                    {latestViolationReason || 'Sistem mendeteksi Anda membuka tab baru atau berpindah ke aplikasi lain.'}
+                  <p className="text-red-200 text-xs sm:text-sm max-w-lg mt-2 leading-relaxed">
+                    {latestViolationReason || 'Sistem mendeteksi Anda membuka tab baru, berpindah aplikasi, atau meminimalkan browser saat ujian.'}
                   </p>
 
-                  <div className="my-5 p-4 bg-red-900/80 border border-red-500/60 rounded-2xl max-w-md w-full text-left space-y-2">
+                  <div className="my-4 p-4 bg-red-900/80 border border-red-500/60 rounded-2xl max-w-md w-full text-left space-y-2.5">
                     <div className="flex items-center justify-between text-xs font-bold text-amber-300">
-                      <span>Pelanggaran Saat Ini:</span>
+                      <span>Pelanggaran Terdeteksi:</span>
                       <span className="text-sm font-black text-white bg-red-600 px-2.5 py-0.5 rounded-md">
                         Ke-{violationCount} dari 3 Kali
                       </span>
@@ -2310,19 +2264,50 @@ function SiswaTugas() {
                         {Math.max(0, 3 - violationCount)} Kali Lagi
                       </span>
                     </div>
-                    <p className="text-xs text-red-100 leading-relaxed pt-1 border-t border-red-800">
-                      ⚠️ <strong>PERINGATAN KERAS:</strong> Anda memiliki batas toleransi maksimal 3 kali. Jika mencapai 3 kali pelanggaran, sesi ujian Anda akan langsung <strong>TERKUNCI</strong>, akun di-reset ke halaman login, dan Anda wajib meminta <strong>Reset Login</strong> kepada Guru Pengawas!
+
+                    {/* Freeze Penalty Timer */}
+                    <div className="p-3 bg-red-950 rounded-xl border border-red-500/80 text-center">
+                      <p className="text-[11px] font-semibold text-red-200 uppercase tracking-wider mb-0.5">
+                        Sanksi Pembekuan Layar Pengerjaan:
+                      </p>
+                      {stopPenaltySeconds > 0 ? (
+                        <div className="flex items-center justify-center gap-2 text-amber-300">
+                          <Clock className="w-5 h-5 animate-pulse text-amber-400" />
+                          <span className="text-xl sm:text-2xl font-black font-mono tracking-wider text-white">
+                            {stopPenaltySeconds} DETIK
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-xs font-bold text-emerald-400">
+                          ✓ Masa tunggu sanksi selesai. Anda dapat melanjutkan.
+                        </p>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-red-200 leading-relaxed pt-1 border-t border-red-800">
+                      ⚠️ <strong>PENTING:</strong> Seluruh soal dibekukan selama masa sanksi. Jika mencapai 3 kali pelanggaran, ujian akan <strong>TERKUNCI PERMANEN</strong> dan wajib meminta Reset Login kepada Guru Pengawas!
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleDismissAlarmAndResume}
-                    className="px-8 py-3.5 bg-white text-red-900 hover:bg-red-50 font-black rounded-xl text-sm shadow-xl transition flex items-center gap-2 cursor-pointer"
-                  >
-                    <VolumeX className="w-5 h-5 text-red-700" />
-                    Matikan Alarm & Kembali Kerjakan (Sisa Toleransi {Math.max(0, 3 - violationCount)}x)
-                  </button>
+                  {stopPenaltySeconds > 0 ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="px-8 py-3.5 bg-gray-700/80 text-gray-300 font-bold rounded-xl text-sm shadow-md cursor-not-allowed flex items-center gap-2 border border-gray-600"
+                    >
+                      <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+                      Tunggu Pembekuan Selesai ({stopPenaltySeconds}s)
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleDismissAlarmAndResume}
+                      className="px-8 py-3.5 bg-white text-red-950 hover:bg-red-50 font-black rounded-xl text-sm shadow-xl transition flex items-center gap-2 cursor-pointer hover:scale-102 active:scale-98"
+                    >
+                      <VolumeX className="w-5 h-5 text-red-700" />
+                      Matikan Alarm & Lanjutkan Ujian (Sisa Toleransi {Math.max(0, 3 - violationCount)}x)
+                    </button>
+                  )}
                 </div>
               )}
             </div>
