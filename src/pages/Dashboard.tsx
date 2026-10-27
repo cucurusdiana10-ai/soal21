@@ -74,7 +74,7 @@ export default function Dashboard() {
       )}
 
       {/* Sidebar Drawer */}
-      <aside className={`fixed inset-y-0 left-0 w-72 max-w-[80vw] md:w-64 bg-white border-r border-gray-200 flex flex-col z-50 transform transition-transform duration-300 md:translate-x-0 ${sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} md:static md:block`}>
+      <aside className={`fixed inset-y-0 left-0 w-72 max-w-[80vw] md:w-64 bg-white border-r border-gray-200 flex flex-col z-50 transform transition-transform duration-300 md:translate-x-0 ${sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} md:static md:block print:hidden`}>
         <div className="p-4 sm:p-5 border-b border-gray-100 flex items-center justify-between gap-3 bg-slate-50/70">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="bg-blue-600 p-2 rounded-xl shadow-xs shrink-0">
@@ -142,7 +142,7 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className={`flex-1 flex flex-col min-w-0 ${user.role === 'siswa' ? 'pb-16 md:pb-0' : ''}`}>
         {/* Mobile Header */}
-        <header className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+        <header className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-xs print:hidden">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               onClick={() => setSidebarOpen(prev => !prev)}
@@ -169,7 +169,7 @@ export default function Dashboard() {
           </button>
         </header>
 
-        <div className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto">
+        <div className="flex-1 p-3 sm:p-4 md:p-8 overflow-y-auto print:p-0 print:overflow-visible">
           <Routes>
             {user.role === 'admin' && (
               <>

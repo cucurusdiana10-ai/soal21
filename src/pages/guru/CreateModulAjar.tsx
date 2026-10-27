@@ -40,6 +40,7 @@ import {
 } from '../../lib/schoolSettings';
 import OfficialSignatureStamp from '../../components/OfficialSignatureStamp';
 import { getTeacherSavedCps, SavedCpItem } from '../../lib/cpStorage';
+import { downloadElementAsPdf, printElementDirectly } from '../../lib/cleanPrint';
 
 export function extractMateriTitleFromModule(mod: {
   title?: string;
@@ -221,6 +222,7 @@ export default function CreateModulAjar() {
   const [currentSavedId, setCurrentSavedId] = useState<string | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   // School and User identity state
   const [schoolSettings, setSchoolSettings] = useState({
@@ -553,8 +555,96 @@ export default function CreateModulAjar() {
     }
   };
 
-  const handlePrintPdf = () => {
-    window.print();
+  const handleDownloadPdf = async (customData?: any) => {
+    const dataToUse = customData || result;
+    if (!dataToUse) return;
+    if (isEditing) {
+      setIsEditing(false);
+    }
+
+    setExportingPdf(true);
+    try {
+      const subject = dataToUse.identitas?.mataPelajaran || selectedSubjectFinal || 'Mata_Pelajaran';
+      const materiSnippet = extractMateriTitleFromModule({
+        cp: dataToUse.capaianPembelajaran || formData.cp,
+        content_json: dataToUse,
+        subject_name: subject
+      });
+      const cleanSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
+      const cleanMateri = (materiSnippet || 'Pembelajaran_Mendalam').replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `Modul_Ajar_${cleanSubject}_${cleanMateri}_SMAN21Garut.pdf`;
+
+      // Allow DOM to finish render if editing was just toggled
+      await new Promise(r => setTimeout(r, 120));
+
+      const success = await downloadElementAsPdf({
+        elementId: 'printable-modul',
+        filename
+      });
+
+      if (!success) {
+        printElementDirectly(filename.replace(/\.pdf$/, ''));
+      }
+    } catch (err) {
+      console.error('Gagal mengunduh PDF:', err);
+      printElementDirectly();
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleNativePrint = () => {
+    if (!result) return;
+    if (isEditing) {
+      setIsEditing(false);
+    }
+    const subject = result.identitas?.mataPelajaran || selectedSubjectFinal || 'Mata_Pelajaran';
+    const materiSnippet = extractMateriTitleFromModule({
+      cp: result.capaianPembelajaran || formData.cp,
+      content_json: result,
+      subject_name: subject
+    });
+    const cleanSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
+    const cleanMateri = (materiSnippet || 'Pembelajaran_Mendalam').replace(/[^a-zA-Z0-9]/g, '_');
+    const docTitle = `Modul_Ajar_${cleanSubject}_${cleanMateri}_SMAN21Garut`;
+
+    printElementDirectly(docTitle);
+  };
+
+  const handlePrintModuleDirect = async (moduleContent: any, savedId?: string) => {
+    if (savedId) setCurrentSavedId(savedId);
+    setResult(moduleContent);
+    setActiveTab('create');
+    setIsEditing(false);
+    setExportingPdf(true);
+
+    try {
+      const subject = moduleContent.identitas?.mataPelajaran || selectedSubjectFinal || 'Mata_Pelajaran';
+      const materiSnippet = extractMateriTitleFromModule({
+        cp: moduleContent.capaianPembelajaran || '',
+        content_json: moduleContent,
+        subject_name: subject
+      });
+      const cleanSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
+      const cleanMateri = (materiSnippet || 'Pembelajaran_Mendalam').replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `Modul_Ajar_${cleanSubject}_${cleanMateri}_SMAN21Garut.pdf`;
+
+      setTimeout(async () => {
+        try {
+          const success = await downloadElementAsPdf({
+            elementId: 'printable-modul',
+            filename
+          });
+          if (!success) {
+            printElementDirectly(filename.replace(/\.pdf$/, ''));
+          }
+        } finally {
+          setExportingPdf(false);
+        }
+      }, 300);
+    } catch {
+      setExportingPdf(false);
+    }
   };
 
   const handleDeleteSavedModule = async (id: string) => {
@@ -1072,6 +1162,17 @@ export default function CreateModulAjar() {
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => handleDownloadPdf()}
+                    disabled={exportingPdf}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-70"
+                    title="Unduh langsung file PDF Modul Ajar rapih tanpa scrollbar"
+                  >
+                    {exportingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+                    {exportingPdf ? 'Memproses PDF...' : 'Unduh PDF'}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => handleDownloadDocx(result)}
                     disabled={exportingDocx}
                     className="px-4 py-2 bg-blue-800 hover:bg-blue-900 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-70"
@@ -1082,11 +1183,12 @@ export default function CreateModulAjar() {
 
                   <button
                     type="button"
-                    onClick={handlePrintPdf}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    onClick={handleNativePrint}
+                    className="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    title="Cetak langsung ke mesin cetak (Printer A4)"
                   >
                     <Printer className="w-3.5 h-3.5" />
-                    Cetak / Unduh PDF
+                    Cetak
                   </button>
 
                   <button
@@ -1811,13 +1913,14 @@ export default function CreateModulAjar() {
                                 >
                                   <Eye className="w-3.5 h-3.5" /> Buka
                                 </button>
-                                <Link
-                                  to={`/dashboard/bahan-ajar?modulId=${m.id}`}
-                                  className="px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold flex items-center gap-1 transition border border-indigo-200"
-                                  title="Buat Bahan Ajar Interaktif berbasis modul ini"
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintModuleDirect(m.content_json, m.id)}
+                                  className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                                  title="Unduh langsung berkas PDF Modul Ajar (Bersih & rapih)"
                                 >
-                                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" /> Bahan Ajar
-                                </Link>
+                                  <FileDown className="w-3.5 h-3.5" /> PDF
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDownloadDocx(m.content_json)}
@@ -1826,6 +1929,13 @@ export default function CreateModulAjar() {
                                 >
                                   <FileDown className="w-3.5 h-3.5" /> Word
                                 </button>
+                                <Link
+                                  to={`/dashboard/bahan-ajar?modulId=${m.id}`}
+                                  className="px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold flex items-center gap-1 transition border border-indigo-200"
+                                  title="Buat Bahan Ajar Interaktif berbasis modul ini"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" /> Bahan Ajar
+                                </Link>
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteSavedModule(m.id)}

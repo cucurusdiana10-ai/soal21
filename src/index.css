@@ -27,3 +27,115 @@ html, body, #root {
     background-color: rgba(15, 23, 42, 0.95) !important;
   }
 }
+
+/* Global Print Stylesheet: Pure A4 printing without scrollbars or outer page chrome */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 14mm 12mm 14mm;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  html, body, #root, main, div {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background-color: #ffffff !important;
+  }
+
+  /* Universal print isolation: Hide all app chrome and page content */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Make only the active printable container visible */
+  #printable-modul,
+  #printable-modul * {
+    visibility: visible;
+  }
+
+  #printable-modul {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+  }
+
+  #printable-lkpd,
+  #printable-lkpd * {
+    visibility: visible;
+  }
+
+  #printable-lkpd {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+  }
+
+  /* Hide app chrome: sidebar, mobile navbar header, action toolbars */
+  aside,
+  header,
+  nav,
+  button,
+  .print\\:hidden,
+  [data-print-hidden="true"] {
+    display: none !important;
+  }
+
+  /* Table rules for smooth page breaks */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  th, td {
+    page-break-inside: avoid !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid !important;
+  }
+
+  .break-inside-avoid {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+

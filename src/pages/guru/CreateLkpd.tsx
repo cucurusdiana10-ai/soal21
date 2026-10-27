@@ -32,6 +32,7 @@ import { buildLkpdFromModule, extractCoreMateriTitle } from '../../lib/lkpdHelpe
 import { exportLkpdToDocx, LkpdContent } from '../../lib/lkpdDocxGenerator';
 import { parseKepsek, getStoredTtdKepsek, getStoredCapSekolah } from '../../lib/schoolSettings';
 import OfficialSignatureStamp from '../../components/OfficialSignatureStamp';
+import { printElementCleanly } from '../../lib/cleanPrint';
 
 export default function CreateLkpd() {
   const { user } = useAuth();
@@ -237,8 +238,18 @@ export default function CreateLkpd() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    if (!lkpdData) return;
+    const mapel = lkpdData.identitas?.mataPelajaran || 'Mapel';
+    const judul = lkpdData.identitas?.judulLkpd || 'LKPD';
+    const cleanMapel = mapel.replace(/[^a-zA-Z0-9]/g, '_');
+    const cleanJudul = judul.replace(/[^a-zA-Z0-9]/g, '_');
+    const title = `LKPD_${cleanMapel}_${cleanJudul}_SMAN21Garut`;
+
+    await printElementCleanly({
+      elementId: 'printable-lkpd',
+      documentTitle: title
+    });
   };
 
   const handleLoadArchivedLkpd = (record: any) => {
