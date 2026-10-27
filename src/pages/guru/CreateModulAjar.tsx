@@ -25,7 +25,8 @@ import {
   Search,
   Filter,
   Bookmark,
-  ClipboardList
+  ClipboardList,
+  CheckSquare
 } from 'lucide-react';
 import { generateModulAjarApi, formatAiErrorMessage } from '../../lib/aiService';
 import { exportModulAjarToDocx } from '../../lib/modulDocxGenerator';
@@ -252,6 +253,7 @@ export default function CreateModulAjar() {
     customSubject: '',
     grade: 'Fase E (Kelas X)',
     cp: '',
+    customTujuanPembelajaran: '',
     metode: 'Problem-Based Learning (PBL)',
     pertemuanCount: 2,
     pertemuanMetode: ['Problem-Based Learning (PBL)', 'Problem-Based Learning (PBL)'],
@@ -387,6 +389,7 @@ export default function CreateModulAjar() {
       const payload = {
         subject: selectedSubjectFinal,
         cp: formData.cp,
+        customTujuanPembelajaran: formData.customTujuanPembelajaran?.trim() || undefined,
         grade: formData.grade,
         metode: formData.metode,
         pertemuanCount: Number(formData.pertemuanCount) || 2,
@@ -962,6 +965,29 @@ export default function CreateModulAjar() {
                   placeholder="Ketik Capaian Pembelajaran atau pilih dari CP tersimpan di atas..."
                   className="w-full p-3 border border-gray-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed bg-white shadow-2xs"
                   required
+                />
+              </div>
+
+              {/* 5b. Tentukan Tujuan Pembelajaran (TP) Sendiri (Opsional) */}
+              <div className="p-4 bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-blue-50/70 border border-blue-200 rounded-2xl space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                    <CheckSquare className="w-4 h-4 text-blue-600" />
+                    Tentukan Tujuan Pembelajaran (TP) Sendiri (Opsional)
+                  </label>
+                  <span className="text-[11px] font-semibold text-blue-700 bg-blue-100/90 px-2 py-0.5 rounded-md border border-blue-200">
+                    Acuan Utama AI
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Bagi guru yang sudah memiliki rincian Tujuan Pembelajaran (TP), silakan tuliskan di bawah. AI akan menjadikannya acuan mutlak dalam merancang KKTP, pemahaman bermakna, pertanyaan pemantik, serta sintaks kegiatan tiap pertemuan. <em>(Kosongkan jika ingin AI merumuskannya secara otomatis dari CP).</em>
+                </p>
+                <textarea
+                  rows={3}
+                  value={formData.customTujuanPembelajaran}
+                  onChange={e => setFormData({ ...formData, customTujuanPembelajaran: e.target.value })}
+                  placeholder="Contoh: 1. Peserta didik dapat menganalisis konsep struktur atom...&#10;2. Peserta didik mampu memprediksi letak unsur dalam tabel periodik..."
+                  className="w-full p-3 border border-blue-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed bg-white shadow-2xs"
                 />
               </div>
 
@@ -1714,105 +1740,107 @@ export default function CreateModulAjar() {
                   </button>
                 </div>
               ) : (
-                <div className="grid md:grid-cols-2 gap-4">
-                  {filteredSavedModules.map(m => {
-                    const materiName = extractMateriTitleFromModule(m);
+                <div className="overflow-x-auto border border-gray-200 rounded-xl shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 text-gray-700 font-bold border-b border-gray-200">
+                      <tr>
+                        <th className="py-2.5 px-3 text-center w-12">No</th>
+                        <th className="py-2.5 px-3 min-w-[200px]">Materi / Topik Modul</th>
+                        <th className="py-2.5 px-3 min-w-[130px]">Mata Pelajaran</th>
+                        <th className="py-2.5 px-3 min-w-[110px]">Fase / Kelas</th>
+                        <th className="py-2.5 px-3 min-w-[160px]">Model & Pertemuan</th>
+                        <th className="py-2.5 px-3 min-w-[100px]">Tanggal</th>
+                        <th className="py-2.5 px-3 text-center min-w-[220px]">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {filteredSavedModules.map((m, idx) => {
+                        const materiName = extractMateriTitleFromModule(m);
 
-                    return (
-                      <div
-                        key={m.id}
-                        className="p-4 rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md transition bg-white shadow-sm flex flex-col justify-between gap-3"
-                      >
-                        <div className="space-y-2.5">
-                          {/* Tags & Date Row */}
-                          <div className="flex flex-wrap items-center justify-between gap-1.5">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200">
-                                {m.subject_name}
+                        return (
+                          <tr key={m.id} className="hover:bg-blue-50/40 transition">
+                            <td className="py-2.5 px-3 text-center font-semibold text-gray-500">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <p className="font-bold text-gray-900 text-xs leading-snug line-clamp-2">
+                                {materiName}
+                              </p>
+                              {m.cp && (
+                                <p className="text-[10px] text-gray-500 line-clamp-1 italic mt-0.5">
+                                  "{m.cp}"
+                                </p>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200 inline-block">
+                                {m.subject_name || '-'}
                               </span>
-                              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 inline-block">
                                 {m.grade || 'Fase E'}
                               </span>
-                            </div>
-                            <span className="text-[11px] text-gray-400 font-medium">
-                              {new Date(m.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </span>
-                          </div>
-
-                          {/* Prominent Materi / Topik Title */}
-                          <div>
-                            <div className="text-[10px] uppercase tracking-wider font-bold text-blue-600 mb-0.5">
-                              Nama Materi / Topik Modul
-                            </div>
-                            <h3 className="font-bold text-gray-900 text-sm leading-snug">
-                              {materiName}
-                            </h3>
-                          </div>
-
-                          {/* Capaian Pembelajaran Box */}
-                          <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                            <div className="flex items-center gap-1 text-[11px] font-bold text-slate-700">
-                              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                              <span>Capaian Pembelajaran (CP):</span>
-                            </div>
-                            <p className="text-xs text-slate-600 line-clamp-2 italic leading-relaxed">
-                              "{m.cp || 'Tidak ada uraian CP'}"
-                            </p>
-                          </div>
-
-                          {/* Metode Pembelajaran & Sesi */}
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
-                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md font-medium text-[11px]">
-                              🌱 {m.metode || 'Problem-Based Learning'}
-                            </span>
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded-md font-medium text-[11px]">
-                              ⏱️ {m.pertemuan_count} Pertemuan ({m.alokasi_waktu || '2 JP'})
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Action buttons */}
-                        <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setResult(m.content_json);
-                                setCurrentSavedId(m.id);
-                                setActiveTab('create');
-                              }}
-                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm"
-                            >
-                              <Eye className="w-3.5 h-3.5" /> Buka Modul
-                            </button>
-                            <Link
-                              to={`/dashboard/bahan-ajar?modulId=${m.id}`}
-                              className="px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold flex items-center gap-1 transition border border-indigo-200"
-                              title="Buat Bahan Ajar Interaktif berbasis modul ini"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-indigo-600" /> Buat Bahan Ajar
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadDocx(m.content_json)}
-                              className="px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-xs font-bold flex items-center gap-1 transition"
-                            >
-                              <FileDown className="w-3.5 h-3.5" /> Word (.docx)
-                            </button>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteSavedModule(m.id)}
-                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
-                            title="Hapus Modul"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <p className="font-semibold text-gray-800 text-[11px] truncate max-w-[180px]">
+                                {m.metode || 'Problem-Based Learning'}
+                              </p>
+                              <p className="text-[10px] text-gray-500">
+                                {m.pertemuan_count} Pertemuan ({m.alokasi_waktu || '2 JP'})
+                              </p>
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap text-gray-600 text-[11px]">
+                              {new Date(m.created_at).toLocaleDateString('id-ID', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric'
+                              })}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setResult(m.content_json);
+                                    setCurrentSavedId(m.id);
+                                    setActiveTab('create');
+                                  }}
+                                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                                  title="Buka & Tampilkan Modul"
+                                >
+                                  <Eye className="w-3.5 h-3.5" /> Buka
+                                </button>
+                                <Link
+                                  to={`/dashboard/bahan-ajar?modulId=${m.id}`}
+                                  className="px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold flex items-center gap-1 transition border border-indigo-200"
+                                  title="Buat Bahan Ajar Interaktif berbasis modul ini"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" /> Bahan Ajar
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadDocx(m.content_json)}
+                                  className="px-2 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-xs font-bold flex items-center gap-1 transition border border-slate-200"
+                                  title="Unduh Naskah Word (.docx)"
+                                >
+                                  <FileDown className="w-3.5 h-3.5" /> Word
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSavedModule(m.id)}
+                                  className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
+                                  title="Hapus Modul dari Arsip"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

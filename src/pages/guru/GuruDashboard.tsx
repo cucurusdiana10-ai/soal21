@@ -34,7 +34,7 @@ function MaterialGenerator() {
   const [materialSearch, setMaterialSearch] = useState('');
   const [materialSubjectFilter, setMaterialSubjectFilter] = useState('ALL');
   const [materialClassFilter, setMaterialClassFilter] = useState('ALL');
-  const [materialViewMode, setMaterialViewMode] = useState<'grid' | 'table'>('grid');
+  const [materialViewMode, setMaterialViewMode] = useState<'grid' | 'table'>('table');
 
   // Modul Ajar Acuan States
   const [savedModules, setSavedModules] = useState<any[]>([]);

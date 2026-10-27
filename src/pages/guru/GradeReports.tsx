@@ -205,44 +205,78 @@ export default function GradeReports() {
     }
   }
 
-  // Calculate scores for PG and individual essays
+  // Calculate scores for PG and individual essays with weights
   const calculateCombinedScore = (
     currentAnswers: Record<number, string>,
     currentEssayScores: Record<number, number>,
-    questions: any[]
+    questions: any[],
+    weightPg?: number,
+    weightEssay?: number
   ) => {
     if (!questions || questions.length === 0) {
-      return { pgScore: 0, essayPoints: 0, totalScore: 0 };
+      return { pgScore: 0, essayPoints: 0, totalScore: 0, weightPg: 100, weightEssay: 0 };
     }
 
-    const totalQuestions = questions.length;
-    const pointsPerQuestion = 100 / totalQuestions;
+    const pgQuestions = questions.filter(q => q.type === 'pg');
+    const essayQuestions = questions.filter(q => q.type === 'essay');
+    const hasPg = pgQuestions.length > 0;
+    const hasEssay = essayQuestions.length > 0;
 
-    let pgPoints = 0;
-    let essayPoints = 0;
+    let wPg = weightPg !== undefined && weightPg !== null ? Number(weightPg) : (hasPg && hasEssay ? 70 : hasPg ? 100 : 0);
+    let wEssay = weightEssay !== undefined && weightEssay !== null ? Number(weightEssay) : (hasPg && hasEssay ? 30 : hasEssay ? 100 : 0);
 
+    if (hasPg && hasEssay && wPg + wEssay !== 100) {
+      const sum = wPg + wEssay;
+      if (sum > 0) {
+        wPg = Math.round((wPg / sum) * 100);
+        wEssay = 100 - wPg;
+      } else {
+        wPg = 70;
+        wEssay = 30;
+      }
+    }
+
+    // 1. Raw PG score (0-100)
+    let pgCorrectCount = 0;
     questions.forEach((q, idx) => {
       if (q.type === 'pg') {
         const studentAns = currentAnswers[idx] ?? currentAnswers[String(idx)] ?? '';
         const isCorrect = String(studentAns).trim().toLowerCase() === String(q.answer).trim().toLowerCase();
-        if (isCorrect) {
-          pgPoints += pointsPerQuestion;
-        }
-      } else if (q.type === 'essay') {
-        const rawScore = Number(currentEssayScores[idx] ?? currentEssayScores[String(idx)] ?? 0);
-        const scaledScore = (Math.max(0, Math.min(100, rawScore)) / 100) * pointsPerQuestion;
-        essayPoints += scaledScore;
+        if (isCorrect) pgCorrectCount++;
       }
     });
+    const pgRaw = pgQuestions.length > 0 ? (pgCorrectCount / pgQuestions.length) * 100 : 0;
 
-    const roundedPg = Math.round(pgPoints);
-    const roundedEssay = Math.round(essayPoints);
-    const totalScore = Math.min(100, Math.round(pgPoints + essayPoints));
+    // 2. Raw Essay score (0-100)
+    let essayScoreSum = 0;
+    questions.forEach((q, idx) => {
+      if (q.type === 'essay') {
+        const rawScore = Number(currentEssayScores[idx] ?? currentEssayScores[String(idx)] ?? 0);
+        essayScoreSum += Math.max(0, Math.min(100, rawScore));
+      }
+    });
+    const essayRaw = essayQuestions.length > 0 ? essayScoreSum / essayQuestions.length : 0;
+
+    // 3. Final weighted calculation
+    let calculatedFinal = 0;
+    if (hasPg && hasEssay) {
+      calculatedFinal = (pgRaw * wPg / 100) + (essayRaw * wEssay / 100);
+    } else if (hasPg) {
+      calculatedFinal = pgRaw;
+    } else {
+      calculatedFinal = essayRaw;
+    }
+
+    const roundedPg = Math.round(pgRaw);
+    const roundedEssay = Math.round(essayRaw);
+    const totalScore = Math.min(100, Math.max(0, Math.round(calculatedFinal)));
 
     return {
       pgScore: roundedPg,
       essayPoints: roundedEssay,
-      totalScore
+      totalScore,
+      weightPg: wPg,
+      weightEssay: wEssay
     };
   };
 
@@ -269,7 +303,9 @@ export default function GradeReports() {
     const { pgScore, essayPoints, totalScore } = calculateCombinedScore(
       normalizedAnswers,
       normalizedEssayScores,
-      questions
+      questions,
+      selectedTask.weight_pg,
+      selectedTask.weight_essay
     );
 
     setGradingModal(item);
@@ -298,7 +334,9 @@ export default function GradeReports() {
     const { pgScore, essayPoints, totalScore } = calculateCombinedScore(
       editingAnswers,
       nextEssayScores,
-      questions
+      questions,
+      selectedTask.weight_pg,
+      selectedTask.weight_essay
     );
 
     setCalculatedPgScore(pgScore);
@@ -961,8 +999,12 @@ export default function GradeReports() {
                       <th className="px-3 py-2 w-10 text-center">No</th>
                       <th className="px-3 py-2 min-w-[180px]">Nama Siswa & NISN</th>
                       <th className="px-3 py-2">Status Pengerjaan</th>
-                      <th className="px-3 py-2 text-center">Skor PG</th>
-                      <th className="px-3 py-2 text-center">Skor Esai</th>
+                      <th className="px-3 py-2 text-center whitespace-nowrap">
+                        Skor PG {selectedTask.weight_pg !== undefined && selectedTask.weight_pg !== null ? `(${selectedTask.weight_pg}%)` : ''}
+                      </th>
+                      <th className="px-3 py-2 text-center whitespace-nowrap">
+                        Skor Esai {selectedTask.weight_essay !== undefined && selectedTask.weight_essay !== null ? `(${selectedTask.weight_essay}%)` : ''}
+                      </th>
                       <th className="px-3 py-2 text-center">Nilai Akhir</th>
                       <th className="px-3 py-2 text-center">Status KKM</th>
                       <th className="px-3 py-2 text-right min-w-[210px]">Aksi Laporan</th>
@@ -993,10 +1035,16 @@ export default function GradeReports() {
                         const totalQ = Array.isArray(selectedTask.content) ? selectedTask.content.length : 0;
                         const taskKkm = Number(selectedTask.kkm !== undefined && selectedTask.kkm !== null ? selectedTask.kkm : 75);
 
-                        // Calculate individual scores preview
+                        // Calculate individual scores preview with weights
                         const hasQuestions = Array.isArray(selectedTask.content) && selectedTask.content.length > 0;
                         const scoreBreakdown = hasQuestions && sub?.answers
-                          ? calculateCombinedScore(sub.answers, sub.essay_scores || {}, selectedTask.content)
+                          ? calculateCombinedScore(
+                              sub.answers,
+                              sub.essay_scores || {},
+                              selectedTask.content,
+                              selectedTask.weight_pg,
+                              selectedTask.weight_essay
+                            )
                           : null;
 
                         return (
@@ -1027,7 +1075,9 @@ export default function GradeReports() {
                             </td>
                             <td className="px-3 py-2 text-center whitespace-nowrap">
                               {sub && scoreBreakdown ? (
-                                <span className="font-semibold text-gray-800 text-xs">{scoreBreakdown.pgScore}</span>
+                                <span className="font-semibold text-gray-800 text-xs">
+                                  {scoreBreakdown.pgScore}
+                                </span>
                               ) : (
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
@@ -1035,7 +1085,7 @@ export default function GradeReports() {
                             <td className="px-3 py-2 text-center whitespace-nowrap">
                               {sub && scoreBreakdown ? (
                                 <span className="font-semibold text-indigo-700 text-xs">
-                                  {scoreBreakdown.essayPoints > 0 ? `+${scoreBreakdown.essayPoints}` : '0'}
+                                  {scoreBreakdown.essayPoints}
                                 </span>
                               ) : (
                                 <span className="text-gray-400 text-xs">-</span>
@@ -1474,15 +1524,15 @@ export default function GradeReports() {
             {/* Interactive Live Calculation Banner */}
             <div className="p-4 bg-gradient-to-r from-blue-50 via-indigo-50 to-emerald-50 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Calculator className="w-4 h-4 text-indigo-700" />
-                  <span className="font-semibold text-gray-700">Rincian Nilai:</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Calculator className="w-4 h-4 text-indigo-700 shrink-0" />
+                  <span className="font-semibold text-gray-700">Rincian Bobot:</span>
                   <span className="px-2 py-0.5 bg-blue-100 text-blue-900 rounded font-bold">
-                    Skor PG: {calculatedPgScore}
+                    Skor PG: {calculatedPgScore} (Bobot {selectedTask.weight_pg ?? 70}%)
                   </span>
                   <span className="text-gray-400">+</span>
                   <span className="px-2 py-0.5 bg-purple-100 text-purple-900 rounded font-bold">
-                    Skor Esai: {totalEssayPoints}
+                    Skor Esai: {totalEssayPoints} (Bobot {selectedTask.weight_essay ?? 30}%)
                   </span>
                   <span className="text-gray-400">=</span>
                   <span className="px-3 py-1 bg-emerald-600 text-white rounded-lg font-black text-sm shadow-2xs">

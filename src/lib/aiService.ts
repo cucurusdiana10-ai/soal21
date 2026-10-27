@@ -391,12 +391,19 @@ DATA MASUKAN:
 - Mata Pelajaran: ${payload.subject}
 - Fase / Kelas: ${targetGrade}
 - Capaian Pembelajaran (CP): "${payload.cp}"
+${payload.customTujuanPembelajaran ? `- TUJUAN PEMBELAJARAN (TP) DITENTUKAN GURU: "${payload.customTujuanPembelajaran}"` : ''}
 - Jumlah Pertemuan: Tepat ${totalMeetings} Pertemuan
 - Alokasi Waktu: ${timeAllocation}
 - Metode Pembelajaran Tiap Pertemuan:
 ${meetingMethods.map((m, idx) => `  * Pertemuan ${idx + 1}: ${m}`).join('\n')}
 ${payload.tanggalCetak ? `- Tanggal Cetak Modul / Titimangsa: ${payload.tanggalCetak}` : ''}
 
+${payload.customTujuanPembelajaran ? `ATURAN KHUSUS TUJUAN PEMBELAJARAN (TP) GURU:
+Guru telah menetapkan Tujuan Pembelajaran (TP) secara spesifik sebagai berikut:
+"${payload.customTujuanPembelajaran}"
+WAJIB:
+1. Isi array "tujuanPembelajaran" dengan Tujuan Pembelajaran yang ditentukan oleh guru tersebut secara tepat dan setia.
+2. Turunkan dan selaraskan Kriteria Ketercapaian Tujuan Pembelajaran (KKTP), Pemahaman Bermakna, Pertanyaan Pemantik, Kegiatan Pembelajaran per Pertemuan, serta Asesmen secara langsung dari Tujuan Pembelajaran tersebut!\n` : ''}
 ATURAN KHUSUS METODE PEMBELAJARAN & SINTAKS PER PERTEMUAN:
 Setiap pertemuan di array "pertemuan" HARUS memiliki metode tersendiri sesuai pilihan guru di atas:
 ${meetingMethods.map((m, idx) => `- Pertemuan ${idx + 1}: Wajib menerapkan sintaks resmi dari metode "${m}" pada Kegiatan Inti.`).join('\n')}
@@ -820,6 +827,7 @@ export interface ModulAjarPayload {
   semester?: string;
   namaKepsek?: string;
   nipKepsek?: string;
+  customTujuanPembelajaran?: string;
 }
 
 export async function generateModulAjarApi(payload: ModulAjarPayload) {

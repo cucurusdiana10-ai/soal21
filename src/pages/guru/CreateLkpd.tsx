@@ -60,6 +60,7 @@ export default function CreateLkpd() {
   const [savedLkpds, setSavedLkpds] = useState<any[]>([]);
   const [loadingSavedLkpds, setLoadingSavedLkpds] = useState<boolean>(false);
   const [selectedSavedLkpdId, setSelectedSavedLkpdId] = useState<string | null>(null);
+  const [archiveSearch, setArchiveSearch] = useState<string>('');
 
   // School settings
   const [schoolSettings, setSchoolSettings] = useState({
@@ -881,7 +882,7 @@ export default function CreateLkpd() {
       {/* Tab 2: Arsip LKPD Tersimpan */}
       {activeTab === 'archive' && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
             <div>
               <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
                 <FolderOpen className="w-5 h-5 text-blue-600" />
@@ -890,6 +891,16 @@ export default function CreateLkpd() {
               <p className="text-xs text-gray-500">
                 Daftar naskah LKPD yang pernah Anda buat dan simpan. Buka kembali untuk melihat, mencetak, atau mengunduh Word.
               </p>
+            </div>
+            <div className="w-full sm:w-72 relative">
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
+              <input
+                type="text"
+                value={archiveSearch}
+                onChange={e => setArchiveSearch(e.target.value)}
+                placeholder="Cari arsip LKPD..."
+                className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </div>
 
@@ -905,61 +916,99 @@ export default function CreateLkpd() {
                 Pilih modul dari tab "Buat LKPD Baru" lalu klik "Simpan ke Arsip".
               </p>
             </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {savedLkpds.map(record => (
-                <div
-                  key={record.id}
-                  className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-50/80 px-2 rounded-xl transition"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-gray-900 text-sm">{record.title}</span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-                        {record.subject_name || 'Mapel'}
-                      </span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                        {record.grade || 'Fase E'}
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                        {record.pertemuan_info || 'Pertemuan 1'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      Disimpan pada: {new Date(record.created_at).toLocaleDateString('id-ID', { dateStyle: 'long' })}
-                    </p>
-                  </div>
+          ) : (() => {
+            const filteredArchives = savedLkpds.filter(record => {
+              if (!archiveSearch.trim()) return true;
+              const q = archiveSearch.toLowerCase();
+              return (
+                record.title?.toLowerCase().includes(q) ||
+                record.subject_name?.toLowerCase().includes(q) ||
+                record.grade?.toLowerCase().includes(q)
+              );
+            });
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleLoadArchivedLkpd(record)}
-                      className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition flex items-center gap-1"
-                      title="Buka LKPD untuk dilihat atau dicetak"
-                    >
-                      <Eye className="w-3.5 h-3.5" /> Buka LKPD
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => exportLkpdToDocx(record.content_json)}
-                      className="px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold transition flex items-center gap-1"
-                      title="Download file Word (.docx)"
-                    >
-                      <FileDown className="w-3.5 h-3.5" /> Word (.docx)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteSavedLkpd(record.id)}
-                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
-                      title="Hapus dari arsip"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+            if (filteredArchives.length === 0) {
+              return (
+                <div className="p-8 text-center text-gray-500 text-xs">
+                  Tidak ada arsip LKPD yang cocok dengan pencarian "{archiveSearch}".
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            }
+
+            return (
+              <div className="overflow-x-auto border border-gray-200 rounded-xl shadow-xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 text-gray-700 font-bold border-b border-gray-200 uppercase tracking-wider text-[11px]">
+                    <tr>
+                      <th className="py-3 px-3 text-center w-12">No</th>
+                      <th className="py-3 px-4">Judul LKPD</th>
+                      <th className="py-3 px-3">Mata Pelajaran</th>
+                      <th className="py-3 px-3 text-center">Fase / Kelas</th>
+                      <th className="py-3 px-3 text-center">Pertemuan</th>
+                      <th className="py-3 px-3 text-center">Tanggal Disimpan</th>
+                      <th className="py-3 px-4 text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredArchives.map((record, idx) => (
+                      <tr key={record.id} className="hover:bg-blue-50/40 transition">
+                        <td className="py-2.5 px-3 text-center font-semibold text-gray-500">{idx + 1}</td>
+                        <td className="py-2.5 px-4">
+                          <span className="font-bold text-gray-900 block">{record.title}</span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                            {record.subject_name || '-'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
+                            {record.grade || '-'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            {record.pertemuan_info || '-'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-gray-600 whitespace-nowrap">
+                          {new Date(record.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="py-2.5 px-4 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleLoadArchivedLkpd(record)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                              title="Buka LKPD untuk dilihat atau dicetak"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> Buka
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportLkpdToDocx(record.content_json)}
+                              className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                              title="Download file Word (.docx)"
+                            >
+                              <FileDown className="w-3.5 h-3.5" /> Word
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSavedLkpd(record.id)}
+                              className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
+                              title="Hapus dari arsip"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

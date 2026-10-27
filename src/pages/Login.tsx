@@ -122,7 +122,17 @@ export default function Login() {
         throw new Error('Akun Anda sedang dinonaktifkan oleh administrator.');
       }
 
-      // Exam lock is enforced per exam session inside SiswaDashboard, so students can always log in to their portal
+      // If student is exam locked due to 3 violations, block login until teacher performs Reset Login
+      if (userProfile.role === 'siswa' && userProfile.is_exam_locked) {
+        try { await supabase.auth.signOut(); } catch {}
+        throw new Error(
+          'Akun ujian Anda sedang terkunci karena telah mencapai 3 kali pelanggaran. Seluruh jawaban Anda tersimpan aman. Silakan hubungi Guru Pengawas Anda di menu Monitoring Ujian untuk melakukan Reset Login terlebih dahulu.'
+        );
+      }
+
+      try {
+        sessionStorage.removeItem('exam_locked_alert');
+      } catch {}
 
       // Record login timestamp & device session token in users table
       try {
@@ -221,17 +231,19 @@ export default function Login() {
           </button>
         </div>
         
-        {searchParams.get('locked') === '1' && requestedRole === 'siswa' && (
+        {(searchParams.get('locked') === '1' || (typeof window !== 'undefined' && sessionStorage.getItem('exam_locked_alert'))) && requestedRole === 'siswa' && (
           <div className="p-4 bg-red-50 border-2 border-red-300 rounded-xl text-left space-y-1.5 shadow-sm">
             <div className="flex items-center gap-2 text-red-900 font-bold text-xs uppercase tracking-wide">
               <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
               <span>Akun Ujian Terkunci (3x Pelanggaran)</span>
             </div>
             <p className="text-xs text-red-800 leading-relaxed">
-              Sesi ujian Anda telah di-reset ke halaman login karena terdeteksi mencapai batas toleransi 3 kali pelanggaran (keluar aplikasi atau beralih layar).
+              {typeof window !== 'undefined' && sessionStorage.getItem('exam_locked_alert')
+                ? sessionStorage.getItem('exam_locked_alert')
+                : 'Sesi ujian Anda telah langsung dikeluarkan ke halaman login karena terdeteksi mencapai batas 3 kali pelanggaran (membuka tab baru / beralih aplikasi).'}
             </p>
             <p className="text-xs text-red-700 font-semibold leading-relaxed">
-              ✅ Jawaban Anda aman tersimpan. Silakan hubungi <strong>Guru Pengawas</strong> di kelas Anda untuk melakukan <strong>Reset Login</strong> pada menu Monitoring Ujian agar Anda dapat masuk dan melanjutkan ujian.
+              ⚠️ <strong>PENTING:</strong> Tidak ada opsi untuk melanjutkan langsung atau mematikan peringatan. Seluruh jawaban Anda tersimpan aman. Silakan minta <strong>Guru Pengawas</strong> di kelas Anda untuk melakukan <strong>Reset Login</strong> pada menu Monitoring Ujian agar akun Anda dibuka kembali.
             </p>
           </div>
         )}

@@ -527,6 +527,38 @@ export default function ExamMonitoring() {
     }
   };
 
+  const handleToggleTaskActive = async (task: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!supabase) return;
+    const currentActive = task.is_active !== false;
+    const nextActive = !currentActive;
+
+    const confirmMsg = nextActive
+      ? `Aktifkan paket soal "${task.title}"?\n\nSoal akan muncul kembali di akun siswa kelas ${task.class?.name || ''}.`
+      : `Nonaktifkan paket soal "${task.title}"?\n\nSoal TIDAK AKAN MUNCUL di akun siswa kelas ${task.class?.name || ''} selama dinonaktifkan.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ is_active: nextActive })
+        .eq('id', task.id);
+
+      if (error) throw error;
+
+      setTasks(prev =>
+        prev.map(t => (t.id === task.id ? { ...t, is_active: nextActive } : t))
+      );
+
+      if (selectedTask?.id === task.id) {
+        setSelectedTask((prev: any) => ({ ...prev, is_active: nextActive }));
+      }
+    } catch (err: any) {
+      alert('Gagal mengubah status aktif/nonaktif soal: ' + (err.message || String(err)));
+    }
+  };
+
   // Computed stats
   const stats = monitoringRows.reduce(
     (acc, item) => {
@@ -708,7 +740,8 @@ export default function ExamMonitoring() {
                   <th className="py-1.5 px-2 text-center whitespace-nowrap">KKM</th>
                   <th className="py-1.5 px-2 min-w-[130px] whitespace-nowrap">Token (30 Mnt)</th>
                   <th className="py-1.5 px-2 whitespace-nowrap">Tanggal</th>
-                  <th className="py-1.5 px-2 text-right whitespace-nowrap w-20">Aksi</th>
+                  <th className="py-1.5 px-2 text-center whitespace-nowrap">Status Soal</th>
+                  <th className="py-1.5 px-2 text-right whitespace-nowrap w-36">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -716,6 +749,7 @@ export default function ExamMonitoring() {
                   const isSelected = selectedTask?.id === task.id;
                   const activeToken = generateTaskToken(task.id, nowMs);
                   const qCount = Array.isArray(task.content) ? task.content.length : 0;
+                  const isTaskActive = task.is_active !== false;
 
                   return (
                     <tr
@@ -782,22 +816,47 @@ export default function ExamMonitoring() {
                           month: 'short'
                         })}
                       </td>
+                      <td className="py-1 px-2 text-center whitespace-nowrap">
+                        {isTaskActive ? (
+                          <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold rounded text-[9px]">
+                            ● Aktif
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded text-[9px]">
+                            ○ Nonaktif
+                          </span>
+                        )}
+                      </td>
                       <td className="py-1 px-2 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation();
-                            setSelectedTask(task);
-                          }}
-                          className={`px-2 py-0.5 rounded font-bold text-[10px] transition flex items-center gap-1 ml-auto shadow-2xs ${
-                            isSelected
-                              ? 'bg-indigo-600 text-white'
-                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
-                          }`}
-                        >
-                          <Activity className="w-2.5 h-2.5" />
-                          {isSelected ? 'Dipantau' : 'Pantau'}
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={e => handleToggleTaskActive(task, e)}
+                            className={`px-1.5 py-0.5 rounded font-bold text-[9px] transition border ${
+                              isTaskActive
+                                ? 'bg-red-50 text-red-700 hover:bg-red-100 border-red-200'
+                                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+                            }`}
+                            title={isTaskActive ? 'Nonaktifkan soal agar tidak muncul pada akun siswa' : 'Aktifkan soal agar muncul di akun siswa'}
+                          >
+                            {isTaskActive ? 'Nonaktifkan' : 'Aktifkan'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setSelectedTask(task);
+                            }}
+                            className={`px-2 py-0.5 rounded font-bold text-[10px] transition flex items-center gap-1 shadow-2xs ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                            }`}
+                          >
+                            <Activity className="w-2.5 h-2.5" />
+                            {isSelected ? 'Dipantau' : 'Pantau'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

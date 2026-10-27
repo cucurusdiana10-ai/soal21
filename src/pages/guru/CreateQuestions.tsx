@@ -7,7 +7,7 @@ import {
   PlusCircle, Edit2, AlertCircle, Save, Check, ArrowUp, ArrowDown, 
   Copy, HelpCircle, BookOpen, Layers, Clock, AlertTriangle, Lock, Calendar,
   KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered, Activity,
-  Share2, ChevronDown, ChevronUp, RefreshCw
+  Share2, ChevronDown, ChevronUp, RefreshCw, Percent
 } from 'lucide-react';
 import { generateQuestionsApi, formatAiErrorMessage } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
@@ -48,7 +48,9 @@ export default function CreateQuestions() {
     optionCount: 5, // 3 (A-C), 4 (A-D), 5 (A-E)
     kkm: 75, // Kriteria Ketuntasan Minimal
     min_duration: 15, // Minimal durasi pengerjaan sebelum boleh mengumpulkan (menit)
-    max_duration: 60 // Durasi maksimal pengerjaan / waktu mundur (menit)
+    max_duration: 60, // Durasi maksimal pengerjaan / waktu mundur (menit)
+    weight_pg: 70, // Bobot nilai Pilihan Ganda (%)
+    weight_essay: 30 // Bobot nilai Esai (%)
   });
 
   // Multi-select classes state (pilihan beberapa kelas)
@@ -72,6 +74,8 @@ export default function CreateQuestions() {
     kkm: number;
     min_duration: number;
     max_duration: number;
+    weight_pg: number;
+    weight_essay: number;
   }>({
     class_id: '',
     class_ids: [],
@@ -80,7 +84,9 @@ export default function CreateQuestions() {
     type: 'pg',
     kkm: 75,
     min_duration: 15,
-    max_duration: 60
+    max_duration: 60,
+    weight_pg: 70,
+    weight_essay: 30
   });
 
   const [editingQuestionIdx, setEditingQuestionIdx] = useState<number | null>(null);
@@ -97,6 +103,8 @@ export default function CreateQuestions() {
   const [republishKkm, setRepublishKkm] = useState<number>(75);
   const [republishMinDuration, setRepublishMinDuration] = useState<number>(15);
   const [republishMaxDuration, setRepublishMaxDuration] = useState<number>(60);
+  const [republishWeightPg, setRepublishWeightPg] = useState<number>(70);
+  const [republishWeightEssay, setRepublishWeightEssay] = useState<number>(30);
   const [republishScheduleType, setRepublishScheduleType] = useState<'NOW' | 'SCHEDULED'>('NOW');
   const [republishScheduledAt, setRepublishScheduledAt] = useState<string>(() => {
     const d = new Date();
@@ -289,7 +297,9 @@ export default function CreateQuestions() {
         type: form.type,
         kkm: form.kkm || 75,
         min_duration: Number(form.min_duration !== undefined ? form.min_duration : 15),
-        max_duration: Number(form.max_duration || 60)
+        max_duration: Number(form.max_duration || 60),
+        weight_pg: Number(form.weight_pg ?? 70),
+        weight_essay: Number(form.weight_essay ?? 30)
       };
 
       setGeneratedQuestions(formatted);
@@ -347,6 +357,9 @@ export default function CreateQuestions() {
         published_at: effectivePublishTime
       }));
 
+      const finalWeightPg = Number(meta.weight_pg !== undefined ? meta.weight_pg : (form.weight_pg ?? 70));
+      const finalWeightEssay = Number(meta.weight_essay !== undefined ? meta.weight_essay : (form.weight_essay ?? 30));
+
       const inserts = targetIds.map(cid => ({
         guru_id: user.id,
         class_id: cid,
@@ -357,6 +370,9 @@ export default function CreateQuestions() {
         min_duration: minDur,
         max_duration: maxDur,
         duration: maxDur,
+        weight_pg: finalWeightPg,
+        weight_essay: finalWeightEssay,
+        is_active: true,
         content: questionsWithSchedule
       }));
 
@@ -466,7 +482,9 @@ export default function CreateQuestions() {
         type: form.type || 'pg',
         kkm: form.kkm || 75,
         min_duration: Number(form.min_duration || 0),
-        max_duration: Number(form.max_duration || 60)
+        max_duration: Number(form.max_duration || 60),
+        weight_pg: form.weight_pg ?? 70,
+        weight_essay: form.weight_essay ?? 30
       });
       setEditingQuestionIdx(0);
     }
@@ -533,7 +551,9 @@ export default function CreateQuestions() {
         type: detectedType,
         kkm: form.kkm || 75,
         min_duration: Number(form.min_duration || 0),
-        max_duration: Number(form.max_duration || 60)
+        max_duration: Number(form.max_duration || 60),
+        weight_pg: Number(form.weight_pg ?? 70),
+        weight_essay: Number(form.weight_essay ?? 30)
       });
     }
 
@@ -567,6 +587,8 @@ export default function CreateQuestions() {
           min_duration: editMinDur,
           max_duration: editMaxDur,
           duration: editMaxDur,
+          weight_pg: Number(editingExistingTask.weight_pg ?? 70),
+          weight_essay: Number(editingExistingTask.weight_essay ?? 30),
           content: editingExistingTask.content
         })
         .eq('id', editingExistingTask.id);
@@ -592,6 +614,8 @@ export default function CreateQuestions() {
     setRepublishKkm(task.kkm !== undefined && task.kkm !== null ? task.kkm : 75);
     setRepublishMinDuration(task.min_duration !== undefined && task.min_duration !== null ? task.min_duration : 15);
     setRepublishMaxDuration(task.max_duration || task.duration || 60);
+    setRepublishWeightPg(task.weight_pg !== undefined && task.weight_pg !== null ? Number(task.weight_pg) : 70);
+    setRepublishWeightEssay(task.weight_essay !== undefined && task.weight_essay !== null ? Number(task.weight_essay) : 30);
     setRepublishScheduleType('NOW');
     setRepublishQuestions(clonedQuestions);
     setShowRepublishQuestionEditor(false);
@@ -657,6 +681,9 @@ export default function CreateQuestions() {
         min_duration: minDur,
         max_duration: maxDur,
         duration: maxDur,
+        weight_pg: Number(republishWeightPg || 70),
+        weight_essay: Number(republishWeightEssay || 30),
+        is_active: true,
         content: questionsWithSchedule
       }));
 
@@ -711,7 +738,9 @@ export default function CreateQuestions() {
       type: task.type || 'pg',
       kkm: task.kkm !== undefined && task.kkm !== null ? task.kkm : 75,
       min_duration: task.min_duration !== undefined && task.min_duration !== null ? task.min_duration : 15,
-      max_duration: task.max_duration || task.duration || 60
+      max_duration: task.max_duration || task.duration || 60,
+      weight_pg: task.weight_pg ?? 70,
+      weight_essay: task.weight_essay ?? 30
     });
     setForm(prev => ({
       ...prev,
@@ -961,6 +990,102 @@ export default function CreateQuestions() {
                 <option value="mixed">Campuran (PG & Esai)</option>
               </select>
             </div>
+
+            {/* Opsi Bobot Soal untuk Pilihan Campuran PG & Esai */}
+            {form.type === 'mixed' && (
+              <div className="md:col-span-2 lg:col-span-3 p-4 bg-gradient-to-r from-blue-50 via-indigo-50/70 to-blue-50 rounded-2xl border border-blue-200/90 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <Percent className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-bold text-gray-900">
+                      Pengaturan Bobot Soal (PG & Esai)
+                    </span>
+                  </div>
+                  <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+                    (Number(form.weight_pg || 0) + Number(form.weight_essay || 0)) === 100
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : 'bg-red-100 text-red-800 border-red-300'
+                  }`}>
+                    Total: {Number(form.weight_pg || 0) + Number(form.weight_essay || 0)}% (Wajib 100%)
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600">
+                  Tentukan persentase bobot penilaian soal PG dan Esai untuk menentukan nilai akhir siswa secara otomatis dan terbobot.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                  <div className="p-3 bg-white rounded-xl border border-blue-200 space-y-1.5 shadow-2xs">
+                    <label className="block text-xs font-bold text-blue-900 flex items-center justify-between">
+                      <span>Bobot Nilai PG (%)</span>
+                      <span className="font-extrabold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        {form.weight_pg}%
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={form.weight_pg}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setForm({ ...form, weight_pg: val, weight_essay: 100 - val });
+                        }}
+                        className="flex-1 accent-blue-600 cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={form.weight_pg}
+                        onChange={e => {
+                          const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                          setForm({ ...form, weight_pg: val, weight_essay: 100 - val });
+                        }}
+                        className="w-16 p-1.5 bg-gray-50 border border-blue-300 rounded-lg text-center font-bold text-blue-950 text-xs"
+                      />
+                      <span className="text-xs font-bold text-gray-500">%</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-xl border border-indigo-200 space-y-1.5 shadow-2xs">
+                    <label className="block text-xs font-bold text-indigo-900 flex items-center justify-between">
+                      <span>Bobot Nilai Esai (%)</span>
+                      <span className="font-extrabold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                        {form.weight_essay}%
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={form.weight_essay}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setForm({ ...form, weight_essay: val, weight_pg: 100 - val });
+                        }}
+                        className="flex-1 accent-indigo-600 cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={form.weight_essay}
+                        onChange={e => {
+                          const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                          setForm({ ...form, weight_essay: val, weight_pg: 100 - val });
+                        }}
+                        className="w-16 p-1.5 bg-gray-50 border border-indigo-300 rounded-lg text-center font-bold text-indigo-950 text-xs"
+                      />
+                      <span className="text-xs font-bold text-gray-500">%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Jumlah Pilihan Jawaban untuk Soal PG */}
             <div>
@@ -1372,6 +1497,81 @@ export default function CreateQuestions() {
                 })}
               </div>
             </div>
+
+            {/* Bobot PG & Esai pada Draf Soal jika Campuran / memiliki kedua jenis soal */}
+            {generatedQuestions && (generatedQuestions.some(q => q.type === 'pg') && generatedQuestions.some(q => q.type === 'essay') || draftMetadata.type === 'mixed') && (
+              <div className="pt-2 border-t border-blue-200/80 p-3 bg-white rounded-xl border border-blue-200 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <span className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
+                    <Percent className="w-3.5 h-3.5 text-blue-600" /> Bobot Nilai Ujian Campuran:
+                  </span>
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
+                    (Number(draftMetadata.weight_pg ?? 70) + Number(draftMetadata.weight_essay ?? 30)) === 100
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : 'bg-red-50 text-red-800 border-red-300'
+                  }`}>
+                    PG: {draftMetadata.weight_pg ?? 70}% + Esai: {draftMetadata.weight_essay ?? 30}% = {Number(draftMetadata.weight_pg ?? 70) + Number(draftMetadata.weight_essay ?? 30)}%
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex items-center gap-2 bg-blue-50/60 p-2 rounded-lg border border-blue-200">
+                    <label className="text-xs font-bold text-blue-900 shrink-0">Bobot PG:</label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={draftMetadata.weight_pg ?? 70}
+                      onChange={e => {
+                        const val = Number(e.target.value);
+                        setDraftMetadata({ ...draftMetadata, weight_pg: val, weight_essay: 100 - val });
+                      }}
+                      className="flex-1 accent-blue-600 cursor-pointer"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={draftMetadata.weight_pg ?? 70}
+                      onChange={e => {
+                        const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                        setDraftMetadata({ ...draftMetadata, weight_pg: val, weight_essay: 100 - val });
+                      }}
+                      className="w-14 p-1 bg-white border border-blue-300 rounded text-center text-xs font-bold text-blue-950"
+                    />
+                    <span className="text-xs font-bold text-gray-500">%</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 bg-indigo-50/60 p-2 rounded-lg border border-indigo-200">
+                    <label className="text-xs font-bold text-indigo-900 shrink-0">Bobot Esai:</label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={draftMetadata.weight_essay ?? 30}
+                      onChange={e => {
+                        const val = Number(e.target.value);
+                        setDraftMetadata({ ...draftMetadata, weight_essay: val, weight_pg: 100 - val });
+                      }}
+                      className="flex-1 accent-indigo-600 cursor-pointer"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={draftMetadata.weight_essay ?? 30}
+                      onChange={e => {
+                        const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                        setDraftMetadata({ ...draftMetadata, weight_essay: val, weight_pg: 100 - val });
+                      }}
+                      className="w-14 p-1 bg-white border border-indigo-300 rounded text-center text-xs font-bold text-indigo-950"
+                    />
+                    <span className="text-xs font-bold text-gray-500">%</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Questions Items List */}
@@ -1751,133 +1951,162 @@ export default function CreateQuestions() {
             <p className="text-gray-400 text-xs mt-1">Gunakan form di atas untuk meracik soal dengan AI dan klik tombol "Terbitkan".</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {tasks.map((task) => {
-              const questionCount = Array.isArray(task.content) ? task.content.length : 0;
-              const className = getClassName(task.class_id);
-              const pubTime = task.content?.[0]?.published_at || task.created_at;
-              const isFuture = pubTime && new Date(pubTime).getTime() > Date.now();
-              const currentToken = generateTaskToken(task.id, nowMs);
-              const tokenTimer = getTokenTimeRemaining(nowMs);
-              const isCopied = copiedTokenId === task.id;
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="bg-slate-50 text-gray-700 font-bold border-b border-gray-200 uppercase text-[10px] tracking-wider">
+                <tr>
+                  <th className="py-3 px-3 text-center w-10">No</th>
+                  <th className="py-3 px-3 min-w-[180px]">Judul Paket Soal</th>
+                  <th className="py-3 px-3">Mata Pelajaran</th>
+                  <th className="py-3 px-3 whitespace-nowrap">Target Kelas</th>
+                  <th className="py-3 px-3 whitespace-nowrap">Tipe & Butir</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap">Bobot (PG / Esai)</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap">KKM</th>
+                  <th className="py-3 px-3 min-w-[120px] whitespace-nowrap">Token Ujian</th>
+                  <th className="py-3 px-3 whitespace-nowrap">Status Rilis</th>
+                  <th className="py-3 px-3 text-center min-w-[220px]">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {tasks.map((task, idx) => {
+                  const questionCount = Array.isArray(task.content) ? task.content.length : 0;
+                  const className = getClassName(task.class_id);
+                  const pubTime = task.content?.[0]?.published_at || task.created_at;
+                  const isFuture = pubTime && new Date(pubTime).getTime() > Date.now();
+                  const currentToken = generateTaskToken(task.id, nowMs);
+                  const isCopied = copiedTokenId === task.id;
+                  const hasPg = Array.isArray(task.content) && task.content.some((q: any) => q.type === 'pg');
+                  const hasEssay = Array.isArray(task.content) && task.content.some((q: any) => q.type === 'essay');
+                  const wPg = task.weight_pg !== undefined && task.weight_pg !== null ? task.weight_pg : (hasPg && hasEssay ? 70 : hasPg ? 100 : 0);
+                  const wEssay = task.weight_essay !== undefined && task.weight_essay !== null ? task.weight_essay : (hasPg && hasEssay ? 30 : hasEssay ? 100 : 0);
 
-              return (
-                <div key={task.id} className="py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-gray-50/80 px-3 rounded-xl transition-colors">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-gray-900 text-base">{task.title}</span>
-                      <span className="text-xs px-2.5 py-0.5 bg-blue-50 text-blue-700 font-semibold rounded-md border border-blue-100">
-                        Kelas {className}
-                      </span>
-                      <span className="text-xs text-gray-600 font-medium">
-                        · {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'} ({questionCount} Soal)
-                      </span>
-                      <span className="text-xs px-2.5 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded-md border border-emerald-200">
-                        KKM: {task.kkm !== undefined && task.kkm !== null ? task.kkm : 75}
-                      </span>
-                      {isFuture ? (
-                        <span className="text-xs px-2.5 py-0.5 bg-amber-100 text-amber-900 font-bold rounded-md border border-amber-300 flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-amber-700" />
-                          Terjadwal: {new Date(pubTime).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })} WIB
+                  return (
+                    <tr key={task.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-3 text-center font-bold text-gray-500">{idx + 1}</td>
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-gray-900 text-xs">{task.title}</div>
+                        <div className="text-[10px] text-gray-500">
+                          {new Date(task.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 font-semibold text-gray-800 whitespace-nowrap">
+                        {task.subject_name || '-'}
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold rounded border border-blue-100 text-[11px]">
+                          Kelas {className}
                         </span>
-                      ) : (
-                        <span className="text-xs px-2.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md border border-emerald-200 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          Terbit Aktif
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <span className="font-bold text-gray-800">
+                          {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'}
                         </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      Mata Pelajaran: <strong className="text-gray-700">{task.subject_name || '-'}</strong> · Dibuat oleh Anda pada {new Date(task.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    {/* Rotating 30-Minute Exam Token Box */}
-                    <div className="flex items-center gap-2 bg-indigo-50/90 border border-indigo-200 px-3 py-1.5 rounded-xl">
-                      <KeyRound className="w-4 h-4 text-indigo-600 shrink-0" />
-                      <div>
+                        <span className="text-gray-500 text-[11px] ml-1">({questionCount} Soal)</span>
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        {task.type === 'mixed' || (hasPg && hasEssay) ? (
+                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded border border-indigo-200 text-[11px]" title="Bobot PG : Bobot Esai">
+                            {wPg}% : {wEssay}%
+                          </span>
+                        ) : task.type === 'pg' || (!hasEssay && hasPg) ? (
+                          <span className="text-gray-500 text-[11px]">100% PG</span>
+                        ) : (
+                          <span className="text-gray-500 text-[11px]">100% Esai</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded border border-emerald-200 text-[11px]">
+                          {task.kkm !== undefined && task.kkm !== null ? task.kkm : 75}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Token:</span>
-                          <span className="font-mono font-black text-sm tracking-widest text-indigo-950 bg-white px-2 py-0.5 rounded border border-indigo-200">
+                          <span className="font-mono font-bold text-xs text-indigo-950 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
                             {currentToken}
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyToken(task.id, currentToken)}
+                            className={`p-1 rounded text-xs transition ${
+                              isCopied ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                            title="Salin Token Ujian"
+                          >
+                            {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
                         </div>
-                        <p className="text-[10px] text-indigo-600 font-medium">
-                          Berganti dlm <strong>{tokenTimer.formatted}</strong> (30 mnt)
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyToken(task.id, currentToken)}
-                        className={`ml-1 px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                          isCopied
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-white text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
-                        }`}
-                        title="Salin Token untuk dibagikan ke Siswa"
-                      >
-                        {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        {isCopied ? 'Tersalin' : 'Salin'}
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <Link
-                        to={`/dashboard/monitoring?taskId=${task.id}`}
-                        className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold transition flex items-center gap-1"
-                        title="Monitoring Ujian Siswa (Selesaikan Ujian & Reset Login)"
-                      >
-                        <Activity className="w-3.5 h-3.5" /> Monitoring
-                      </Link>
-                      <button 
-                        onClick={() => setSelectedTask({ ...task, className })}
-                        className="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                        title="Lihat Soal & Token"
-                      >
-                        <Eye className="w-3.5 h-3.5" /> Lihat
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadTaskWord({ ...task, className })}
-                        className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-2xs"
-                        title="Download Naskah Soal & Kunci Jawaban (Word .docx)"
-                      >
-                        <Download className="w-3.5 h-3.5" /> Download Soal
-                      </button>
-                      <button 
-                        onClick={() => setEditingExistingTask(JSON.parse(JSON.stringify(task)))}
-                        className="px-3 py-2 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                        title="Edit Paket Soal"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" /> Edit
-                      </button>
-                      <button 
-                        onClick={() => openRepublishModal(task)}
-                        className="px-3 py-2 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-2xs"
-                        title="Gunakan atau Terbitkan Lagi Paket Soal Ini untuk Kelas Lainnya"
-                      >
-                        <Share2 className="w-3.5 h-3.5 text-purple-600" /> Terbitkan ke Kelas Lain
-                      </button>
-                      <button 
-                        onClick={() => handleLoadTaskToDraft(task)}
-                        className="px-3 py-2 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-2xs"
-                        title="Muat ke Editor Draf untuk Diedit Bebas & Diterbitkan Ulang"
-                      >
-                        <Layers className="w-3.5 h-3.5 text-sky-600" /> Muat ke Draf
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                        title="Hapus Tugas"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        {isFuture ? (
+                          <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-900 font-bold rounded border border-amber-300 flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-amber-700" /> Terjadwal
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Terbit
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1">
+                          <Link
+                            to={`/dashboard/monitoring?taskId=${task.id}`}
+                            className="px-2 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                            title="Monitoring Ujian Siswa"
+                          >
+                            <Activity className="w-3.5 h-3.5" />
+                            <span>Pantau</span>
+                          </Link>
+                          <button 
+                            onClick={() => setSelectedTask({ ...task, className })}
+                            className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-semibold transition"
+                            title="Lihat Butir Soal"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadTaskWord({ ...task, className })}
+                            className="p-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold transition"
+                            title="Download Naskah Soal Word (.docx)"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => setEditingExistingTask(JSON.parse(JSON.stringify(task)))}
+                            className="p-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition"
+                            title="Edit Paket Soal"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => openRepublishModal(task)}
+                            className="p-1.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded-lg text-xs font-bold transition"
+                            title="Terbitkan ke Kelas Lain"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => handleLoadTaskToDraft(task)}
+                            className="p-1.5 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 rounded-lg text-xs font-bold transition"
+                            title="Muat ke Draf"
+                          >
+                            <Layers className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
+                            title="Hapus Paket Soal"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -2140,6 +2369,77 @@ export default function CreateQuestions() {
                   />
                 </div>
               </div>
+
+              {/* Bobot PG & Esai pada Edit Paket Soal */}
+              {editingExistingTask && (editingExistingTask.type === 'mixed' || (Array.isArray(editingExistingTask.content) && editingExistingTask.content.some((q: any) => q.type === 'pg') && editingExistingTask.content.some((q: any) => q.type === 'essay'))) && (
+                <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
+                      <Percent className="w-3.5 h-3.5 text-amber-700" /> Bobot Nilai Ujian (PG & Esai):
+                    </span>
+                    <span className="text-[11px] font-bold text-amber-900">
+                      PG: {editingExistingTask.weight_pg ?? 70}% + Esai: {editingExistingTask.weight_essay ?? 30}% = {Number(editingExistingTask.weight_pg ?? 70) + Number(editingExistingTask.weight_essay ?? 30)}%
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-amber-200">
+                      <label className="text-xs font-bold text-blue-900 shrink-0">Bobot PG:</label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={editingExistingTask.weight_pg ?? 70}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setEditingExistingTask({ ...editingExistingTask, weight_pg: val, weight_essay: 100 - val });
+                        }}
+                        className="flex-1 accent-blue-600 cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={editingExistingTask.weight_pg ?? 70}
+                        onChange={e => {
+                          const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                          setEditingExistingTask({ ...editingExistingTask, weight_pg: val, weight_essay: 100 - val });
+                        }}
+                        className="w-14 p-1 bg-gray-50 border border-blue-300 rounded text-center text-xs font-bold text-blue-950"
+                      />
+                      <span className="text-xs font-bold text-gray-500">%</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-amber-200">
+                      <label className="text-xs font-bold text-indigo-900 shrink-0">Bobot Esai:</label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={editingExistingTask.weight_essay ?? 30}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setEditingExistingTask({ ...editingExistingTask, weight_essay: val, weight_pg: 100 - val });
+                        }}
+                        className="flex-1 accent-indigo-600 cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={editingExistingTask.weight_essay ?? 30}
+                        onChange={e => {
+                          const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                          setEditingExistingTask({ ...editingExistingTask, weight_essay: val, weight_pg: 100 - val });
+                        }}
+                        className="w-14 p-1 bg-gray-50 border border-indigo-300 rounded text-center text-xs font-bold text-indigo-950"
+                      />
+                      <span className="text-xs font-bold text-gray-500">%</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Scheduled Publish Time Option in Edit Modal */}
               <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">

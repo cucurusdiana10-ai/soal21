@@ -29,7 +29,8 @@ import {
   ListChecks,
   Hourglass,
   Layers,
-  AlertCircle
+  AlertCircle,
+  ArrowUpDown
 } from 'lucide-react';
 import SiswaMateri from './SiswaMateri';
 import SiswaNilai from './SiswaNilai';
@@ -117,6 +118,7 @@ function SiswaTugas() {
   const [submissions, setSubmissions] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'status'>('newest');
 
   // Token verification & session resume modal state
   const [pendingTokenTask, setPendingTokenTask] = useState<any | null>(null);
@@ -291,7 +293,7 @@ function SiswaTugas() {
   }, [activeTask, user, deviceToken]);
 
   const triggerViolation = useCallback(
-    (reason: string) => {
+    async (reason: string) => {
       const now = Date.now();
       // Debounce rapid simultaneous blur + visibilitychange within 1.2s
       if (now - lastViolationTimestampRef.current < 1200) return;
@@ -312,64 +314,73 @@ function SiswaTugas() {
       setLatestViolationReason(reason);
 
       // SENSITIFITAS TOLERANSI PELANGGARAN: 3 KALI
-      // Pelanggaran 1 & 2: Peringatan keras, alarm suara, dan STOP PENGERJAAN (pembekuan layar)
-      // Pelanggaran 3: Sesi ujian terkunci total, harus minta reset login ke guru di Monitoring Ujian
+      // Pelanggaran 1 & 2: Peringatan keras, alarm suara, dan STOP PENGERJAAN (pembekuan layar sementara)
+      // Pelanggaran 3: Sesi ujian terkunci total, LANGSUNG LOGOUT ke halaman login (tidak ada matikan notifikasi / lanjutkan)
       if (nextCount >= 3) {
         antiCheatAlarm.stopAlarm();
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          try { window.speechSynthesis.cancel(); } catch {}
+        }
         setAlarmActive(false);
         setIsExamStopped(false);
         setStopPenaltySeconds(0);
-
-        if (document.fullscreenElement && document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
-        }
+        safeExitFullscreen();
 
         // Simpan jawaban terakhir & tandai akun ujian terkunci di Supabase
         if (activeTask && user && supabase) {
-          syncExamProgressToSupabase({
-            taskId: activeTask.id,
-            studentId: user.id,
-            answers: answersRef.current,
-            violationCount: nextCount,
-            violationLogs: nextLogs,
-            sessionToken: null
-          }).catch(() => {});
+          try {
+            await syncExamProgressToSupabase({
+              taskId: activeTask.id,
+              studentId: user.id,
+              answers: answersRef.current,
+              violationCount: nextCount,
+              violationLogs: nextLogs,
+              sessionToken: null,
+              isLocked: true
+            });
 
-          supabase
-            .from('task_submissions')
-            .update({
-              is_locked: true,
-              session_token: null,
-              violation_count: nextCount,
-              violation_logs: nextLogs,
-              feedback: `Ujian terkunci karena telah melakukan ${nextCount} kali pelanggaran (membuka tab baru / keluar aplikasi). Memerlukan Reset Login oleh Guru Pengawas.`
-            })
-            .eq('task_id', activeTask.id)
-            .eq('student_id', user.id)
-            .then(() => {});
+            await supabase
+              .from('task_submissions')
+              .update({
+                is_locked: true,
+                session_token: null,
+                violation_count: nextCount,
+                violation_logs: nextLogs,
+                feedback: `Ujian terkunci karena telah mencapai 3 kali pelanggaran (membuka tab baru / keluar aplikasi). Memerlukan Reset Login oleh Guru Pengawas.`
+              })
+              .eq('task_id', activeTask.id)
+              .eq('student_id', user.id);
 
-          supabase
-            .from('users')
-            .update({
-              is_exam_locked: true,
-              exam_locked_reason: `Ujian terkunci otomatis karena 3x pelanggaran (membuka tab baru / keluar aplikasi)`,
-              exam_locked_at: new Date().toISOString()
-            })
-            .eq('id', user.id)
-            .then(() => {});
+            await supabase
+              .from('users')
+              .update({
+                is_exam_locked: true,
+                exam_locked_reason: `Ujian terkunci otomatis karena 3x pelanggaran (membuka tab baru / keluar aplikasi)`,
+                exam_locked_at: new Date().toISOString(),
+                active_session_token: null
+              })
+              .eq('id', user.id);
+          } catch (err) {
+            console.error('Error locking student exam session in DB:', err);
+          }
         }
 
         setActiveTask(null);
 
-        alert(
-          '🚨 UJIAN TERKUNCI KARENA 3 KALI PELANGGARAN!\n\n' +
-          'Anda telah mencapai batas toleransi 3 kali pelanggaran selama ujian (terdeteksi membuka tab baru atau keluar aplikasi).\n\n' +
-          '• Seluruh jawaban yang sudah Anda pilih telah TERSIMPAN AMAN di sistem.\n' +
-          '• Sesi ujian Anda telah TERKUNCI.\n' +
-          '• Silakan minta RESET LOGIN kepada Guru Pengawas Anda di menu Monitoring Ujian untuk membuka kunci dan melanjutkan ujian.'
-        );
+        // Simpan pesan peringatan di sessionStorage agar ditampilkan jelas di halaman login
+        try {
+          sessionStorage.setItem(
+            'exam_locked_alert',
+            'Akun ujian Anda telah otomatis terkunci dan dikeluarkan karena terdeteksi 3 kali pelanggaran (membuka tab baru / keluar aplikasi). Seluruh jawaban Anda tersimpan aman di sistem. Untuk melanjutkan ujian, silakan minta RESET LOGIN kepada Guru Pengawas Anda di menu Monitoring Ujian.'
+          );
+        } catch {}
 
-        fetchStudentTasks();
+        // Langsung logout dan arahkan ke halaman login siswa
+        try {
+          await logout();
+        } catch {}
+
+        window.location.replace('/login?role=siswa&locked=1');
         return;
       }
 
@@ -405,7 +416,7 @@ function SiswaTugas() {
         }
       }
     },
-    [activeTask, user, deviceToken]
+    [activeTask, user, deviceToken, logout]
   );
 
   // Heartbeat & Realtime listener while activeTask is open (detects if Teacher finishes exam remotely)
@@ -590,7 +601,11 @@ function SiswaTugas() {
         .eq('class_id', classStud.class_id)
         .order('created_at', { ascending: false });
 
-      if (taskData) setTasks(taskData);
+      if (taskData) {
+        // Hanya tampilkan soal yang aktif (bukan dinonaktifkan guru)
+        const activeTasks = taskData.filter((t: any) => t.is_active !== false);
+        setTasks(activeTasks);
+      }
 
       const { data: subData } = await supabase
         .from('task_submissions')
@@ -630,10 +645,21 @@ function SiswaTugas() {
       return;
     }
 
+    const sub = submissions[task.id];
+    const isViolationLocked = Boolean(
+      sub?.is_locked ||
+      Number(sub?.violation_count || 0) >= 3 ||
+      user?.is_exam_locked
+    );
+
     setPendingTokenTask(task);
     setTokenInput('');
     setTokenError(null);
-    setSessionLockedError(null);
+    setSessionLockedError(
+      isViolationLocked
+        ? 'Ujian ini terkunci karena telah mencapai batas 3 kali pelanggaran. Seluruh jawaban Anda tersimpan aman. Untuk melanjutkan ujian, silakan minta Guru Pengawas Anda melakukan Reset Login pada menu Monitoring Ujian.'
+        : null
+    );
     setTestingAlarm(false);
     antiCheatAlarm.stopAlarm();
   };
@@ -683,18 +709,30 @@ function SiswaTugas() {
       // If student hasn't answered any questions yet (savedCount === 0), NEVER block them!
       // This prevents the infinite reset loop when a student opens the exam for the first time.
       const savedCount = countAnsweredQuestions(latestSub?.answers);
-      const isAlreadyViolationLocked = Boolean(latestSub?.is_locked || Number(latestSub?.violation_count || 0) >= 3);
+      const isAlreadyViolationLocked = Boolean(
+        latestSub?.is_locked ||
+        Number(latestSub?.violation_count || 0) >= 3 ||
+        user?.is_exam_locked
+      );
 
+      // Jika ujian terkunci karena 3x pelanggaran, blokir total dan wajib minta Reset Login ke Guru
+      if (latestSub && isAlreadyViolationLocked) {
+        setSessionLockedError(
+          `Sesi ujian Anda terkunci karena telah mencapai 3 kali pelanggaran (${savedCount} jawaban Anda sudah tersimpan aman). Untuk melanjutkan pengerjaan, silakan minta Guru Pengawas Anda melakukan "Reset Login" pada menu Monitoring Ujian.`
+        );
+        return;
+      }
+
+      // Check if session is locked on a different device and hasn't been Reset Login by Guru
       if (
         latestSub &&
         latestSub.status === 'in_progress' &&
         latestSub.session_token &&
         latestSub.session_token !== deviceToken &&
-        savedCount > 0 &&
-        isAlreadyViolationLocked
+        savedCount > 0
       ) {
         setSessionLockedError(
-          `Sesi ujian Anda terdeteksi terkunci pada perangkat/jaringan sebelumnya (${savedCount} jawaban Anda sudah tersimpan aman). Silakan minta Guru menekan tombol "Reset Login" pada menu Monitoring Ujian agar Anda dapat melanjutkan pengerjaan.`
+          `Sesi ujian Anda terdeteksi aktif pada perangkat/jaringan lain (${savedCount} jawaban Anda sudah tersimpan aman). Silakan minta Guru menekan tombol "Reset Login" pada menu Monitoring Ujian agar Anda dapat melanjutkan pengerjaan.`
         );
         return;
       }
@@ -792,19 +830,27 @@ function SiswaTugas() {
         setSubmissions(prev => ({ ...prev, [pendingTokenTask.id]: latestSub }));
       }
 
-      // If teacher already performed Reset Login (session_token is null and is_locked is false)
-      // or if student is on the same device token, let them resume immediately without losing answers!
+      // Cek status terkini di users dan task_submissions
+      const { data: freshUser } = await supabase
+        .from('users')
+        .select('is_exam_locked')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      const userStillLocked = Boolean(freshUser?.is_exam_locked);
+      const subStillLocked = Boolean(latestSub?.is_locked || Number(latestSub?.violation_count || 0) >= 3);
+
       if (
         latestSub &&
         latestSub.status === 'in_progress' &&
-        (!latestSub.session_token || latestSub.session_token === deviceToken) &&
-        !latestSub.is_locked
+        !userStillLocked &&
+        !subStillLocked
       ) {
         setSessionLockedError(null);
         await startOrResumeExamSession(pendingTokenTask, true);
       } else {
         setSessionLockedError(
-          'Sesi masih terkunci. Mohon tunggu Guru menekan tombol "Reset Login" pada halaman Monitoring Ujian, lalu klik tombol ini lagi.'
+          'Sesi ujian Anda masih terkunci karena 3 kali pelanggaran. Mohon minta Guru Pengawas menekan tombol "Reset Login" pada menu Monitoring Ujian, lalu coba klik tombol ini kembali.'
         );
       }
     } finally {
@@ -813,6 +859,7 @@ function SiswaTugas() {
   };
 
   const handleDismissAlarmAndResume = async () => {
+    if (violationCount >= 3) return;
     antiCheatAlarm.stopAlarm();
     setAlarmActive(false);
     setIsExamStopped(false);
@@ -1068,210 +1115,251 @@ function SiswaTugas() {
     }
   }, [remainingSeconds, activeTask, submitting, maxDurationMinutes, elapsedSeconds]);
 
-  const filteredTasks = tasks.filter(
-    t =>
-      t.title?.toLowerCase().includes(search.toLowerCase()) ||
-      t.subject_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredAndSortedTasks = [...tasks]
+    .filter(
+      t =>
+        t.title?.toLowerCase().includes(search.toLowerCase()) ||
+        t.subject_name?.toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+      if (sortBy === 'status') {
+        const subA = submissions[a.id]?.status || (isTaskLocked(a) ? 'locked' : 'pending');
+        const subB = submissions[b.id]?.status || (isTaskLocked(b) ? 'locked' : 'pending');
+        return subA.localeCompare(subB);
+      }
+      return 0;
+    });
 
   const tokenTimer = getTokenTimeRemaining(nowMs);
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-8 text-white shadow-lg">
-        <h1 className="text-3xl font-bold mb-2">Halo, {user?.name}!</h1>
-        <p className="text-blue-100 text-lg">NISN: {user?.username} • SMAN 21 Garut</p>
+    <div className="space-y-6 max-w-6xl">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2">Halo, {user?.name}!</h1>
+        <p className="text-blue-100 text-sm sm:text-base">NISN: {user?.username} • SMAN 21 Garut</p>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Daftar Tugas & Soal Kelas</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Siapkan <strong>Token Soal</strong> dari Guru Anda (token berganti setiap 30 menit). Jawaban Anda otomatis tersimpan saat dikerjakan.
-          </p>
-        </div>
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-gray-100 pb-4">
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-blue-600" />
+              <span>Daftar Tugas & Ujian Kelas</span>
+              <span className="text-xs font-semibold text-gray-500 font-normal">
+                · {filteredAndSortedTasks.length} Paket Soal
+              </span>
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Siapkan <strong>Token Soal</strong> dari Guru Anda (token berganti setiap 30 menit). Jawaban Anda otomatis tersimpan saat dikerjakan.
+            </p>
+          </div>
 
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Cari mata pelajaran / tugas..."
-            className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 shadow-sm text-sm"
-          />
-        </div>
-      </div>
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+            {/* Search Input */}
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Cari tugas / mapel..."
+                className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm focus:bg-white"
+              />
+            </div>
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-500">Memuat tugas kelas...</div>
-      ) : filteredTasks.length === 0 ? (
-        <div className="bg-white p-8 text-center rounded-2xl border border-gray-200 text-gray-500">
-          Belum ada tugas yang diterbitkan untuk kelas Anda.
-        </div>
-      ) : (
-        <div className="grid md:grid-cols-2 gap-6">
-          {filteredTasks.map(task => {
-            const sub = submissions[task.id];
-            const isCompleted = Boolean(
-              sub && (sub.status === 'graded' || sub.status === 'submitted' || sub.status === 'completed')
-            );
-            const isInProgress = Boolean(sub && sub.status === 'in_progress');
-            const localDraft = user ? getLocalExamProgress(user.id, task.id) : null;
-            const mergedSavedAnswers = normalizeAndMergeAnswers(sub?.answers, localDraft?.answers);
-            const savedAnswerCount = countAnsweredQuestions(mergedSavedAnswers);
-            const totalQ = Array.isArray(task.content) ? task.content.length : 0;
-            const hasResetLoginPrivilege = Boolean(
-              isInProgress && (Number(sub?.login_reset_count || 0) > 0 || !sub?.session_token || sub?.session_token === deviceToken)
-            );
-
-            const pubTime = getTaskPublishTime(task);
-            const isLocked = isTaskLocked(task);
-
-            return (
-              <div
-                key={task.id}
-                className={`bg-white p-6 rounded-2xl shadow-sm border transition-colors flex flex-col justify-between ${
-                  isInProgress
-                    ? 'border-indigo-400 ring-2 ring-indigo-500/10'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
+            {/* Sorting Dropdown */}
+            <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0">
+              <ArrowUpDown className="w-4 h-4 text-gray-400 hidden sm:block" />
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as any)}
+                aria-label="Urutkan daftar tugas dan ujian"
+                className="w-full sm:w-auto py-2 px-3 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm font-medium text-gray-700 focus:ring-2 focus:ring-blue-500 focus:bg-white"
               >
-                <div>
-                  <div className="flex justify-between items-start mb-4 gap-2">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`p-3 rounded-xl ${
-                          isCompleted
-                            ? 'bg-green-50 text-green-600'
-                            : isInProgress
-                            ? 'bg-indigo-50 text-indigo-600'
-                            : isLocked
-                            ? 'bg-amber-50 text-amber-600'
-                            : 'bg-blue-50 text-blue-600'
-                        }`}
-                      >
-                        <BookOpen className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-lg">{task.title}</h3>
-                        <p className="text-sm text-gray-500">{task.subject_name || 'Mata Pelajaran'}</p>
-                      </div>
-                    </div>
-
-                    {isCompleted ? (
-                      <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-md flex items-center shrink-0">
-                        <CheckCircle2 className="w-3 h-3 mr-1" /> Selesai
-                      </span>
-                    ) : isInProgress ? (
-                      <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-md flex items-center gap-1 shrink-0">
-                        <Cloud className="w-3.5 h-3.5 text-indigo-600" />
-                         Tersimpan ({savedAnswerCount}/{totalQ})
-                      </span>
-                    ) : isLocked ? (
-                      <span className="px-3 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-md flex items-center border border-amber-300 shrink-0">
-                        <Lock className="w-3 h-3 mr-1 text-amber-700" /> Terjadwal
-                      </span>
-                    ) : (
-                      <span className="px-3 py-1 bg-indigo-50 text-indigo-800 text-xs font-bold rounded-md border border-indigo-200 flex items-center gap-1 shrink-0">
-                        <KeyRound className="w-3 h-3 text-indigo-600" /> Wajib Token
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-gray-600 text-sm mb-3 capitalize">
-                    Jenis Soal: {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'} · Jumlah: {totalQ} Soal
-                  </p>
-
-                  {isInProgress && (
-                    <div className="mb-4 p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl space-y-1.5 text-xs text-indigo-950">
-                      <div className="flex items-center justify-between font-bold">
-                        <span className="flex items-center gap-1.5 text-indigo-900">
-                          <Cloud className="w-4 h-4 text-indigo-600" />
-                          Progres Jawaban Tersimpan Aman
-                        </span>
-                        <span className="text-indigo-700">
-                          {savedAnswerCount} / {totalQ} Soal
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-indigo-800 leading-relaxed">
-                        {Number(sub?.login_reset_count || 0) > 0
-                          ? `✅ Sesi login Anda telah direset oleh Guru. Seluruh ${savedAnswerCount} jawaban yang sudah Anda kerjakan tetap utuh dan siap dilanjutkan.`
-                          : `Jawaban yang sudah Anda pilih tidak akan hilang meskipun sempat terkendala jaringan.`}
-                      </p>
-                    </div>
-                  )}
-
-                  {!isCompleted && !isLocked && !isInProgress && (
-                    <div className="mb-4 p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-600">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
-                        Anti-Buka Aplikasi Lain & Auto-Save Jawaban
-                      </span>
-                      <span className="font-mono font-bold text-indigo-700">{tokenTimer.formatted}</span>
-                    </div>
-                  )}
-                </div>
-
-                {isCompleted ? (
-                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 flex justify-between items-center">
-                    <span className="text-xs text-gray-600 font-medium">Nilai Akhir:</span>
-                    <span className="text-xl font-black text-green-600">
-                      {sub.score !== null ? sub.score : 'Menunggu Koreksi Guru'}
-                    </span>
-                  </div>
-                ) : isLocked ? (
-                  <div className="space-y-2">
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
-                      <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-bold">Soal Belum Dibuka</p>
-                        <p className="text-[11px] text-amber-800 mt-0.5">
-                          Tugas ini dijadwalkan terbit pada: <strong>{new Date(pubTime!).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' })} WIB</strong>.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      disabled
-                      className="w-full py-2.5 bg-gray-100 text-gray-400 font-semibold rounded-xl cursor-not-allowed text-xs flex items-center justify-center gap-1.5 border border-gray-200"
-                    >
-                      <Lock className="w-3.5 h-3.5 text-gray-400" /> Menunggu Waktu Terbit
-                    </button>
-                  </div>
-                ) : isInProgress ? (
-                  <button
-                    onClick={() => openTaskModal(task)}
-                    className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition shadow-sm flex items-center justify-center gap-2"
-                  >
-                    <PlayCircle className="w-4 h-4" />
-                    {hasResetLoginPrivilege
-                      ? `Lanjutkan Ujian (${savedAnswerCount}/${totalQ} Soal Tersimpan)`
-                      : `Masukkan Token & Lanjutkan (${savedAnswerCount}/${totalQ} Soal)`}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => openTaskModal(task)}
-                    className="w-full py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-sm flex items-center justify-center gap-2"
-                  >
-                    <KeyRound className="w-4 h-4" /> Masukkan Token & Kerjakan Soal
-                  </button>
-                )}
-              </div>
-            );
-          })}
+                <option value="newest">Terbaru</option>
+                <option value="oldest">Terlama</option>
+                <option value="title">Judul (A-Z)</option>
+                <option value="status">Status Pengerjaan</option>
+              </select>
+            </div>
+          </div>
         </div>
-      )}
+
+        {loading ? (
+          <div className="text-center py-12 text-gray-500 flex items-center justify-center gap-2 text-xs sm:text-sm">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-600" /> Memuat daftar tugas kelas...
+          </div>
+        ) : filteredAndSortedTasks.length === 0 ? (
+          <div className="bg-gray-50 p-8 text-center rounded-xl border border-dashed border-gray-200 text-gray-500 text-xs sm:text-sm">
+            {search ? `Tidak ada tugas yang cocok dengan pencarian "${search}".` : 'Belum ada tugas yang diterbitkan untuk kelas Anda.'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 text-gray-700 font-bold border-b border-gray-200 uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th className="py-3 px-3 text-center w-12">No</th>
+                  <th className="py-3 px-4">Judul Tugas / Ujian</th>
+                  <th className="py-3 px-3">Mata Pelajaran</th>
+                  <th className="py-3 px-3 text-center">Jenis & Butir</th>
+                  <th className="py-3 px-3 text-center">Waktu & KKM</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                  <th className="py-3 px-4 text-center">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredAndSortedTasks.map((task, idx) => {
+                  const sub = submissions[task.id];
+                  const isCompleted = Boolean(
+                    sub && (sub.status === 'graded' || sub.status === 'submitted' || sub.status === 'completed')
+                  );
+                  const isViolationLocked = Boolean(
+                    !isCompleted && (sub?.is_locked || Number(sub?.violation_count || 0) >= 3 || user?.is_exam_locked)
+                  );
+                  const isInProgress = Boolean(sub && sub.status === 'in_progress');
+                  const localDraft = user ? getLocalExamProgress(user.id, task.id) : null;
+                  const mergedSavedAnswers = normalizeAndMergeAnswers(sub?.answers, localDraft?.answers);
+                  const savedAnswerCount = countAnsweredQuestions(mergedSavedAnswers);
+                  const totalQ = Array.isArray(task.content) ? task.content.length : 0;
+                  const hasResetLoginPrivilege = Boolean(
+                    isInProgress && !isViolationLocked && (Number(sub?.login_reset_count || 0) > 0 || !sub?.session_token || sub?.session_token === deviceToken)
+                  );
+
+                  const pubTime = getTaskPublishTime(task);
+                  const isLocked = isTaskLocked(task);
+                  const durationMin = task.duration_minutes || 60;
+                  const kkmVal = task.passing_grade ?? 75;
+
+                  return (
+                    <tr key={task.id} className="hover:bg-blue-50/40 transition">
+                      <td className="py-3 px-3 text-center font-semibold text-gray-500">{idx + 1}</td>
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-gray-900 line-clamp-1">{task.title}</div>
+                        {isLocked && pubTime && (
+                          <div className="text-[10px] text-amber-700 mt-0.5 flex items-center gap-1 font-medium">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            Terbit: {new Date(pubTime).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })} WIB
+                          </div>
+                        )}
+                        {isInProgress && !isViolationLocked && (
+                          <div className="text-[10px] text-indigo-700 mt-0.5 flex items-center gap-1 font-semibold">
+                            <Cloud className="w-3 h-3 text-indigo-600" />
+                            Tersimpan {savedAnswerCount} dari {totalQ} Soal
+                          </div>
+                        )}
+                        {isViolationLocked && (
+                          <div className="text-[10px] text-red-700 mt-0.5 flex items-center gap-1 font-semibold">
+                            <Lock className="w-3 h-3 text-red-600" />
+                            Terkunci • {savedAnswerCount} Soal Tersimpan Aman
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                          {task.subject_name || '-'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <span className="capitalize font-medium text-gray-700">
+                          {task.type === 'pg' ? 'Pilihan Ganda' : task.type === 'essay' ? 'Esai' : 'Campuran'}
+                        </span>
+                        <div className="text-[10px] text-gray-500 font-semibold">{totalQ} Soal</div>
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <div className="font-semibold text-gray-700">{durationMin} Menit</div>
+                        <div className="text-[10px] text-slate-500 font-medium">KKM: {kkmVal}</div>
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        {isCompleted ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            <CheckCircle2 className="w-3 h-3" /> Selesai
+                          </span>
+                        ) : isViolationLocked ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-red-100 text-red-800 border border-red-300">
+                            <Lock className="w-3 h-3 text-red-600" /> Terkunci (3x Pelanggaran)
+                          </span>
+                        ) : isInProgress ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-indigo-100 text-indigo-800">
+                            <Cloud className="w-3 h-3" /> Berjalan ({savedAnswerCount}/{totalQ})
+                          </span>
+                        ) : isLocked ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            <Lock className="w-3 h-3 text-amber-700" /> Terjadwal
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700">
+                            <KeyRound className="w-3 h-3 text-slate-500" /> Belum Mulai
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        {isCompleted ? (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-gray-800 rounded-lg text-xs font-bold border border-gray-200">
+                            <span>Nilai:</span>
+                            <span className="text-emerald-700 font-black">
+                              {sub.score !== null ? sub.score : 'Menunggu'}
+                            </span>
+                          </div>
+                        ) : isViolationLocked ? (
+                          <button
+                            type="button"
+                            onClick={() => openTaskModal(task)}
+                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-800 border border-red-300 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs mx-auto"
+                            title="Ujian terkunci karena 3 kali pelanggaran. Minta Guru untuk Reset Login."
+                          >
+                            <Lock className="w-3.5 h-3.5 text-red-600" /> Minta Reset Guru
+                          </button>
+                        ) : isLocked ? (
+                          <button
+                            disabled
+                            className="px-3 py-1 bg-gray-100 text-gray-400 rounded-lg text-xs font-semibold cursor-not-allowed border border-gray-200 inline-flex items-center gap-1"
+                          >
+                            <Lock className="w-3 h-3" /> Menunggu Terbit
+                          </button>
+                        ) : isInProgress ? (
+                          <button
+                            onClick={() => openTaskModal(task)}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs mx-auto"
+                          >
+                            <PlayCircle className="w-3.5 h-3.5" />
+                            {hasResetLoginPrivilege ? 'Lanjutkan' : 'Token & Lanjut'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => openTaskModal(task)}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs mx-auto"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" /> Kerjakan
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Token Verification & Resume Exam Modal */}
       {pendingTokenTask && (() => {
         const sub = submissions[pendingTokenTask.id];
+        const isViolationLocked = Boolean(
+          sub?.is_locked ||
+          Number(sub?.violation_count || 0) >= 3 ||
+          user?.is_exam_locked
+        );
         const isInProgress = Boolean(sub && sub.status === 'in_progress');
         const localDraft = user ? getLocalExamProgress(user.id, pendingTokenTask.id) : null;
         const savedCount = countAnsweredQuestions(normalizeAndMergeAnswers(sub?.answers, localDraft?.answers));
         const totalQ = Array.isArray(pendingTokenTask.content) ? pendingTokenTask.content.length : 0;
         const canResumeDirectly = Boolean(
           isInProgress &&
-            !sub?.is_locked &&
+            !isViolationLocked &&
             (!sub?.session_token || sub?.session_token === deviceToken || Number(sub?.login_reset_count || 0) > 0)
         );
 
@@ -1343,84 +1431,123 @@ function SiswaTugas() {
                   </div>
                 </div>
 
-                {/* Direct resume button if student already verified on this device or Guru performed Reset Login */}
-                {canResumeDirectly && !sessionLockedError && (
-                  <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2.5">
-                    <p className="text-xs font-bold text-indigo-950">
-                      Sesi Ujian Anda Aktif / Telah Direset Guru:
-                    </p>
-                    <button
-                      type="button"
-                      disabled={checkingSessionStatus}
-                      onClick={() => startOrResumeExamSession(pendingTokenTask, true)}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-sm"
-                    >
-                      {checkingSessionStatus ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <PlayCircle className="w-4 h-4" />
-                      )}
-                      Lanjutkan Ujian Sekarang ({savedCount}/{totalQ} Soal Tersimpan)
-                    </button>
-                  </div>
-                )}
-
-                {!canResumeDirectly && (
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
-                        Masukkan Token 6 Karakter dari Guru
-                      </label>
-                      <span className="text-[11px] text-indigo-700 font-semibold flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Reset dlm {tokenTimer.formatted}
-                      </span>
+                {/* If exam is locked due to 3 violations, show locked notice and reset check */}
+                {isViolationLocked ? (
+                  <div className="p-4 bg-red-50 border-2 border-red-300 rounded-2xl text-xs text-red-950 space-y-3">
+                    <div className="flex items-center gap-2 font-black text-red-800 text-sm">
+                      <Lock className="w-5 h-5 text-red-600 shrink-0" />
+                      <span>Ujian Terkunci (3x Pelanggaran)</span>
                     </div>
-                    <input
-                      type="text"
-                      required
-                      maxLength={6}
-                      value={tokenInput}
-                      onChange={e => {
-                        setTokenInput(e.target.value.toUpperCase());
-                        if (tokenError) setTokenError(null);
-                      }}
-                      placeholder="CONTOH: K7M4P9"
-                      className="w-full p-3.5 text-center font-mono text-2xl font-black tracking-[0.3em] uppercase bg-gray-50 border-2 border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 text-indigo-950"
-                      autoFocus
-                    />
-                    <p className="text-[11px] text-gray-500 mt-1.5 text-center">
-                      Token berubah secara otomatis setiap 30 menit. Minta token aktif kepada Guru mata pelajaran Anda.
+                    <p className="leading-relaxed font-medium">
+                      Sesi ujian ini sedang <strong>terkunci</strong> karena sistem mendeteksi Anda telah melakukan 3 kali pelanggaran (membuka tab baru / keluar aplikasi).
                     </p>
-                  </div>
-                )}
-
-                {tokenError && (
-                  <div className="p-3 bg-red-100 border border-red-300 text-red-900 rounded-xl text-xs font-semibold flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                    <span>{tokenError}</span>
-                  </div>
-                )}
-
-                {sessionLockedError && (
-                  <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-950 rounded-xl text-xs space-y-2.5">
-                    <div className="flex items-start gap-2 font-semibold">
-                      <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                      <span>{sessionLockedError}</span>
+                    <div className="p-2.5 bg-red-100 rounded-xl text-red-900 border border-red-200">
+                      ✅ Seluruh <strong>{savedCount} soal</strong> yang telah Anda kerjakan tersimpan aman dan tidak hilang.
                     </div>
+                    <p className="font-semibold text-red-900">
+                      Untuk melanjutkan ujian, Anda <strong>wajib meminta Guru Pengawas Anda melakukan Reset Login</strong> pada menu Monitoring Ujian.
+                    </p>
                     <button
                       type="button"
                       disabled={checkingSessionStatus}
                       onClick={handleCheckResetLoginAndResume}
-                      className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs transition flex items-center justify-center gap-1.5"
+                      className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-sm"
                     >
                       {checkingSessionStatus ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <RefreshCw className="w-3.5 h-3.5" />
                       )}
-                      Sudah Direset Guru? Klik untuk Lanjutkan Ujian
+                      Sudah Direset Guru? Periksa & Lanjutkan
                     </button>
+                    {sessionLockedError && (
+                      <p className="text-[11px] text-red-700 font-semibold text-center mt-1">
+                        ⚠️ {sessionLockedError}
+                      </p>
+                    )}
                   </div>
+                ) : (
+                  <>
+                    {/* Direct resume button if student already verified on this device or Guru performed Reset Login */}
+                    {canResumeDirectly && !sessionLockedError && (
+                      <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2.5">
+                        <p className="text-xs font-bold text-indigo-950">
+                          Sesi Ujian Anda Aktif / Telah Direset Guru:
+                        </p>
+                        <button
+                          type="button"
+                          disabled={checkingSessionStatus}
+                          onClick={() => startOrResumeExamSession(pendingTokenTask, true)}
+                          className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-sm"
+                        >
+                          {checkingSessionStatus ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <PlayCircle className="w-4 h-4" />
+                          )}
+                          Lanjutkan Ujian Sekarang ({savedCount}/{totalQ} Soal Tersimpan)
+                        </button>
+                      </div>
+                    )}
+
+                    {!canResumeDirectly && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
+                            Masukkan Token 6 Karakter dari Guru
+                          </label>
+                          <span className="text-[11px] text-indigo-700 font-semibold flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> Reset dlm {tokenTimer.formatted}
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          maxLength={6}
+                          value={tokenInput}
+                          onChange={e => {
+                            setTokenInput(e.target.value.toUpperCase());
+                            if (tokenError) setTokenError(null);
+                          }}
+                          placeholder="CONTOH: K7M4P9"
+                          className="w-full p-3.5 text-center font-mono text-2xl font-black tracking-[0.3em] uppercase bg-gray-50 border-2 border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 text-indigo-950"
+                          autoFocus
+                        />
+                        <p className="text-[11px] text-gray-500 mt-1.5 text-center">
+                          Token berubah secara otomatis setiap 30 menit. Minta token aktif kepada Guru mata pelajaran Anda.
+                        </p>
+                      </div>
+                    )}
+
+                    {tokenError && (
+                      <div className="p-3 bg-red-100 border border-red-300 text-red-900 rounded-xl text-xs font-semibold flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                        <span>{tokenError}</span>
+                      </div>
+                    )}
+
+                    {sessionLockedError && (
+                      <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-950 rounded-xl text-xs space-y-2.5">
+                        <div className="flex items-start gap-2 font-semibold">
+                          <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                          <span>{sessionLockedError}</span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={checkingSessionStatus}
+                          onClick={handleCheckResetLoginAndResume}
+                          className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs transition flex items-center justify-center gap-1.5"
+                        >
+                          {checkingSessionStatus ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          )}
+                          Sudah Direset Guru? Klik untuk Lanjutkan Ujian
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <div className="flex items-center justify-end gap-3 pt-2">
@@ -1433,9 +1560,9 @@ function SiswaTugas() {
                     }}
                     className="px-4 py-2.5 text-gray-600 font-semibold hover:bg-gray-100 rounded-xl text-sm transition"
                   >
-                    Batal
+                    Tutup
                   </button>
-                  {!canResumeDirectly && (
+                  {!isViolationLocked && !canResumeDirectly && (
                     <button
                       type="submit"
                       disabled={checkingSessionStatus}
@@ -2289,7 +2416,12 @@ function SiswaTugas() {
                     </p>
                   </div>
 
-                  {stopPenaltySeconds > 0 ? (
+                  {violationCount >= 3 ? (
+                    <div className="p-4 bg-red-900 border border-red-500 rounded-xl text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 max-w-md w-full shadow-lg">
+                      <Lock className="w-5 h-5 text-red-300 animate-pulse shrink-0" />
+                      <span>Batas 3 kali pelanggaran tercapai. Ujian terkunci & sedang dialihkan ke halaman login...</span>
+                    </div>
+                  ) : stopPenaltySeconds > 0 ? (
                     <button
                       type="button"
                       disabled

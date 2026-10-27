@@ -42,6 +42,9 @@ export interface Task {
   min_duration?: number;
   max_duration?: number;
   duration?: number;
+  weight_pg?: number;
+  weight_essay?: number;
+  is_active?: boolean;
 }
 
 export interface Submission {
