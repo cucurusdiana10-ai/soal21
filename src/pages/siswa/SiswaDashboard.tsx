@@ -603,7 +603,11 @@ function SiswaTugas() {
 
       if (taskData) {
         // Hanya tampilkan soal yang aktif (bukan dinonaktifkan guru)
-        const activeTasks = taskData.filter((t: any) => t.is_active !== false);
+        const activeTasks = taskData.filter((t: any) => {
+          if (t.is_active === false) return false;
+          if (Array.isArray(t.content) && t.content.length > 0 && t.content[0]?.is_active === false) return false;
+          return true;
+        });
         setTasks(activeTasks);
       }
 

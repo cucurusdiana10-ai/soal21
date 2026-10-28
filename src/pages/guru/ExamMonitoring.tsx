@@ -527,10 +527,19 @@ export default function ExamMonitoring() {
     }
   };
 
+  const checkTaskIsActive = (task: any): boolean => {
+    if (!task) return true;
+    if (task.is_active === false) return false;
+    if (Array.isArray(task.content) && task.content.length > 0 && task.content[0]?.is_active === false) {
+      return false;
+    }
+    return true;
+  };
+
   const handleToggleTaskActive = async (task: any, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!supabase) return;
-    const currentActive = task.is_active !== false;
+    const currentActive = checkTaskIsActive(task);
     const nextActive = !currentActive;
 
     const confirmMsg = nextActive
@@ -540,19 +549,37 @@ export default function ExamMonitoring() {
     if (!confirm(confirmMsg)) return;
 
     try {
-      const { error } = await supabase
+      const updatedContent = Array.isArray(task.content)
+        ? task.content.map((q: any) => ({ ...q, is_active: nextActive }))
+        : task.content;
+
+      let updateError = null;
+      const { error: primaryErr } = await supabase
         .from('tasks')
-        .update({ is_active: nextActive })
+        .update({ is_active: nextActive, content: updatedContent })
         .eq('id', task.id);
 
-      if (error) throw error;
+      if (primaryErr) {
+        const errStr = (primaryErr.message || '').toLowerCase();
+        if (errStr.includes('is_active') || errStr.includes('column') || primaryErr.code === 'PGRST204') {
+          const { error: fallbackErr } = await supabase
+            .from('tasks')
+            .update({ content: updatedContent })
+            .eq('id', task.id);
+          if (fallbackErr) updateError = fallbackErr;
+        } else {
+          updateError = primaryErr;
+        }
+      }
+
+      if (updateError) throw updateError;
 
       setTasks(prev =>
-        prev.map(t => (t.id === task.id ? { ...t, is_active: nextActive } : t))
+        prev.map(t => (t.id === task.id ? { ...t, is_active: nextActive, content: updatedContent } : t))
       );
 
       if (selectedTask?.id === task.id) {
-        setSelectedTask((prev: any) => ({ ...prev, is_active: nextActive }));
+        setSelectedTask((prev: any) => ({ ...prev, is_active: nextActive, content: updatedContent }));
       }
     } catch (err: any) {
       alert('Gagal mengubah status aktif/nonaktif soal: ' + (err.message || String(err)));
@@ -749,7 +776,7 @@ export default function ExamMonitoring() {
                   const isSelected = selectedTask?.id === task.id;
                   const activeToken = generateTaskToken(task.id, nowMs);
                   const qCount = Array.isArray(task.content) ? task.content.length : 0;
-                  const isTaskActive = task.is_active !== false;
+                  const isTaskActive = checkTaskIsActive(task);
 
                   return (
                     <tr

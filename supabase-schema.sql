@@ -65,8 +65,22 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   type TEXT DEFAULT 'pg' CHECK (type IN ('pg', 'essay', 'mixed')),
   content JSONB,
   kkm NUMERIC DEFAULT 75,
+  min_duration NUMERIC DEFAULT 0,
+  max_duration NUMERIC DEFAULT 60,
+  duration NUMERIC DEFAULT 60,
+  weight_pg NUMERIC DEFAULT 70,
+  weight_essay NUMERIC DEFAULT 30,
+  is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Migration idempotent / ALTER TABLE untuk database yang sudah berjalan
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS min_duration NUMERIC DEFAULT 0;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS max_duration NUMERIC DEFAULT 60;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS duration NUMERIC DEFAULT 60;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS weight_pg NUMERIC DEFAULT 70;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS weight_essay NUMERIC DEFAULT 30;
 
 -- 6b. Tabel Arsip Lembar Kerja Peserta Didik (LKPD)
 CREATE TABLE IF NOT EXISTS public.lkpd_records (

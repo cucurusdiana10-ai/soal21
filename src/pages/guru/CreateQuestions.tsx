@@ -316,6 +316,69 @@ export default function CreateQuestions() {
     }
   };
 
+  /**
+   * Safely inserts task records into Supabase with automatic schema fallback.
+   * If the Supabase Postgres schema cache does not have 'is_active' (or other optional column),
+   * it gracefully retries without that column while keeping is_active intact inside the content JSON.
+   */
+  const insertTasksSafely = async (inserts: any[]): Promise<{ data: any; error: any }> => {
+    if (!supabase) return { data: null, error: new Error('Supabase belum terkonfigurasi') };
+
+    // 1. First attempt: normal insert with all columns
+    const { data, error } = await supabase.from('tasks').insert(inserts);
+    if (!error) return { data, error: null };
+
+    const errStr = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+    const isColumnError = errStr.includes('column') || errStr.includes('schema cache') || error.code === 'PGRST204';
+
+    // 2. Fallback if 'is_active' is missing from schema cache
+    if (isColumnError && errStr.includes('is_active')) {
+      console.warn('Kolom is_active belum ada di schema cache Supabase. Menggunakan fallback insert tanpa kolom is_active...');
+      const fallbackInserts = inserts.map(item => {
+        const { is_active, ...rest } = item;
+        const safeContent = Array.isArray(rest.content)
+          ? rest.content.map((q: any) => ({ ...q, is_active: is_active !== false }))
+          : [{ is_active: is_active !== false }];
+        return { ...rest, content: safeContent };
+      });
+
+      const retryResult = await supabase.from('tasks').insert(fallbackInserts);
+      if (!retryResult.error) return retryResult;
+
+      const retryErrStr = `${retryResult.error.message || ''} ${retryResult.error.details || ''}`.toLowerCase();
+      // Additional fallback if other newly added columns are also missing in schema cache
+      if (retryErrStr.includes('column') || retryErrStr.includes('schema cache') || retryResult.error.code === 'PGRST204') {
+        const minimalInserts = fallbackInserts.map(item => {
+          const { weight_pg, weight_essay, min_duration, max_duration, ...rest } = item;
+          return {
+            ...rest,
+            duration: max_duration || item.duration || 60
+          };
+        });
+        return await supabase.from('tasks').insert(minimalInserts);
+      }
+      return retryResult;
+    }
+
+    // 3. Fallback if other optional columns (weight_pg/weight_essay) are missing
+    if (isColumnError && (errStr.includes('weight_pg') || errStr.includes('weight_essay') || errStr.includes('min_duration') || errStr.includes('max_duration'))) {
+      const minimalInserts = inserts.map(item => {
+        const { is_active, weight_pg, weight_essay, min_duration, max_duration, ...rest } = item;
+        const safeContent = Array.isArray(rest.content)
+          ? rest.content.map((q: any) => ({ ...q, is_active: is_active !== false }))
+          : [{ is_active: is_active !== false }];
+        return {
+          ...rest,
+          duration: max_duration || item.duration || 60,
+          content: safeContent
+        };
+      });
+      return await supabase.from('tasks').insert(minimalInserts);
+    }
+
+    return { data, error };
+  };
+
   const publishQuestionsDirectly = async (
     questionsToPublish: any[],
     meta = draftMetadata
@@ -354,7 +417,8 @@ export default function CreateQuestions() {
 
       const questionsWithSchedule = questionsToPublish.map(q => ({
         ...q,
-        published_at: effectivePublishTime
+        published_at: effectivePublishTime,
+        is_active: true
       }));
 
       const finalWeightPg = Number(meta.weight_pg !== undefined ? meta.weight_pg : (form.weight_pg ?? 70));
@@ -376,7 +440,7 @@ export default function CreateQuestions() {
         content: questionsWithSchedule
       }));
 
-      const { error } = await supabase.from('tasks').insert(inserts);
+      const { error } = await insertTasksSafely(inserts);
       if (error) throw error;
 
       const targetNames = targetIds
@@ -668,7 +732,8 @@ export default function CreateQuestions() {
 
       const questionsWithSchedule = republishQuestions.map(q => ({
         ...q,
-        published_at: effectivePublishTime
+        published_at: effectivePublishTime,
+        is_active: true
       }));
 
       const inserts = republishClassIds.map(cid => ({
@@ -687,7 +752,7 @@ export default function CreateQuestions() {
         content: questionsWithSchedule
       }));
 
-      const { error } = await supabase.from('tasks').insert(inserts);
+      const { error } = await insertTasksSafely(inserts);
       if (error) throw error;
 
       const targetNames = republishClassIds
