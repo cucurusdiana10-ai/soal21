@@ -25,9 +25,11 @@ import {
   RotateCcw,
   Users,
   Database,
-  FileCheck
+  FileCheck,
+  Download
 } from 'lucide-react';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
+import { exportTaskGradesToExcel } from '../../lib/excelExport';
 import {
   countAnsweredQuestions,
   normalizeAndMergeAnswers,
@@ -586,6 +588,21 @@ export default function ExamMonitoring() {
     }
   };
 
+  const handleDownloadExcel = () => {
+    if (!selectedTask || monitoringRows.length === 0) {
+      alert('Tidak ada data siswa untuk diunduh');
+      return;
+    }
+    try {
+      exportTaskGradesToExcel({
+        task: selectedTask,
+        items: monitoringRows
+      });
+    } catch (err: any) {
+      alert('Gagal mengunduh file Excel: ' + (err.message || String(err)));
+    }
+  };
+
   // Computed stats
   const stats = monitoringRows.reduce(
     (acc, item) => {
@@ -1002,6 +1019,16 @@ export default function ExamMonitoring() {
                       </button>
                     </>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadExcel}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    title="Unduh rekapitulasi nilai dan status pengerjaan siswa dalam format file Excel (.xlsx)"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download (Excel)
+                  </button>
 
                   <Link
                     to="/dashboard/laporan"

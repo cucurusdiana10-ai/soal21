@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { CheckSquare, Award, Clock, FileText, Search, ArrowUpDown, MessageSquare, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckSquare, Award, Clock, FileText, Search, ArrowUpDown, MessageSquare, X, CheckCircle2, AlertCircle, Download } from 'lucide-react';
+import { exportStudentTranscriptToExcel } from '../../lib/excelExport';
 
 export default function SiswaNilai() {
   const { user } = useAuth();
@@ -96,6 +97,30 @@ export default function SiswaNilai() {
     return { pgDisplay, essayDisplay, kkmVal, isPass, weightPg, weightEssay, taskType };
   };
 
+  const handleDownloadTranscript = () => {
+    if (submissions.length === 0) {
+      alert('Belum ada riwayat nilai untuk diunduh.');
+      return;
+    }
+    try {
+      const mapped = submissions.map(sub => {
+        const det = getScoreDetails(sub);
+        return {
+          ...sub,
+          pg_score: det.pgDisplay,
+          essay_score: det.essayDisplay
+        };
+      });
+      exportStudentTranscriptToExcel({
+        studentName: user?.name || 'Siswa',
+        studentUsername: user?.username || '-',
+        submissions: mapped
+      });
+    } catch (err: any) {
+      alert('Gagal mengunduh file Excel: ' + (err.message || String(err)));
+    }
+  };
+
   const filteredAndSorted = [...submissions]
     .filter(sub => {
       if (!search.trim()) return true;
@@ -183,6 +208,17 @@ export default function SiswaNilai() {
                 <option value="subject">Mata Pelajaran (A-Z)</option>
               </select>
             </div>
+
+            {/* Export Excel Button */}
+            <button
+              type="button"
+              onClick={handleDownloadTranscript}
+              className="w-full sm:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer shrink-0"
+              title="Unduh seluruh transkrip nilai ke format file Excel (.xlsx)"
+            >
+              <Download className="w-4 h-4" />
+              <span>Unduh Excel</span>
+            </button>
           </div>
         </div>
 

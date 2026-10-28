@@ -34,6 +34,7 @@ import {
 import { gradeEssayApi } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
 import { countAnsweredQuestions } from '../../lib/examMonitoring';
+import { exportTaskGradesToExcel } from '../../lib/excelExport';
 
 interface TaskSubmissionItem {
   student: any;
@@ -514,58 +515,67 @@ export default function GradeReports() {
     }
   };
 
-  // Export CSV / Excel
-  const handleDownloadReport = () => {
-    if (!selectedTask || submissions.length === 0) {
-      alert('Tidak ada data siswa untuk diunduh');
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
+
+  // Export Excel (.xlsx)
+  const handleDownloadReport = async (taskToExport?: any) => {
+    const task = taskToExport || selectedTask;
+    if (!task) {
+      alert('Pilih paket soal terlebih dahulu untuk mengunduh laporan nilai.');
       return;
     }
 
-    const taskKkm = Number(selectedTask?.kkm !== undefined && selectedTask?.kkm !== null ? selectedTask.kkm : 75);
-    const headers = ['No', 'Nama Siswa', 'NISN', 'Nilai PG', 'Nilai Esai', 'Nilai Akhir', 'KKM', 'Status Kelulusan', 'Status Pengerjaan'];
+    setDownloadingExcel(true);
+    try {
+      let itemsToExport = submissions;
 
-    const rows = submissions.map((item, idx) => {
-      const st = item.student;
-      const sub = item.submission;
-      const scoreVal = sub && sub.score !== null ? sub.score : '-';
-      const kelulusan =
-        sub && sub.score !== null && sub.status !== 'in_progress'
-          ? sub.score >= taskKkm
-            ? 'TUNTAS'
-            : 'REMEDIAL'
-          : '-';
-      const statusText = !sub
-        ? 'Belum Mengumpulkan'
-        : sub.status === 'graded'
-        ? 'Sudah Dinilai'
-        : sub.status === 'in_progress'
-        ? 'Sedang Mengerjakan'
-        : 'Perlu Koreksi Esai';
+      // If downloading from task row or submissions not yet loaded for this task
+      if (!itemsToExport || itemsToExport.length === 0 || (taskToExport && taskToExport.id !== selectedTask?.id)) {
+        const { data: classStudents } = await supabase!
+          .from('class_students')
+          .select('student:users!student_id(id, name, username, status)')
+          .eq('class_id', task.class_id);
 
-      return [
-        idx + 1,
-        `"${st.name ? st.name.replace(/"/g, '""') : ''}"`,
-        `"${st.username ? st.username.replace(/"/g, '""') : ''}"`,
-        sub?.score !== null ? sub.score : '-',
-        '-',
-        scoreVal,
-        taskKkm,
-        `"${kelulusan}"`,
-        `"${statusText}"`
-      ];
-    });
+        const { data: subs } = await supabase!
+          .from('task_submissions')
+          .select('*')
+          .eq('task_id', task.id);
 
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const className = selectedTask.class?.name || 'Kelas';
-    const taskTitle = (selectedTask.title || 'Tugas').replace(/[^a-zA-Z0-9_-]/g, '_');
-    link.setAttribute('download', `Laporan_Nilai_${className}_${taskTitle}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+        const subMap: Record<string, any> = {};
+        if (subs) {
+          subs.forEach((s: any) => {
+            subMap[s.student_id] = s;
+          });
+        }
+
+        const studentsList = (classStudents || [])
+          .map((cs: any) => cs.student)
+          .filter(Boolean)
+          .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+
+        itemsToExport = studentsList.map((st: any) => ({
+          student: st,
+          submission: subMap[st.id] || null
+        }));
+      }
+
+      if (!itemsToExport || itemsToExport.length === 0) {
+        alert('Tidak ada data siswa terdaftar di kelas paket soal ini.');
+        return;
+      }
+
+      const fileName = exportTaskGradesToExcel({
+        task,
+        items: itemsToExport,
+        calculateCombinedScore
+      });
+
+      console.log('✅ File Excel berhasil diunduh:', fileName);
+    } catch (err: any) {
+      alert('Gagal mengunduh file Excel: ' + (err.message || String(err)));
+    } finally {
+      setDownloadingExcel(false);
+    }
   };
 
   // Filter tasks list
@@ -845,21 +855,35 @@ export default function GradeReports() {
                         </span>
                       </td>
                       <td className="py-1 px-2 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleSelectTask(task, true);
-                          }}
-                          className={`px-2 py-0.5 rounded font-bold text-[10px] transition flex items-center gap-1 ml-auto shadow-2xs ${
-                            isSelected
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
-                          }`}
-                        >
-                          <Eye className="w-2.5 h-2.5" />
-                          {isSelected ? 'Dilihat' : 'Lihat Nilai'}
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleDownloadReport(task);
+                            }}
+                            className="px-2 py-0.5 rounded font-bold text-[10px] transition flex items-center gap-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                            title="Unduh Rekap Nilai Excel (.xlsx)"
+                          >
+                            <Download className="w-2.5 h-2.5" />
+                            Excel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleSelectTask(task, true);
+                            }}
+                            className={`px-2 py-0.5 rounded font-bold text-[10px] transition flex items-center gap-1 shadow-2xs ${
+                              isSelected
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                            }`}
+                          >
+                            <Eye className="w-2.5 h-2.5" />
+                            {isSelected ? 'Dilihat' : 'Lihat'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -945,10 +969,17 @@ export default function GradeReports() {
 
                   <button
                     type="button"
-                    onClick={handleDownloadReport}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5"
+                    onClick={() => handleDownloadReport()}
+                    disabled={downloadingExcel}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                    title="Unduh seluruh rekap nilai siswa kelas ini dalam format file Microsoft Excel (.xlsx)"
                   >
-                    <Download className="w-3.5 h-3.5" /> Download (Excel)
+                    {downloadingExcel ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    {downloadingExcel ? 'Mengunduh...' : 'Download (Excel)'}
                   </button>
                 </div>
               </div>
