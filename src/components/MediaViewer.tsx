@@ -6,6 +6,15 @@ import { resolveRelevantYoutubeVideo, EducationalVideo } from '../lib/youtubeLib
 interface MediaViewerProps {
   imageUrl?: string;
   videoUrl?: string;
+  videoTitle?: string;
+  videoChannel?: string;
+  suggestedVideos?: Array<{
+    id: string;
+    url: string;
+    title: string;
+    channel: string;
+    duration?: string;
+  }>;
   mediaType?: 'image' | 'video' | 'both' | string;
   title?: string;
   subject?: string;
@@ -19,6 +28,9 @@ interface MediaViewerProps {
 export default function MediaViewer({
   imageUrl,
   videoUrl,
+  videoTitle,
+  videoChannel,
+  suggestedVideos,
   mediaType = 'both',
   title,
   subject = '',
@@ -264,10 +276,10 @@ export default function MediaViewer({
             <div className="flex items-center gap-2 min-w-0">
               <span className="px-2 py-0.5 bg-red-100 text-red-700 font-bold rounded-md flex items-center gap-1 shrink-0">
                 <Youtube className="w-3.5 h-3.5 text-red-600" />
-                {youtubeMatch.videoChannel || 'YouTube Edukasi'}
+                {videoChannel || youtubeMatch.videoChannel || 'YouTube Edukasi'}
               </span>
               <span className="text-gray-700 font-medium truncate">
-                {title || youtubeMatch.videoTitle}
+                {videoTitle || youtubeMatch.videoTitle || title}
               </span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -292,6 +304,36 @@ export default function MediaViewer({
               </a>
             </div>
           </div>
+
+          {/* Live Topic Video Alternatives if Teacher Editing OR Available */}
+          {Array.isArray(suggestedVideos) && suggestedVideos.length > 1 && onVideoUrlChange && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+              <p className="text-[11px] font-bold text-slate-700">
+                Rekomendasi Video Lain Sesuai Topik ({suggestedVideos.length}):
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {suggestedVideos.map((sv, sIdx) => {
+                  const isActiveVid = effectiveVideoUrl === sv.url;
+                  return (
+                    <button
+                      key={sv.id || sIdx}
+                      type="button"
+                      onClick={() => onVideoUrlChange(sv.url)}
+                      className={`text-[11px] px-2.5 py-1.5 rounded-lg border text-left transition flex items-center gap-1.5 ${
+                        isActiveVid
+                          ? 'bg-red-600 text-white border-red-600 font-semibold'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-red-300'
+                      }`}
+                    >
+                      <Play className="w-3 h-3 shrink-0" />
+                      <span className="truncate max-w-[220px]">{sv.title}</span>
+                      {sv.duration && <span className="opacity-75 tabular-nums">({sv.duration})</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       ) : activeTab === 'video' && !hasVideo ? (
         <div className="p-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-300 space-y-3">

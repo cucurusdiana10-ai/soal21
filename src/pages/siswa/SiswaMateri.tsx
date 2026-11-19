@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, Search, X, CheckCircle2, Lightbulb, Compass, HelpCircle, Check, AlertTriangle, Film, Image, Layers, Calendar, User, ArrowUpDown, Eye } from 'lucide-react';
-import MediaViewer from '../../components/MediaViewer';
-import InteractiveBahanAjar from '../../components/InteractiveBahanAjar';
+import { BookOpen, Search, X, HelpCircle, Film, Image, Layers, ArrowUpDown } from 'lucide-react';
+import BahanAjarViewer from '../../components/bahan-ajar/BahanAjarViewer';
+import { BAHAN_AJAR_FORMATS, BahanAjarFormatId } from '../../types/bahanAjar';
 
 export default function SiswaMateri() {
   const { user } = useAuth();
@@ -13,7 +13,6 @@ export default function SiswaMateri() {
   const [subjectFilter, setSubjectFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'subject'>('newest');
   const [selectedMaterial, setSelectedMaterial] = useState<any | null>(null);
-  const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
 
   useEffect(() => {
     fetchStudentMaterials();
@@ -72,7 +71,7 @@ export default function SiswaMateri() {
               <span>Bahan Ajar & Materi Pembelajaran</span>
             </h1>
             <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-              Pelajari materi interaktif, peta konsep, video, dan kuis pemantik dari guru pengampu kelas Anda.
+              Pelajari slide interaktif, simulasi, peta konsep, podcast, infografis, dan tantangan belajar dari guru pengampu kelas Anda.
             </p>
           </div>
 
@@ -157,13 +156,17 @@ export default function SiswaMateri() {
                   <th className="py-3 px-4">Judul Materi & Topik</th>
                   <th className="py-3 px-3">Mata Pelajaran</th>
                   <th className="py-3 px-3">Guru Pengampu</th>
-                  <th className="py-3 px-3">Kelengkapan Media</th>
+                  <th className="py-3 px-3">Format & Kelengkapan</th>
                   <th className="py-3 px-3 text-center">Tanggal Terbit</th>
                   <th className="py-3 px-4 text-center">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredAndSorted.map((mat, idx) => {
+                  const selectedFormats: BahanAjarFormatId[] = Array.isArray(mat.content_json?.selectedFormats)
+                    ? mat.content_json.selectedFormats
+                    : [];
+                  const isV2 = selectedFormats.length > 0 || mat.content_json?.version === 2;
                   const subCount = Array.isArray(mat.content_json?.materials) ? mat.content_json.materials.length : 0;
                   const quizCount = Array.isArray(mat.content_json?.interactiveQuestions) ? mat.content_json.interactiveQuestions.length : 0;
                   const hasVideo = Boolean(mat.content_json?.videoUrl);
@@ -174,9 +177,13 @@ export default function SiswaMateri() {
                     year: 'numeric'
                   });
 
+                  const v2FormatText = selectedFormats
+                    .map(id => BAHAN_AJAR_FORMATS.find(f => f.id === id)?.label || id)
+                    .join(' · ');
+
                   return (
                     <tr key={mat.id} className="hover:bg-blue-50/40 transition">
-                      <td className="py-3 px-3 text-center font-semibold text-gray-500">{idx + 1}</td>
+                      <td className="py-3 px-3 text-center font-semibold text-gray-500 tabular-nums">{idx + 1}</td>
                       <td className="py-3 px-4 max-w-xs">
                         <div className="font-bold text-gray-900 line-clamp-1">{mat.title || mat.topic}</div>
                         {mat.topic && mat.topic !== mat.title && (
@@ -192,32 +199,38 @@ export default function SiswaMateri() {
                         <div className="font-medium text-gray-800 text-xs">{mat.guru?.name || 'Guru Pengampu'}</div>
                         <div className="text-[10px] text-gray-400">Kelas {mat.class?.name || mat.grade}</div>
                       </td>
-                      <td className="py-3 px-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-gray-600">
-                          <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
-                            <Layers className="w-3 h-3 text-blue-600" /> {subCount} Sub
-                          </span>
-                          <span className="text-gray-300">·</span>
-                          <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
-                            <HelpCircle className="w-3 h-3 text-emerald-600" /> {quizCount} Kuis
-                          </span>
-                          {hasVideo && (
-                            <>
-                              <span className="text-gray-300">·</span>
-                              <span className="text-red-700 font-semibold inline-flex items-center gap-0.5">
-                                <Film className="w-3 h-3" /> Video
-                              </span>
-                            </>
-                          )}
-                          {hasImage && (
-                            <>
-                              <span className="text-gray-300">·</span>
-                              <span className="text-indigo-700 font-semibold inline-flex items-center gap-0.5">
-                                <Image className="w-3 h-3" /> Visual
-                              </span>
-                            </>
-                          )}
-                        </div>
+                      <td className="py-3 px-3 max-w-xs">
+                        {isV2 && v2FormatText ? (
+                          <div className="text-[11px] font-medium text-slate-700 line-clamp-2">
+                            {v2FormatText}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-gray-600">
+                            <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
+                              <Layers className="w-3 h-3 text-blue-600" /> {subCount} Sub
+                            </span>
+                            <span className="text-gray-300">·</span>
+                            <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
+                              <HelpCircle className="w-3 h-3 text-emerald-600" /> {quizCount} Kuis
+                            </span>
+                            {hasVideo && (
+                              <>
+                                <span className="text-gray-300">·</span>
+                                <span className="text-red-700 font-semibold inline-flex items-center gap-0.5">
+                                  <Film className="w-3 h-3" /> Video
+                                </span>
+                              </>
+                            )}
+                            {hasImage && (
+                              <>
+                                <span className="text-gray-300">·</span>
+                                <span className="text-indigo-700 font-semibold inline-flex items-center gap-0.5">
+                                  <Image className="w-3 h-3" /> Visual
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-center whitespace-nowrap text-gray-600 text-xs">
                         {dateStr}
@@ -225,10 +238,7 @@ export default function SiswaMateri() {
                       <td className="py-3 px-4 text-center whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => {
-                            setQuizAnswers({});
-                            setSelectedMaterial(mat);
-                          }}
+                          onClick={() => setSelectedMaterial(mat)}
                           className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5 shadow-xs"
                         >
                           <BookOpen className="w-3.5 h-3.5" /> Pelajari
@@ -246,155 +256,35 @@ export default function SiswaMateri() {
       {/* Material Modal */}
       {selectedMaterial && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50">
+          <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="flex items-center justify-between p-5 sm:p-6 border-b border-slate-200 bg-slate-50">
               <div>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white shadow-xs">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-blue-700">
                   Bahan Ajar Interaktif Siswa
-                </span>
-                <h3 className="text-xl font-black text-blue-950 mt-1">{selectedMaterial.title}</h3>
-                <p className="text-xs text-blue-700">Topik: {selectedMaterial.topic} • Guru: {selectedMaterial.guru?.name}</p>
+                </p>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 mt-0.5">
+                  {selectedMaterial.title || selectedMaterial.topic}
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Topik: {selectedMaterial.topic} · Guru: {selectedMaterial.guru?.name || 'Guru Pengampu'}
+                </p>
               </div>
-              <button onClick={() => setSelectedMaterial(null)} className="text-gray-400 hover:text-gray-700 p-2 rounded-xl hover:bg-white/80 transition">
-                <X className="w-6 h-6" />
+              <button
+                type="button"
+                onClick={() => setSelectedMaterial(null)}
+                className="text-slate-400 hover:text-slate-700 p-2 rounded-xl hover:bg-slate-200/70 transition"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-7 flex-1">
-              {/* Media Player / Image Viewer */}
-              <MediaViewer
-                imageUrl={selectedMaterial.content_json?.imageUrl}
-                videoUrl={selectedMaterial.content_json?.videoUrl}
-                mediaType={selectedMaterial.content_json?.mediaType || 'both'}
-                title={selectedMaterial.title}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1">
+              <BahanAjarViewer
+                content={selectedMaterial.content_json}
+                title={selectedMaterial.title || selectedMaterial.topic}
                 subject={selectedMaterial.subject_name || ''}
+                isTeacherView={false}
               />
-
-              {/* Interactive Gamification & Peta Konsep Arena */}
-              <InteractiveBahanAjar
-                petaKonsep={selectedMaterial.content_json?.petaKonsep}
-                gamifikasi={selectedMaterial.content_json?.gamifikasi}
-                mindMapFallback={selectedMaterial.content_json?.mindMap}
-                topicTitle={selectedMaterial.topic || selectedMaterial.title}
-                pertemuanMateri={selectedMaterial.content_json?.pertemuanMateri}
-              />
-
-              {/* Fun Fact / Tahukah Kamu */}
-              {selectedMaterial.content_json?.funFact && (
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 flex items-start gap-3">
-                  <Lightbulb className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <h5 className="font-bold text-amber-900 text-sm">Tahukah Kamu? (Fun Fact)</h5>
-                    <p className="text-amber-800 text-xs mt-1 leading-relaxed">
-                      {selectedMaterial.content_json.funFact}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Real World Application */}
-              {selectedMaterial.content_json?.realWorldApplication && (
-                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 flex items-start gap-3">
-                  <Compass className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                  <div>
-                    <h5 className="font-bold text-emerald-900 text-sm">Aplikasi di Dunia Nyata & Kasus Seru</h5>
-                    <p className="text-emerald-800 text-xs mt-1 leading-relaxed">
-                      {selectedMaterial.content_json.realWorldApplication}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Mind Map */}
-              {selectedMaterial.content_json?.mindMap && (
-                <div>
-                  <h4 className="font-bold text-gray-900 mb-3 text-sm flex items-center">
-                    <BookOpen className="w-4 h-4 mr-2 text-blue-600" /> Peta Konsep Utama
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedMaterial.content_json.mindMap.map((item: string, idx: number) => (
-                      <span key={idx} className="px-3 py-1.5 bg-blue-50 text-blue-800 rounded-full text-xs font-semibold border border-blue-100">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Material Detail */}
-              {selectedMaterial.content_json?.materials && (
-                <div className="space-y-4">
-                  <h4 className="font-bold text-gray-900 border-b pb-2 text-sm">Pembahasan Materi</h4>
-                  {selectedMaterial.content_json.materials.map((m: any, idx: number) => (
-                    <div key={idx} className="bg-gray-50 p-5 rounded-xl border border-gray-200">
-                      <h5 className="font-bold text-gray-900 mb-2">{m.title}</h5>
-                      <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-line">{m.content}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Interactive Questions Practice with Instant Check */}
-              {selectedMaterial.content_json?.interactiveQuestions && selectedMaterial.content_json.interactiveQuestions.length > 0 && (
-                <div className="space-y-4">
-                  <h4 className="font-bold text-gray-900 border-b pb-2 text-sm flex items-center gap-1.5">
-                    <HelpCircle className="w-4 h-4 text-indigo-600" /> Kuis & Pertanyaan Pemantik (Cek Langsung Pemahamanmu)
-                  </h4>
-                  {selectedMaterial.content_json.interactiveQuestions.map((q: any, idx: number) => {
-                    const answered = quizAnswers[idx];
-                    const isCorrect = answered && (answered === q.answer || answered === q.answer?.[0]);
-                    return (
-                      <div key={idx} className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 space-y-3">
-                        <p className="font-semibold text-gray-900 text-sm">{idx + 1}. {q.question}</p>
-                        <div className="grid sm:grid-cols-2 gap-2">
-                          {q.options?.map((opt: string, oIdx: number) => {
-                            const letter = String.fromCharCode(65 + oIdx);
-                            const isSelected = answered === letter || answered === opt;
-                            const isOptionCorrect = letter === q.answer || opt === q.answer;
-                            
-                            let btnStyle = 'bg-white border-gray-200 text-gray-700 hover:bg-blue-50';
-                            if (answered) {
-                              if (isSelected && isOptionCorrect) {
-                                btnStyle = 'bg-green-100 border-green-400 text-green-900 font-bold';
-                              } else if (isSelected && !isOptionCorrect) {
-                                btnStyle = 'bg-red-100 border-red-400 text-red-900 font-bold';
-                              } else if (isOptionCorrect) {
-                                btnStyle = 'bg-green-50 border-green-300 text-green-800 font-semibold';
-                              }
-                            }
-
-                            return (
-                              <button
-                                key={oIdx}
-                                type="button"
-                                onClick={() => setQuizAnswers(prev => ({ ...prev, [idx]: letter }))}
-                                className={`p-3 border rounded-xl text-xs font-medium text-left transition flex items-center justify-between ${btnStyle}`}
-                              >
-                                <span>
-                                  <span className="font-bold mr-1.5">{letter}.</span> {opt}
-                                </span>
-                                {answered && isOptionCorrect && (
-                                  <Check className="w-4 h-4 text-green-600 shrink-0 ml-1" />
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        {answered && (
-                          <div className={`p-3 rounded-lg text-xs flex items-start gap-2 ${isCorrect ? 'bg-green-50 text-green-900 border border-green-200' : 'bg-amber-50 text-amber-900 border border-amber-200'}`}>
-                            {isCorrect ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />}
-                            <div>
-                              <p className="font-bold">{isCorrect ? '🎉 Jawaban Tepat!' : `Kunci yang benar adalah pilihan (${q.answer}).`}</p>
-                              {q.explanation && <p className="mt-1 text-gray-700">{q.explanation}</p>}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
         </div>

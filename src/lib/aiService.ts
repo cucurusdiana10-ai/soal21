@@ -1,6 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
 import { getCuratedCpDataset } from './cpDatabase';
 import { resolveRelevantYoutubeVideo } from './youtubeLibrary';
+import type {
+  BahanAjarFormatId,
+  CreativeAssistantActionId,
+  CreativeAssistantResponse,
+  ModulAnalysisResult,
+  StudentDifficultyLevel
+} from '../types/bahanAjar';
 
 export function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -766,29 +773,127 @@ export interface GenerateMaterialPayload {
   pertemuanList?: any[];
   pertemuanCount?: number;
   selectedMeetingIndex?: string;
+  selectedFormats?: BahanAjarFormatId[];
+  tingkatKesulitan?: StudentDifficultyLevel;
+  videoDurationMinutes?: number;
+  enableLeaderboard?: boolean;
+  customFormatPrompt?: string;
+  analysis?: Partial<ModulAnalysisResult> | null;
+  jumlahLatihanSoal?: number;
+  jenisLatihanSoal?: 'pg' | 'essay' | 'campuran';
+  customVideoUrl?: string;
+  includeVideoSupport?: boolean;
+}
+
+export interface YoutubeSearchItem {
+  id: string;
+  url: string;
+  title: string;
+  channel: string;
+  duration?: string;
+  thumbnail?: string;
+}
+
+export async function searchYoutubeVideosApi(
+  subject: string,
+  topic: string
+): Promise<YoutubeSearchItem[]> {
+  try {
+    const qs = new URLSearchParams({ subject: subject || '', topic: topic || '' });
+    const res = await fetch(`/api/search-youtube?${qs.toString()}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.videos) && data.videos.length > 0) {
+        return data.videos;
+      }
+    }
+  } catch {
+    // Fallback below
+  }
+  const fallback = resolveRelevantYoutubeVideo(subject, topic);
+  return [
+    {
+      id: '',
+      url: fallback.videoUrl,
+      title: fallback.videoTitle,
+      channel: fallback.videoChannel,
+      duration: ''
+    },
+    ...fallback.alternativeVideos.map(v => ({
+      id: v.id,
+      url: v.url,
+      title: v.title,
+      channel: v.channel,
+      duration: '',
+      thumbnail: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`
+    }))
+  ];
+}
+
+export async function analyzeModulAjarApi(payload: {
+  modulTitle?: string;
+  subjectName?: string;
+  grade?: string;
+  cp?: string;
+  metode?: string;
+  alokasiWaktu?: string;
+  contentJson?: any;
+  rawText?: string;
+}): Promise<ModulAnalysisResult> {
+  return postApiWithFallback(['/api/analyze-modul'], payload);
+}
+
+export async function runMaterialCreativeAssistantApi(payload: {
+  actionId: CreativeAssistantActionId;
+  customInstruction?: string;
+  subject: string;
+  grade: string;
+  topic: string;
+  tingkatKesulitan: StudentDifficultyLevel;
+  currentMaterialSummary: string;
+  tujuanPembelajaran?: string[];
+}): Promise<CreativeAssistantResponse> {
+  return postApiWithFallback(['/api/material-assistant'], payload);
 }
 
 export async function generateMaterialApi(payload: GenerateMaterialPayload) {
+  const isV2 = Array.isArray(payload.selectedFormats) && payload.selectedFormats.length > 0;
   const result = await postApiWithFallback(
     ['/api/generate-material', '/api/material', '/api/ai/material'],
     payload,
-    () =>
-      clientFallbackGenerateMaterial(
-        payload.subject,
-        payload.grade,
-        payload.topic,
-        payload.description,
-        payload.pertemuanList,
-        payload.selectedMeetingIndex
-      )
+    isV2
+      ? undefined
+      : () =>
+          clientFallbackGenerateMaterial(
+            payload.subject,
+            payload.grade,
+            payload.topic,
+            payload.description,
+            payload.pertemuanList,
+            payload.selectedMeetingIndex
+          )
   );
 
   if (result && typeof result === 'object') {
-    const resolved = resolveRelevantYoutubeVideo(payload.subject, payload.topic, result.videoUrl);
-    result.videoUrl = resolved.videoUrl;
-    if (!result.videoTitle) result.videoTitle = resolved.videoTitle;
-    if (!result.videoChannel) result.videoChannel = resolved.videoChannel;
-    if (!result.mediaType) result.mediaType = 'both';
+    if (
+      !result.videoUrl &&
+      (!isV2 ||
+        payload.includeVideoSupport !== false ||
+        payload.selectedFormats?.includes('video_pembelajaran') ||
+        payload.selectedFormats?.includes('web_pembelajaran'))
+    ) {
+      const resolved = resolveRelevantYoutubeVideo(
+        payload.subject,
+        payload.topic,
+        payload.customVideoUrl || result.videoUrl
+      );
+      result.videoUrl = resolved.videoUrl;
+      if (!result.videoTitle) result.videoTitle = resolved.videoTitle;
+      if (!result.videoChannel) result.videoChannel = resolved.videoChannel;
+    }
+    if (!isV2 && !result.mediaType) {
+      result.mediaType = 'both';
+    }
   }
   return result;
 }

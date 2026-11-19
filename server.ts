@@ -5,6 +5,106 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { getCuratedCpDataset } from './src/lib/cpDatabase';
 import { resolveRelevantYoutubeVideo } from './src/lib/youtubeLibrary';
+import {
+  buildAnalyzeModulPrompt,
+  buildMultiFormatMaterialPrompt,
+  buildCreativeAssistantPrompt
+} from './src/lib/bahanAjarPrompts';
+
+interface LiveYoutubeItem {
+  id: string;
+  url: string;
+  title: string;
+  channel: string;
+  duration: string;
+  thumbnail: string;
+}
+
+async function searchLiveYoutubeVideos(subject: string, topic: string): Promise<LiveYoutubeItem[]> {
+  const cleanTopic = (topic || '').replace(/^Modul Ajar:\s*/i, '').trim();
+  const cleanSubject = (subject || '').trim();
+  const queries = [
+    `${cleanTopic} ${cleanSubject} SMA pembelajaran`.trim(),
+    `${cleanTopic} pembelajaran`.trim()
+  ].filter(Boolean);
+
+  for (const q of queries) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(
+        `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8'
+          },
+          signal: controller.signal
+        }
+      );
+      clearTimeout(timer);
+      if (!resp.ok) continue;
+      const html = await resp.text();
+      const match = html.match(/var ytInitialData = (\{.+?\});<\/script>/);
+      if (!match) continue;
+
+      const data = JSON.parse(match[1]);
+      const sections =
+        data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer
+          ?.contents || [];
+      const found: LiveYoutubeItem[] = [];
+      const seen = new Set<string>();
+
+      for (const sec of sections) {
+        const items = sec?.itemSectionRenderer?.contents || [];
+        for (const it of items) {
+          const vr = it?.videoRenderer;
+          if (!vr || !vr.videoId || seen.has(vr.videoId)) continue;
+          const titleText =
+            vr.title?.runs?.map((r: any) => r.text).join('') || vr.title?.simpleText || '';
+          const channelText =
+            vr.ownerText?.runs?.map((r: any) => r.text).join('') || 'YouTube Edukasi';
+          const durationText = vr.lengthText?.simpleText || '';
+          // Skip live streams or empty titles
+          if (!titleText) continue;
+          seen.add(vr.videoId);
+          found.push({
+            id: vr.videoId,
+            url: `https://www.youtube.com/watch?v=${vr.videoId}`,
+            title: titleText,
+            channel: channelText,
+            duration: durationText,
+            thumbnail: `https://i.ytimg.com/vi/${vr.videoId}/hqdefault.jpg`
+          });
+          if (found.length >= 6) break;
+        }
+        if (found.length >= 6) break;
+      }
+
+      if (found.length > 0) {
+        return found;
+      }
+    } catch (err: any) {
+      console.warn('[YouTube Search] Gagal query:', q, err?.message);
+    }
+  }
+  return [];
+}
+
+function isValidCustomVideoUrl(url?: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const clean = url.trim();
+  if (!clean || clean.includes('dQw4w9WgXcQ') || clean.includes('search_query')) return false;
+  const ytMatch = clean.match(
+    /(?:youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([a-zA-Z0-9_-]{11})/
+  );
+  return Boolean(
+    (ytMatch && ytMatch[1]) ||
+      clean.endsWith('.mp4') ||
+      clean.endsWith('.webm') ||
+      clean.startsWith('data:video/')
+  );
+}
 
 function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -54,16 +154,14 @@ function cleanAiErrorMessage(err: any): string {
 
 // Resilient Gemini Generation with Active Model Fallback
 async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
-  // Models in priority order: tested active & verified zero 503 errors
+  // Models in priority order adhering to @google/genai active model guidelines
   const models = [
-    'gemini-3.5-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
+    'gemini-4-hydrogen',
+    'gemini-3.1-flash-lite',
+    'gemini-flash-latest',
     'gemini-flash-lite-latest',
     'gemini-3-flash-preview',
-    'gemini-3.8-flash',
-    'gemini-flash-latest',
-    'gemini-3.1-flash-lite'
+    'gemini-3.8-flash'
   ];
   let lastError: any = null;
 
@@ -171,6 +269,16 @@ async function startServer() {
         pertemuanList,
         pertemuanCount,
         selectedMeetingIndex,
+        selectedFormats,
+        tingkatKesulitan,
+        videoDurationMinutes,
+        enableLeaderboard,
+        customFormatPrompt,
+        analysis,
+        jumlahLatihanSoal,
+        jenisLatihanSoal,
+        customVideoUrl,
+        includeVideoSupport
       } = req.body || {};
       if (!subject || !grade || !topic) {
         return res.status(400).json({ error: 'Missing required fields: subject, grade, topic' });
@@ -184,6 +292,73 @@ async function startServer() {
           }
         }
       });
+
+      // Resolve topic-specific YouTube videos in parallel if needed
+      const shouldResolveVideo =
+        isValidCustomVideoUrl(customVideoUrl) ||
+        includeVideoSupport !== false ||
+        (Array.isArray(selectedFormats) &&
+          (selectedFormats.includes('video_pembelajaran') ||
+            selectedFormats.includes('web_pembelajaran')));
+
+      // V2 Flexible Multi-Format Flow
+      if (Array.isArray(selectedFormats) && selectedFormats.length > 0) {
+        const v2Prompt = buildMultiFormatMaterialPrompt({
+          subject,
+          grade,
+          topic,
+          description,
+          selectedFormats,
+          tingkatKesulitan: tingkatKesulitan || 'reguler',
+          videoDurationMinutes,
+          enableLeaderboard,
+          customFormatPrompt,
+          analysis,
+          selectedMeetingIndex,
+          jumlahLatihanSoal,
+          jenisLatihanSoal
+        });
+
+        const [parsedData, liveVideos] = await Promise.all([
+          generateContentWithFallback(ai, v2Prompt),
+          shouldResolveVideo && !isValidCustomVideoUrl(customVideoUrl)
+            ? searchLiveYoutubeVideos(subject, topic)
+            : Promise.resolve([])
+        ]);
+
+        if (parsedData && typeof parsedData === 'object') {
+          parsedData.version = 2;
+          parsedData.selectedFormats = selectedFormats;
+          if (typeof jumlahLatihanSoal === 'number') {
+            parsedData.jumlahLatihanSoal = jumlahLatihanSoal;
+          }
+          if (jenisLatihanSoal) {
+            parsedData.jenisLatihanSoal = jenisLatihanSoal;
+          }
+
+          if (isValidCustomVideoUrl(customVideoUrl)) {
+            parsedData.videoUrl = customVideoUrl.trim();
+            parsedData.videoTitle = parsedData.videoTitle || `Video Pembelajaran: ${topic}`;
+            parsedData.videoChannel = 'Video Pilihan Guru';
+            if (liveVideos.length > 0) parsedData.suggestedVideos = liveVideos;
+          } else if (liveVideos.length > 0) {
+            parsedData.videoUrl = liveVideos[0].url;
+            parsedData.videoTitle = liveVideos[0].title;
+            parsedData.videoChannel = liveVideos[0].channel;
+            parsedData.suggestedVideos = liveVideos;
+          } else if (
+            selectedFormats.includes('video_pembelajaran') ||
+            selectedFormats.includes('web_pembelajaran') ||
+            includeVideoSupport
+          ) {
+            const resolved = resolveRelevantYoutubeVideo(subject, topic, parsedData.videoUrl);
+            parsedData.videoUrl = resolved.videoUrl;
+            if (!parsedData.videoTitle) parsedData.videoTitle = resolved.videoTitle;
+            if (!parsedData.videoChannel) parsedData.videoChannel = resolved.videoChannel;
+          }
+        }
+        return res.json(parsedData);
+      }
 
       const effectiveMeetings = Array.isArray(pertemuanList) && pertemuanList.length > 0 ? pertemuanList : [];
       const hasMultipleMeetings = effectiveMeetings.length > 0 && selectedMeetingIndex === 'ALL';
@@ -364,12 +539,22 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
   ]
 }`;
 
-      const parsedData = await generateContentWithFallback(ai, prompt);
+      const [parsedData, liveVideos] = await Promise.all([
+        generateContentWithFallback(ai, prompt),
+        searchLiveYoutubeVideos(subject, topic)
+      ]);
       if (parsedData && typeof parsedData === 'object') {
-        const resolved = resolveRelevantYoutubeVideo(subject, topic, parsedData.videoUrl);
-        parsedData.videoUrl = resolved.videoUrl;
-        if (!parsedData.videoTitle) parsedData.videoTitle = resolved.videoTitle;
-        if (!parsedData.videoChannel) parsedData.videoChannel = resolved.videoChannel;
+        if (liveVideos.length > 0) {
+          parsedData.videoUrl = liveVideos[0].url;
+          parsedData.videoTitle = liveVideos[0].title;
+          parsedData.videoChannel = liveVideos[0].channel;
+          parsedData.suggestedVideos = liveVideos;
+        } else {
+          const resolved = resolveRelevantYoutubeVideo(subject, topic, parsedData.videoUrl);
+          parsedData.videoUrl = resolved.videoUrl;
+          if (!parsedData.videoTitle) parsedData.videoTitle = resolved.videoTitle;
+          if (!parsedData.videoChannel) parsedData.videoChannel = resolved.videoChannel;
+        }
         if (!parsedData.mediaType) parsedData.mediaType = 'both';
       }
       res.json(parsedData);
@@ -382,6 +567,106 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
   app.all('/api/generate-material', handleMaterialGen);
   app.all('/api/ai/material', handleMaterialGen);
   app.all('/api/material', handleMaterialGen);
+
+  // Live YouTube Educational Search Endpoint matching subject & material topic
+  app.get('/api/search-youtube', async (req: express.Request, res: express.Response) => {
+    try {
+      const subject = String(req.query.subject || '');
+      const topic = String(req.query.topic || req.query.q || '');
+      if (!topic && !subject) {
+        return res.status(400).json({ error: 'Parameter topic atau subject diperlukan', videos: [] });
+      }
+      const liveVideos = await searchLiveYoutubeVideos(subject, topic);
+      if (liveVideos.length > 0) {
+        return res.json({ videos: liveVideos, source: 'youtube-live' });
+      }
+      const fallback = resolveRelevantYoutubeVideo(subject, topic);
+      return res.json({
+        videos: [
+          {
+            id: '',
+            url: fallback.videoUrl,
+            title: fallback.videoTitle,
+            channel: fallback.videoChannel,
+            duration: '',
+            thumbnail: ''
+          },
+          ...fallback.alternativeVideos.map(v => ({
+            id: v.id,
+            url: v.url,
+            title: v.title,
+            channel: v.channel,
+            duration: '',
+            thumbnail: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`
+          }))
+        ],
+        source: 'curated-fallback'
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Gagal mencari video YouTube', videos: [] });
+    }
+  });
+
+  // Handler for Analyzing Modul Ajar faithfully without fabricating objectives
+  const handleAnalyzeModul = async (req: express.Request, res: express.Response) => {
+    if (req.method !== 'POST') {
+      return res.json({ status: 'ready', endpoint: req.path });
+    }
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
+      }
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+      const prompt = buildAnalyzeModulPrompt(req.body || {});
+      const analysis = await generateContentWithFallback(ai, prompt);
+      res.json(analysis);
+    } catch (error: any) {
+      console.error('Error analyzing modul ajar:', error);
+      res.status(500).json({ error: cleanAiErrorMessage(error) });
+    }
+  };
+  app.all('/api/analyze-modul', handleAnalyzeModul);
+
+  // Handler for AI Creative Assistant on Teaching Materials
+  const handleMaterialAssistant = async (req: express.Request, res: express.Response) => {
+    if (req.method !== 'POST') {
+      return res.json({ status: 'ready', endpoint: req.path });
+    }
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
+      }
+      const { actionId, customInstruction, subject, grade, topic, tingkatKesulitan, currentMaterialSummary, tujuanPembelajaran } = req.body || {};
+      if (!actionId || !subject || !topic) {
+        return res.status(400).json({ error: 'Data konteks materi atau aksi asisten AI tidak lengkap.' });
+      }
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+      const prompt = buildCreativeAssistantPrompt({
+        actionId,
+        customInstruction,
+        subject,
+        grade: grade || 'X',
+        topic,
+        tingkatKesulitan: tingkatKesulitan || 'reguler',
+        currentMaterialSummary: currentMaterialSummary || topic,
+        tujuanPembelajaran: Array.isArray(tujuanPembelajaran) ? tujuanPembelajaran : []
+      });
+      const assistantResult = await generateContentWithFallback(ai, prompt);
+      res.json(assistantResult);
+    } catch (error: any) {
+      console.error('Error in material creative assistant:', error);
+      res.status(500).json({ error: cleanAiErrorMessage(error) });
+    }
+  };
+  app.all('/api/material-assistant', handleMaterialAssistant);
 
   // Handler for Question Generation
   const handleQuestionsGen = async (req: express.Request, res: express.Response) => {
