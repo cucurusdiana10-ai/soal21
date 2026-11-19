@@ -36,7 +36,8 @@ import {
   SlidersHorizontal,
   Clock,
   HelpCircle,
-  Play
+  Play,
+  ChevronDown
 } from 'lucide-react';
 import {
   analyzeModulAjarApi,
@@ -141,10 +142,15 @@ export default function CreateMaterials() {
   const [deletingMaterial, setDeletingMaterial] = useState<boolean>(false);
   const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Multi-class target state
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
+  const [showAllClassesInPicker, setShowAllClassesInPicker] = useState<boolean>(false);
+  const [showStudioClassPicker, setShowStudioClassPicker] = useState<boolean>(false);
+  const [editExtraClassIds, setEditExtraClassIds] = useState<string[]>([]);
+
   const [form, setForm] = useState({
     subject: '',
     grade: '',
-    class_id: '',
     topic: '',
     description: '',
     videoUrl: ''
@@ -482,6 +488,12 @@ export default function CreateMaterials() {
     }
   };
 
+  const toggleTargetClass = (classId: string) => {
+    setSelectedClassIds(prev =>
+      prev.includes(classId) ? prev.filter(id => id !== classId) : [...prev, classId]
+    );
+  };
+
   const handleSaveMaterial = async () => {
     setActionFeedback(null);
     if (!result) {
@@ -492,10 +504,10 @@ export default function CreateMaterials() {
       setActionFeedback({ type: 'error', text: 'Sesi login Anda telah berakhir, silakan login ulang.' });
       return;
     }
-    if (!form.class_id) {
+    if (selectedClassIds.length === 0) {
       setActionFeedback({
         type: 'error',
-        text: 'Pilih Target Rombel Kelas terlebih dahulu sebelum membagikan ke siswa.'
+        text: 'Pilih minimal 1 Target Rombel Kelas terlebih dahulu sebelum membagikan ke siswa.'
       });
       return;
     }
@@ -506,53 +518,32 @@ export default function CreateMaterials() {
       const topic = form.topic || 'Topik Pembelajaran';
       const grade = form.grade || 'X';
 
-      if (form.class_id === 'ALL_GRADE') {
-        const matchingClasses = classes.filter(
-          c =>
-            !grade ||
-            c.name.toLowerCase().startsWith(grade.toLowerCase()) ||
-            c.name.includes(grade)
-        );
-        const targetClassList = matchingClasses.length > 0 ? matchingClasses : classes;
+      const targetClasses = classes.filter(c => selectedClassIds.includes(c.id));
+      const inserts = selectedClassIds.map(classId => ({
+        guru_id: user.id,
+        class_id: classId,
+        subject_name: subject,
+        grade: grade,
+        topic: topic,
+        title: `${subject} - ${topic}`,
+        content_json: result
+      }));
 
-        const inserts = targetClassList.map(c => ({
-          guru_id: user.id,
-          class_id: c.id,
-          subject_name: subject,
-          grade: grade,
-          topic: topic,
-          title: `${subject} - ${topic}`,
-          content_json: result
-        }));
+      const { error } = await supabase.from('teaching_materials').insert(inserts);
+      if (error) throw error;
 
-        const { error } = await supabase.from('teaching_materials').insert(inserts);
-        if (error) throw error;
-        setActionFeedback({
-          type: 'success',
-          text: `Bahan Ajar berhasil disimpan & dibagikan ke ${inserts.length} kelas tingkat ${grade}!`
-        });
-      } else {
-        const { error } = await supabase.from('teaching_materials').insert([
-          {
-            guru_id: user.id,
-            class_id: form.class_id,
-            subject_name: subject,
-            grade: grade,
-            topic: topic,
-            title: `${subject} - ${topic}`,
-            content_json: result
-          }
-        ]);
-
-        if (error) throw error;
-        setActionFeedback({
-          type: 'success',
-          text: 'Bahan Ajar berhasil disimpan & dibagikan ke siswa!'
-        });
-      }
+      const classNamesLabel = targetClasses.map(c => c.name).join(', ');
+      setActionFeedback({
+        type: 'success',
+        text:
+          inserts.length > 1
+            ? `Bahan Ajar berhasil disimpan & dibagikan ke ${inserts.length} kelas (${classNamesLabel})!`
+            : `Bahan Ajar berhasil disimpan & dibagikan ke Kelas ${classNamesLabel || '-'}!`
+      });
 
       setResult(null);
       setIsEditing(false);
+      setShowStudioClassPicker(false);
       fetchSavedMaterials();
     } catch (err: any) {
       setActionFeedback({
@@ -635,8 +626,34 @@ export default function CreateMaterials() {
         .eq('id', editingSavedMaterial.id);
 
       if (error) throw error;
-      setActionFeedback({ type: 'success', text: 'Bahan ajar berhasil diperbarui!' });
+
+      const extraTargets = editExtraClassIds.filter(
+        cid => cid && cid !== editingSavedMaterial.class_id
+      );
+
+      if (extraTargets.length > 0 && user) {
+        const copies = extraTargets.map(cid => ({
+          guru_id: user.id,
+          class_id: cid,
+          subject_name: editingSavedMaterial.subject_name,
+          grade: editingSavedMaterial.grade,
+          topic: editingSavedMaterial.topic,
+          title: editingSavedMaterial.title,
+          content_json: editingSavedMaterial.content_json
+        }));
+        const { error: copyErr } = await supabase.from('teaching_materials').insert(copies);
+        if (copyErr) throw copyErr;
+      }
+
+      setActionFeedback({
+        type: 'success',
+        text:
+          extraTargets.length > 0
+            ? `Bahan ajar berhasil diperbarui dan disalin ke ${extraTargets.length} kelas tambahan!`
+            : 'Bahan ajar berhasil diperbarui!'
+      });
       setEditingSavedMaterial(null);
+      setEditExtraClassIds([]);
       fetchSavedMaterials();
     } catch (err: any) {
       setActionFeedback({
@@ -1094,7 +1111,7 @@ export default function CreateMaterials() {
             </h2>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid md:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Mata Pelajaran
@@ -1129,34 +1146,16 @@ export default function CreateMaterials() {
               </label>
               <select
                 value={form.grade}
-                onChange={e => setForm({ ...form, grade: e.target.value, class_id: '' })}
+                onChange={e => {
+                  setForm({ ...form, grade: e.target.value });
+                  setSelectedClassIds([]);
+                }}
                 className="w-full p-2.5 text-sm border border-slate-300 rounded-xl bg-white font-medium focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">-- Pilih Tingkat --</option>
                 <option value="X">Tingkat X (Kelas 10)</option>
                 <option value="XI">Tingkat XI (Kelas 11)</option>
                 <option value="XII">Tingkat XII (Kelas 12)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Target Rombel Kelas
-              </label>
-              <select
-                value={form.class_id}
-                onChange={e => setForm({ ...form, class_id: e.target.value })}
-                className="w-full p-2.5 text-sm border border-slate-300 rounded-xl bg-white font-medium text-slate-900 focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">-- Pilih Kelas --</option>
-                {form.grade && (
-                  <option value="ALL_GRADE">Semua Kelas Tingkat {form.grade}</option>
-                )}
-                {(availableClasses.length > 0 ? availableClasses : classes).map(c => (
-                  <option key={c.id} value={c.id}>
-                    Kelas {c.name}
-                  </option>
-                ))}
               </select>
             </div>
 
@@ -1173,6 +1172,118 @@ export default function CreateMaterials() {
               />
             </div>
           </div>
+
+          {/* Multi-class Target Selector */}
+          {(() => {
+            const displayClasses =
+              showAllClassesInPicker || !form.grade
+                ? classes
+                : availableClasses.length > 0
+                ? availableClasses
+                : classes;
+            const allDisplayedSelected =
+              displayClasses.length > 0 &&
+              displayClasses.every(c => selectedClassIds.includes(c.id));
+
+            return (
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <label className="text-xs font-bold text-slate-900 block">
+                      Target Rombel Kelas (Bisa Pilih Lebih dari 1 Kelas)
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Centang satu atau beberapa kelas sekaligus untuk membagikan bahan ajar secara serentak.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {form.grade && classes.length > availableClasses.length && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllClassesInPicker(!showAllClassesInPicker)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 font-semibold transition"
+                      >
+                        {showAllClassesInPicker ? `Filter Tingkat ${form.grade}` : 'Tampilkan Semua Kelas'}
+                      </button>
+                    )}
+                    {displayClasses.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (allDisplayedSelected) {
+                            const visibleIds = new Set(displayClasses.map(c => c.id));
+                            setSelectedClassIds(prev => prev.filter(id => !visibleIds.has(id)));
+                          } else {
+                            setSelectedClassIds(prev =>
+                              Array.from(new Set([...prev, ...displayClasses.map(c => c.id)]))
+                            );
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold transition"
+                      >
+                        {allDisplayedSelected
+                          ? 'Batal Pilih Semua'
+                          : `Pilih Semua (${displayClasses.length})`}
+                      </button>
+                    )}
+                    {selectedClassIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedClassIds([])}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold transition"
+                      >
+                        Kosongkan
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {displayClasses.length === 0 ? (
+                  <p className="text-xs text-slate-500">Belum ada data rombel kelas tersedia.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {displayClasses.map(c => {
+                      const isChecked = selectedClassIds.includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggleTargetClass(c.id)}
+                          className={`px-3 py-2 rounded-xl border text-xs font-semibold transition inline-flex items-center gap-2 ${
+                            isChecked
+                              ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
+                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-white'
+                          }`}
+                        >
+                          <span
+                            className={`w-4 h-4 rounded flex items-center justify-center border ${
+                              isChecked
+                                ? 'bg-white border-white text-blue-600'
+                                : 'bg-white border-slate-300'
+                            }`}
+                          >
+                            {isChecked && <Check className="w-3 h-3" />}
+                          </span>
+                          Kelas {c.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {selectedClassIds.length > 0 && (
+                  <p className="text-[11px] font-semibold text-blue-700 tabular-nums">
+                    {selectedClassIds.length} kelas terpilih:{' '}
+                    {classes
+                      .filter(c => selectedClassIds.includes(c.id))
+                      .map(c => c.name)
+                      .join(', ')}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="grid md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
@@ -1613,9 +1724,9 @@ export default function CreateMaterials() {
 
       {/* GENERATED RESULT STUDIO + AI CREATIVE ASSISTANT */}
       {result && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs">
           {/* Studio Header Bar */}
-          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50 rounded-t-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <span className="font-bold text-blue-700">Hasil Studio Bahan Ajar</span>
@@ -1670,21 +1781,109 @@ export default function CreateMaterials() {
                 Layar Penuh
               </button>
 
-              <select
-                value={form.class_id}
-                onChange={e => setForm({ ...form, class_id: e.target.value })}
-                className="p-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800"
-              >
-                <option value="">-- Target Kelas --</option>
-                {form.grade && (
-                  <option value="ALL_GRADE">Semua Kelas ({form.grade})</option>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowStudioClassPicker(!showStudioClassPicker)}
+                  className="px-3 py-2 bg-white border border-slate-300 hover:border-slate-400 rounded-xl text-xs font-semibold text-slate-800 flex items-center gap-2 transition"
+                >
+                  <span className="truncate max-w-[180px]">
+                    {selectedClassIds.length === 0
+                      ? '-- Pilih Target Kelas --'
+                      : selectedClassIds.length <= 2
+                      ? `Kelas ${classes
+                          .filter(c => selectedClassIds.includes(c.id))
+                          .map(c => c.name)
+                          .join(', ')}`
+                      : `${selectedClassIds.length} Kelas Dipilih`}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                </button>
+
+                {showStudioClassPicker && (
+                  <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-3 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                      <span className="text-xs font-bold text-slate-900">
+                        Pilih Target Kelas ({selectedClassIds.length})
+                      </span>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const list = availableClasses.length > 0 ? availableClasses : classes;
+                            setSelectedClassIds(list.map(c => c.id));
+                          }}
+                          className="font-semibold text-blue-700 hover:underline"
+                        >
+                          Semua
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedClassIds([])}
+                          className="font-semibold text-slate-500 hover:underline"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
+                      {(showAllClassesInPicker || availableClasses.length === 0
+                        ? classes
+                        : availableClasses
+                      ).map(c => {
+                        const checked = selectedClassIds.includes(c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => toggleTargetClass(c.id)}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition ${
+                              checked
+                                ? 'bg-blue-50 text-blue-900 font-semibold'
+                                : 'text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>Kelas {c.name}</span>
+                            <span
+                              className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                checked
+                                  ? 'bg-blue-600 border-blue-600 text-white'
+                                  : 'bg-white border-slate-300'
+                              }`}
+                            >
+                              {checked && <Check className="w-3 h-3" />}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                      {form.grade && classes.length > availableClasses.length ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllClassesInPicker(!showAllClassesInPicker)}
+                          className="text-[11px] font-semibold text-slate-600 hover:text-slate-900"
+                        >
+                          {showAllClassesInPicker
+                            ? `Filter ${form.grade}`
+                            : 'Lihat semua tingkat'}
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowStudioClassPicker(false)}
+                        className="px-3 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-bold"
+                      >
+                        Selesai
+                      </button>
+                    </div>
+                  </div>
                 )}
-                {(availableClasses.length > 0 ? availableClasses : classes).map(c => (
-                  <option key={c.id} value={c.id}>
-                    Kelas {c.name}
-                  </option>
-                ))}
-              </select>
+              </div>
 
               <button
                 type="button"
@@ -2035,9 +2234,10 @@ export default function CreateMaterials() {
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() =>
-                              setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)))
-                            }
+                            onClick={() => {
+                              setEditExtraClassIds([]);
+                              setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)));
+                            }}
                             className="px-2.5 py-1.5 text-amber-800 hover:bg-amber-50 rounded-lg text-xs font-semibold transition flex items-center gap-1"
                           >
                             <Edit3 className="w-3.5 h-3.5" /> Edit
@@ -2125,9 +2325,10 @@ export default function CreateMaterials() {
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)))
-                            }
+                            onClick={() => {
+                              setEditExtraClassIds([]);
+                              setEditingSavedMaterial(JSON.parse(JSON.stringify(mat)));
+                            }}
                             className="px-2.5 py-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1"
                           >
                             <Edit3 className="w-3.5 h-3.5" /> Edit
@@ -2300,7 +2501,7 @@ export default function CreateMaterials() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Target Kelas
+                    Target Kelas Utama
                   </label>
                   <select
                     value={editingSavedMaterial.class_id || ''}
@@ -2317,6 +2518,49 @@ export default function CreateMaterials() {
                     ))}
                   </select>
                 </div>
+
+                {classes.filter(c => c.id !== editingSavedMaterial.class_id).length > 0 && (
+                  <div className="md:col-span-2 p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-slate-800">
+                        Salin & Terbitkan Juga ke Kelas Lainnya (Opsional)
+                      </label>
+                      {editExtraClassIds.length > 0 && (
+                        <span className="text-[11px] font-semibold text-blue-700 tabular-nums">
+                          +{editExtraClassIds.length} kelas tambahan
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {classes
+                        .filter(c => c.id !== editingSavedMaterial.class_id)
+                        .map(c => {
+                          const checked = editExtraClassIds.includes(c.id);
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() =>
+                                setEditExtraClassIds(prev =>
+                                  prev.includes(c.id)
+                                    ? prev.filter(id => id !== c.id)
+                                    : [...prev, c.id]
+                                )
+                              }
+                              className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition inline-flex items-center gap-1.5 ${
+                                checked
+                                  ? 'bg-blue-600 border-blue-600 text-white'
+                                  : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'
+                              }`}
+                            >
+                              {checked && <Check className="w-3 h-3" />}
+                              Kelas {c.name}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Media URLs */}
