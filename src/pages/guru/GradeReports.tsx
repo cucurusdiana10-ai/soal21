@@ -237,26 +237,32 @@ export default function GradeReports() {
       }
     }
 
-    // 1. Raw PG score (0-100)
-    let pgCorrectCount = 0;
+    // 1. Raw PG score (0-100), weighted by per-question points
+    let pgEarnedPoints = 0;
+    let pgTotalPoints = 0;
     questions.forEach((q, idx) => {
       if (q.type === 'pg') {
+        const pts = Number(q?.points) > 0 ? Number(q.points) : 1;
+        pgTotalPoints += pts;
         const studentAns = currentAnswers[idx] ?? currentAnswers[String(idx)] ?? '';
         const isCorrect = String(studentAns).trim().toLowerCase() === String(q.answer).trim().toLowerCase();
-        if (isCorrect) pgCorrectCount++;
+        if (isCorrect) pgEarnedPoints += pts;
       }
     });
-    const pgRaw = pgQuestions.length > 0 ? (pgCorrectCount / pgQuestions.length) * 100 : 0;
+    const pgRaw = pgTotalPoints > 0 ? (pgEarnedPoints / pgTotalPoints) * 100 : 0;
 
-    // 2. Raw Essay score (0-100)
-    let essayScoreSum = 0;
+    // 2. Raw Essay score (0-100), weighted by per-question points
+    let essayWeightedSum = 0;
+    let essayTotalPoints = 0;
     questions.forEach((q, idx) => {
       if (q.type === 'essay') {
+        const pts = Number(q?.points) > 0 ? Number(q.points) : 1;
+        essayTotalPoints += pts;
         const rawScore = Number(currentEssayScores[idx] ?? currentEssayScores[String(idx)] ?? 0);
-        essayScoreSum += Math.max(0, Math.min(100, rawScore));
+        essayWeightedSum += Math.max(0, Math.min(100, rawScore)) * pts;
       }
     });
-    const essayRaw = essayQuestions.length > 0 ? essayScoreSum / essayQuestions.length : 0;
+    const essayRaw = essayTotalPoints > 0 ? essayWeightedSum / essayTotalPoints : 0;
 
     // 3. Final weighted calculation
     let calculatedFinal = 0;
@@ -395,7 +401,9 @@ export default function GradeReports() {
       const { pgScore, essayPoints, totalScore } = calculateCombinedScore(
         editingAnswers,
         nextEssayScores,
-        questions
+        questions,
+        selectedTask.weight_pg,
+        selectedTask.weight_essay
       );
 
       setCalculatedPgScore(pgScore);

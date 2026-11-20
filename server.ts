@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getCuratedCpDataset } from './src/lib/cpDatabase';
 import { resolveRelevantYoutubeVideo } from './src/lib/youtubeLibrary';
 import {
@@ -28,10 +28,11 @@ async function searchLiveYoutubeVideos(subject: string, topic: string): Promise<
     `${cleanTopic} pembelajaran`.trim()
   ].filter(Boolean);
 
-  for (const q of queries) {
+  for (let qi = 0; qi < queries.length; qi++) {
+    const q = queries[qi];
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
+      const timer = setTimeout(() => controller.abort(), qi === 0 ? 2800 : 2000);
       const resp = await fetch(
         `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
         {
@@ -65,7 +66,6 @@ async function searchLiveYoutubeVideos(subject: string, topic: string): Promise<
           const channelText =
             vr.ownerText?.runs?.map((r: any) => r.text).join('') || 'YouTube Edukasi';
           const durationText = vr.lengthText?.simpleText || '';
-          // Skip live streams or empty titles
           if (!titleText) continue;
           seen.add(vr.videoId);
           found.push({
@@ -152,56 +152,79 @@ function cleanAiErrorMessage(err: any): string {
   return msg || 'Gagal memproses permintaan ke AI Gemini.';
 }
 
-// Resilient Gemini Generation with Active Model Fallback
-async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
-  // Models in priority order adhering to @google/genai active model guidelines
-  const models = [
-    'gemini-4-hydrogen',
-    'gemini-3.1-flash-lite',
-    'gemini-flash-latest',
-    'gemini-flash-lite-latest',
-    'gemini-3-flash-preview',
-    'gemini-3.8-flash'
-  ];
+// Helper to race a promise against a timeout so slow model calls fail over promptly
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Timeout (${Math.round(timeoutMs / 1000)}d) pada ${label}`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// Resilient Gemini Generation with Active Model Fallback & Fast Thinking Level
+async function generateContentWithFallback(
+  ai: GoogleGenAI,
+  prompt: string,
+  preferredThinking: ThinkingLevel = ThinkingLevel.LOW
+) {
+  const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
+  const attemptTimeoutMs = preferredThinking === ThinkingLevel.MEDIUM ? 45000 : 28000;
   let lastError: any = null;
 
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
+      const startedAt = Date.now();
       try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
+        console.log(`[Gemini] Calling ${model} (attempt ${attempt + 1}, thinking=${preferredThinking})...`);
+        const config: Record<string, any> = {
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingLevel: model === 'gemini-4-hydrogen' ? preferredThinking : ThinkingLevel.LOW
           }
-        });
+        };
+
+        const response = await withTimeout(
+          ai.models.generateContent({
+            model,
+            contents: prompt,
+            config
+          }),
+          attemptTimeoutMs,
+          `${model} attempt ${attempt + 1}`
+        );
 
         const text = response.text;
+        console.log(`[Gemini] ${model} responded in ${Date.now() - startedAt}ms (${text?.length || 0} chars)`);
         if (text) {
           return parseJsonSafely(text);
         }
+        throw new Error('Model mengembalikan respons kosong.');
       } catch (err: any) {
-        console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err?.message);
+        console.warn(`[Gemini] Model ${model} attempt ${attempt + 1} gagal (${Date.now() - startedAt}ms):`, err?.message);
         lastError = err;
-        const isUnavailable = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE') || err?.message?.includes('high demand');
-        const isNotFound = err?.status === 404 || err?.message?.includes('404') || err?.message?.includes('not found') || err?.message?.includes('no longer available');
-        const isQuotaOrRateLimit = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase()?.includes('quota') || err?.message?.toLowerCase()?.includes('resource_exhausted');
+        const msgLower = String(err?.message || '').toLowerCase();
+        const isUnavailable = err?.status === 503 || msgLower.includes('503') || msgLower.includes('unavailable') || msgLower.includes('high demand');
+        const isNotFound = err?.status === 404 || msgLower.includes('404') || msgLower.includes('not found') || msgLower.includes('no longer available');
+        const isQuotaOrRateLimit = err?.status === 429 || msgLower.includes('429') || msgLower.includes('quota') || msgLower.includes('resource_exhausted');
+        const isTimeout = msgLower.includes('timeout');
 
-        if (isNotFound || isQuotaOrRateLimit) {
-          // Model does not exist or quota exhausted, immediately switch to next model
+        if (isNotFound || isQuotaOrRateLimit || isTimeout) {
           break;
         }
 
-        if (isUnavailable) {
-          // Model 503 (high demand) - failover to next model immediately to avoid blocking user
-          if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-            continue;
-          }
-          break;
-        } else {
-          break;
+        if (isUnavailable && attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          continue;
         }
+        break;
       }
     }
   }
@@ -320,9 +343,12 @@ async function startServer() {
         });
 
         const [parsedData, liveVideos] = await Promise.all([
-          generateContentWithFallback(ai, v2Prompt),
+          generateContentWithFallback(ai, v2Prompt, ThinkingLevel.LOW),
           shouldResolveVideo && !isValidCustomVideoUrl(customVideoUrl)
-            ? searchLiveYoutubeVideos(subject, topic)
+            ? Promise.race([
+                searchLiveYoutubeVideos(subject, topic),
+                new Promise<LiveYoutubeItem[]>(resolve => setTimeout(() => resolve([]), 3500))
+              ])
             : Promise.resolve([])
         ]);
 
@@ -540,8 +566,11 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
 }`;
 
       const [parsedData, liveVideos] = await Promise.all([
-        generateContentWithFallback(ai, prompt),
-        searchLiveYoutubeVideos(subject, topic)
+        generateContentWithFallback(ai, prompt, ThinkingLevel.LOW),
+        Promise.race([
+          searchLiveYoutubeVideos(subject, topic),
+          new Promise<LiveYoutubeItem[]>(resolve => setTimeout(() => resolve([]), 3500))
+        ])
       ]);
       if (parsedData && typeof parsedData === 'object') {
         if (liveVideos.length > 0) {
@@ -569,7 +598,7 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
   app.all('/api/material', handleMaterialGen);
 
   // Live YouTube Educational Search Endpoint matching subject & material topic
-  app.get('/api/search-youtube', async (req: express.Request, res: express.Response) => {
+  app.all('/api/search-youtube', async (req: express.Request, res: express.Response) => {
     try {
       const subject = String(req.query.subject || '');
       const topic = String(req.query.topic || req.query.q || '');
@@ -682,8 +711,17 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
         return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing.' });
       }
 
-      const { topic, type, count, optionCount } = req.body || {};
-      if (!topic || !type || !count) {
+      const { topic, type, count, optionCount, difficultyBreakdown } = req.body || {};
+      const mudahCount = Math.max(0, Number(difficultyBreakdown?.mudah?.count) || 0);
+      const sedangCount = Math.max(0, Number(difficultyBreakdown?.sedang?.count) || 0);
+      const sukarCount = Math.max(0, Number(difficultyBreakdown?.sukar?.count) || 0);
+      const mudahPts = Math.max(1, Number(difficultyBreakdown?.mudah?.points) || 10);
+      const sedangPts = Math.max(1, Number(difficultyBreakdown?.sedang?.points) || 20);
+      const sukarPts = Math.max(1, Number(difficultyBreakdown?.sukar?.points) || 30);
+      const breakdownTotal = mudahCount + sedangCount + sukarCount;
+      const effectiveCount = breakdownTotal > 0 ? breakdownTotal : Number(count);
+
+      if (!topic || !type || !effectiveCount) {
         return res.status(400).json({ error: 'Missing required fields: topic, type, count' });
       }
 
@@ -700,15 +738,27 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
           }
         }
       });
-      
+
+      const difficultyRules =
+        breakdownTotal > 0
+          ? `DISTRIBUSI TINGKAT KESUKARAN & POIN SOAL (WAJIB DIPATUHI TEPAT):
+- Soal Tingkat "mudah" (Level Kognitif C1-C2 Mengingat/Memahami): TEPAT ${mudahCount} butir soal, masing-masing bernilai "points": ${mudahPts}
+- Soal Tingkat "sedang" (Level Kognitif C3-C4 Mengaplikasi/Menganalisis): TEPAT ${sedangCount} butir soal, masing-masing bernilai "points": ${sedangPts}
+- Soal Tingkat "sukar" (Level Kognitif C5-C6 Mengevaluasi/HOTS): TEPAT ${sukarCount} butir soal, masing-masing bernilai "points": ${sukarPts}
+Susun berurutan dari Mudah -> Sedang -> Sukar dan pastikan jumlah totalnya TEPAT ${effectiveCount} butir soal.\n`
+          : `Sertakan atribut "difficulty" ("mudah" | "sedang" | "sukar") dan "points" (angka poin proporsional, misal 10/20/30) pada setiap butir soal.\n`;
+
       let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
-      prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
+      prompt += `Jumlah butir soal yang dibuat: Tepat ${effectiveCount} butir soal.\n`;
       prompt += `Jenis soal: ${type === 'pg' ? `Semua Pilihan Ganda (PG) dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText})` : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : `Kombinasi Campuran (Pilihan Ganda dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText}) & Esai)`}.\n`;
+      prompt += difficultyRules;
       prompt += `PENTING: Untuk setiap soal bertipe "pg", array "options" WAJIB berisi TEPAT ${numOptions} pilihan jawaban (${optionLabelsText}) tanpa awalan huruf di dalam teksnya.\n`;
       prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
       prompt += `[\n`;
       prompt += `  {\n`;
       prompt += `    "type": "pg",\n`;
+      prompt += `    "difficulty": "mudah",\n`;
+      prompt += `    "points": ${mudahPts},\n`;
       prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
       prompt += `    "options": ${sampleOptionsJson},\n`;
       prompt += `    "answer": "A",\n`;
@@ -716,12 +766,14 @@ Kembalikan respons DALAM FORMAT JSON MURNI yang valid dengan struktur persis ber
       prompt += `  },\n`;
       prompt += `  {\n`;
       prompt += `    "type": "essay",\n`;
+      prompt += `    "difficulty": "sukar",\n`;
+      prompt += `    "points": ${sukarPts},\n`;
       prompt += `    "question": "Kalimat pertanyaan esai pemahaman konsep?",\n`;
       prompt += `    "answerKey": "Kunci jawaban dan poin kriteria penilaian guru."\n`;
       prompt += `  }\n`;
       prompt += `]`;
 
-      const parsedData = await generateContentWithFallback(ai, prompt);
+      const parsedData = await generateContentWithFallback(ai, prompt, ThinkingLevel.LOW);
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating questions:', error);
@@ -812,7 +864,8 @@ Berikan penilaian dalam format JSON dengan struktur:
         tahunPelajaran,
         semester,
         namaKepsek,
-        nipKepsek
+        nipKepsek,
+        customTujuanPembelajaran
       } = req.body;
 
       if (!subject || !cp) {
@@ -871,11 +924,13 @@ DATA MASUKAN:
 - Mata Pelajaran: ${subject}
 - Fase / Kelas: ${targetGrade}
 - Capaian Pembelajaran (CP): "${cp}"
+${customTujuanPembelajaran ? `- TUJUAN PEMBELAJARAN (TP) DITENTUKAN GURU (WAJIB DIGUNAKAN): "${customTujuanPembelajaran}"` : ''}
 - Jumlah Pertemuan: Tepat ${totalMeetings} Pertemuan
 - Alokasi Waktu: ${timeAllocation}
 - Metode Pembelajaran Tiap Pertemuan (Bisa Berbeda Tiap Pertemuan):
 ${meetingMethods.map((m, idx) => `  * Pertemuan ${idx + 1}: ${m}`).join('\n')}
 ${tanggalCetak ? `- Tanggal Cetak Modul / Titimangsa: ${tanggalCetak}` : ''}
+${customTujuanPembelajaran ? `\nATURAN TUJUAN PEMBELAJARAN GURU: Gunakan Tujuan Pembelajaran yang ditentukan guru di atas sebagai isi array "tujuanPembelajaran" dan turunkan KKTP serta kegiatan pembelajaran langsung dari TP tersebut.` : ''}
 
 ATURAN KHUSUS ALOKASI WAKTU:
 ${is5JP ? `CATATAN KHUSUS ALOKASI 5 JP (5 x 45 Menit):
@@ -1186,7 +1241,7 @@ Gunakan struktur JSON berikut:
 
 PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur runtut dari Pertemuan 1 sampai Pertemuan ${totalMeetings}.`;
 
-      const parsedData = await generateContentWithFallback(ai, prompt);
+      const parsedData = await generateContentWithFallback(ai, prompt, ThinkingLevel.MEDIUM);
       res.json(parsedData);
     } catch (error: any) {
       console.error('Error generating modul ajar:', error);
@@ -1218,7 +1273,14 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
         return res.json(fallback);
       }
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build'
+          }
+        }
+      });
 
       const prompt = `Anda adalah pakar kurikulum nasional Kementerian Pendidikan Dasar dan Menengah RI yang menguasai naskah regulasi resmi terbaru:
 "Keputusan Kepala Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP) Kementerian Pendidikan Dasar dan Menengah Nomor 046/H/KR/2025 tentang Capaian Pembelajaran pada Pendidikan Anak Usia Dini, Jenjang Pendidikan Dasar, dan Jenjang Pendidikan Menengah pada Kurikulum Merdeka".

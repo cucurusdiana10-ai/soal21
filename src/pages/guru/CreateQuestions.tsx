@@ -9,7 +9,7 @@ import {
   KeyRound, ShieldCheck, Download, Upload, Users, ListOrdered, Activity,
   Share2, ChevronDown, ChevronUp, RefreshCw, Percent
 } from 'lucide-react';
-import { generateQuestionsApi, formatAiErrorMessage } from '../../lib/aiService';
+import { generateQuestionsApi, formatAiErrorMessage, DifficultyBreakdown } from '../../lib/aiService';
 import { generateTaskToken, getTokenTimeRemaining } from '../../lib/examToken';
 import {
   downloadWordQuestionTemplate,
@@ -51,6 +51,12 @@ export default function CreateQuestions() {
     max_duration: 60, // Durasi maksimal pengerjaan / waktu mundur (menit)
     weight_pg: 70, // Bobot nilai Pilihan Ganda (%)
     weight_essay: 30 // Bobot nilai Esai (%)
+  });
+
+  const [difficultyConfig, setDifficultyConfig] = useState<DifficultyBreakdown>({
+    mudah: { count: 2, points: 10 },
+    sedang: { count: 2, points: 20 },
+    sukar: { count: 1, points: 30 }
   });
 
   // Multi-select classes state (pilihan beberapa kelas)
@@ -245,10 +251,89 @@ export default function CreateQuestions() {
     return base.slice(0, count);
   };
 
+  const normalizeDifficultyValue = (
+    raw: any,
+    fallback: 'mudah' | 'sedang' | 'sukar' = 'sedang'
+  ): 'mudah' | 'sedang' | 'sukar' => {
+    const val = String(raw || '').trim().toLowerCase();
+    if (val === 'mudah' || val === 'easy') return 'mudah';
+    if (val === 'sedang' || val === 'medium') return 'sedang';
+    if (val === 'sukar' || val === 'sulit' || val === 'hard') return 'sukar';
+    return fallback;
+  };
+
+  const getDifficultyBadgeMeta = (raw: any) => {
+    const level = normalizeDifficultyValue(raw, 'sedang');
+    if (level === 'mudah') {
+      return {
+        level,
+        label: 'Mudah',
+        badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200'
+      };
+    }
+    if (level === 'sukar') {
+      return {
+        level,
+        label: 'Sukar (HOTS)',
+        badgeClass: 'bg-rose-100 text-rose-800 border-rose-200'
+      };
+    }
+    return {
+      level,
+      label: 'Sedang',
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-200'
+    };
+  };
+
+  const distributeCountToBreakdown = (
+    total: number,
+    prev: DifficultyBreakdown
+  ): DifficultyBreakdown => {
+    const safeTotal = Math.max(1, Math.min(50, Math.round(total)));
+    const mudahCount = Math.round(safeTotal * 0.4);
+    const sedangCount = Math.round(safeTotal * 0.4);
+    const sukarCount = Math.max(0, safeTotal - mudahCount - sedangCount);
+    return {
+      mudah: { ...prev.mudah, count: mudahCount },
+      sedang: { ...prev.sedang, count: sedangCount },
+      sukar: { ...prev.sukar, count: sukarCount }
+    };
+  };
+
+  const updateDifficultyTier = (
+    tier: 'mudah' | 'sedang' | 'sukar',
+    field: 'count' | 'points',
+    rawVal: number
+  ) => {
+    if (field === 'count') {
+      const nextVal = Math.max(0, Math.min(50, Math.round(rawVal || 0)));
+      const next: DifficultyBreakdown = {
+        ...difficultyConfig,
+        [tier]: { ...difficultyConfig[tier], count: nextVal }
+      };
+      const totalTierCount = next.mudah.count + next.sedang.count + next.sukar.count;
+      setDifficultyConfig(next);
+      setForm(prev => ({ ...prev, count: Math.max(0, totalTierCount) }));
+    } else {
+      const nextPts = Math.max(1, Math.min(1000, Math.round(rawVal || 1)));
+      setDifficultyConfig(prev => ({
+        ...prev,
+        [tier]: { ...prev[tier], points: nextPts }
+      }));
+    }
+  };
+
   const handleGenerateQuestions = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedClassIds.length === 0 || !form.subject_name || !form.title) {
       alert('Mohon pilih minimal 1 Target Kelas, Mata Pelajaran, dan Judul/Topik Soal!');
+      return;
+    }
+
+    const totalTierCount =
+      difficultyConfig.mudah.count + difficultyConfig.sedang.count + difficultyConfig.sukar.count;
+    if (totalTierCount < 1) {
+      alert('Minimal total jumlah soal dari kombinasi Mudah, Sedang, dan Sukar adalah 1 butir soal.');
       return;
     }
 
@@ -260,16 +345,23 @@ export default function CreateQuestions() {
       const data = await generateQuestionsApi({
         topic: `${form.subject_name} - ${form.title}`,
         type: form.type,
-        count: form.count,
-        optionCount: form.optionCount
+        count: totalTierCount,
+        optionCount: form.optionCount,
+        difficultyBreakdown: difficultyConfig
       });
 
       if (!Array.isArray(data) || data.length === 0) {
         throw new Error('AI tidak mengembalikan butir soal yang valid.');
       }
 
-      // Normalise questions structure & enforce selected optionCount for PG
-      const formatted = data.map((q: any) => {
+      const expectedSlots: Array<'mudah' | 'sedang' | 'sukar'> = [
+        ...Array(difficultyConfig.mudah.count).fill('mudah'),
+        ...Array(difficultyConfig.sedang.count).fill('sedang'),
+        ...Array(difficultyConfig.sukar.count).fill('sukar')
+      ];
+
+      // Normalise questions structure & enforce selected optionCount, difficulty, and points
+      const formatted = data.map((q: any, idx: number) => {
         const qType = q.type || (form.type === 'essay' ? 'essay' : 'pg');
         const normalizedOpts =
           qType === 'pg'
@@ -278,9 +370,14 @@ export default function CreateQuestions() {
         const maxLetter = String.fromCharCode(65 + normalizedOpts.length - 1);
         const rawAns = String(q.answer || 'A').trim().toUpperCase().charAt(0);
         const safeAns = qType === 'pg' && rawAns >= 'A' && rawAns <= maxLetter ? rawAns : 'A';
+        const diff = normalizeDifficultyValue(q.difficulty, expectedSlots[idx] || 'sedang');
+        const rawPoints = Number(q.points);
+        const pts = Number.isFinite(rawPoints) && rawPoints > 0 ? rawPoints : difficultyConfig[diff].points;
 
         return {
           type: qType,
+          difficulty: diff,
+          points: pts,
           question: q.question || 'Pertanyaan...',
           options: normalizedOpts,
           answer: qType === 'pg' ? safeAns : (q.answer || ''),
@@ -521,6 +618,8 @@ export default function CreateQuestions() {
     const isEssayDefault = form.type === 'essay';
     const newQ = {
       type: isEssayDefault ? 'essay' : 'pg',
+      difficulty: 'sedang' as const,
+      points: difficultyConfig.sedang.points || 20,
       question: 'Tulis pertanyaan baru di sini...',
       options: isEssayDefault ? [] : buildDefaultOptions(form.optionCount),
       answer: isEssayDefault ? '' : 'A',
@@ -584,13 +683,19 @@ export default function CreateQuestions() {
   };
 
   const handleProcessWordImport = () => {
-    const parsed = parseQuestionsFromText(importRawText, form.optionCount);
-    if (parsed.length === 0) {
+    const parsedRaw = parseQuestionsFromText(importRawText, form.optionCount);
+    if (parsedRaw.length === 0) {
       alert(
         'Tidak ditemukan butir soal yang terdeteksi.\n\nPastikan setiap soal diawali nomor (1., 2., dst.), pilihan jawaban diawali huruf (A., B., C., dst.), dan terdapat baris "Kunci: A".'
       );
       return;
     }
+
+    const parsed = parsedRaw.map(q => {
+      const diff = normalizeDifficultyValue(q.difficulty, 'sedang');
+      const pts = Number(q.points) > 0 ? Number(q.points) : difficultyConfig[diff].points;
+      return { ...q, difficulty: diff, points: pts };
+    });
 
     const initialClassIds = selectedClassIds.length > 0
       ? [...selectedClassIds]
@@ -1171,17 +1276,24 @@ export default function CreateQuestions() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Jumlah Butir Soal (AI)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Jumlah Total Butir Soal (AI)</label>
               <input
                 type="number"
                 min={1}
                 max={50}
                 required
                 value={form.count}
-                onChange={e => setForm({ ...form, count: Math.max(1, Number(e.target.value)) })}
+                onChange={e => {
+                  const nextTotal = Math.max(1, Math.min(50, Number(e.target.value) || 1));
+                  setForm({ ...form, count: nextTotal });
+                  setDifficultyConfig(prev => distributeCountToBreakdown(nextTotal, prev));
+                }}
                 placeholder="Jumlah soal, contoh: 10"
                 className="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl font-bold text-gray-900 focus:ring-2 focus:ring-blue-500"
               />
+              <p className="text-[11px] text-gray-500 mt-1">
+                Otomatis sinkron dengan rincian jumlah Mudah, Sedang, dan Sukar di bawah.
+              </p>
             </div>
 
             <div>
@@ -1264,6 +1376,122 @@ export default function CreateQuestions() {
               <p className="text-[11px] text-gray-500 mt-1">
                 Siswa tidak dapat mengumpulkan ujian sebelum minimal durasi ini tercapai.
               </p>
+            </div>
+
+            {/* Komposisi Tingkat Kesukaran & Poin per Soal */}
+            <div className="md:col-span-2 lg:col-span-3 p-4 bg-slate-50/90 rounded-2xl border border-slate-200 space-y-3">
+              {(() => {
+                const totalTierCount =
+                  difficultyConfig.mudah.count +
+                  difficultyConfig.sedang.count +
+                  difficultyConfig.sukar.count;
+                const totalMaxPoints =
+                  difficultyConfig.mudah.count * difficultyConfig.mudah.points +
+                  difficultyConfig.sedang.count * difficultyConfig.sedang.points +
+                  difficultyConfig.sukar.count * difficultyConfig.sukar.points;
+                return (
+                  <>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <span className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                          <Layers className="w-4 h-4 text-blue-600" />
+                          Komposisi Tingkat Kesukaran &amp; Poin Soal
+                        </span>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          Atur jumlah butir soal dan poin masing-masing untuk kategori Mudah, Sedang, dan Sukar.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border tabular-nums ${
+                          totalTierCount > 0
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
+                        }`}>
+                          Total: {totalTierCount} Soal
+                        </span>
+                        <span className="text-xs font-bold px-2.5 py-1 rounded-lg border bg-emerald-50 text-emerald-800 border-emerald-200 tabular-nums">
+                          Total Poin Maksimal: {totalMaxPoints} Poin
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {(
+                        [
+                          {
+                            key: 'mudah',
+                            title: 'Mudah (C1–C2)',
+                            subtitle: 'Pemahaman dasar',
+                            boxClass: 'bg-emerald-50/70 border-emerald-200',
+                            titleClass: 'text-emerald-900',
+                            badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          },
+                          {
+                            key: 'sedang',
+                            title: 'Sedang (C3–C4)',
+                            subtitle: 'Aplikasi & analisis',
+                            boxClass: 'bg-amber-50/70 border-amber-200',
+                            titleClass: 'text-amber-900',
+                            badgeClass: 'bg-amber-100 text-amber-800 border-amber-300'
+                          },
+                          {
+                            key: 'sukar',
+                            title: 'Sukar (C5–C6 HOTS)',
+                            subtitle: 'Evaluasi & kreasi',
+                            boxClass: 'bg-rose-50/70 border-rose-200',
+                            titleClass: 'text-rose-900',
+                            badgeClass: 'bg-rose-100 text-rose-800 border-rose-300'
+                          }
+                        ] as const
+                      ).map(tier => {
+                        const cfg = difficultyConfig[tier.key];
+                        return (
+                          <div key={tier.key} className={`p-3.5 rounded-xl border space-y-2.5 ${tier.boxClass}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <p className={`text-xs font-bold ${tier.titleClass}`}>{tier.title}</p>
+                                <p className="text-[11px] text-gray-600">{tier.subtitle}</p>
+                              </div>
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded border tabular-nums ${tier.badgeClass}`}>
+                                {cfg.count * cfg.points} Poin
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                                  Jumlah Soal
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={50}
+                                  value={cfg.count}
+                                  onChange={e => updateDifficultyTier(tier.key, 'count', Number(e.target.value))}
+                                  className="w-full p-2 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 text-center tabular-nums focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                                  Poin / Soal
+                                </label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={1000}
+                                  value={cfg.points}
+                                  onChange={e => updateDifficultyTier(tier.key, 'points', Number(e.target.value))}
+                                  className="w-full p-2 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 text-center tabular-nums focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="md:col-span-2 lg:col-span-3">
@@ -1400,14 +1628,14 @@ export default function CreateQuestions() {
           {/* Action Header Banner */}
           <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 p-5 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="px-2.5 py-0.5 bg-amber-400 text-amber-950 text-xs font-extrabold rounded-full uppercase tracking-wider">
                   Draf Belum Terbit
                 </span>
                 <h2 className="text-xl font-bold">Hasil Soal ({generatedQuestions.length} Butir Soal)</h2>
               </div>
               <p className="text-xs text-blue-100 mt-1">
-                ℹ️ Soal ini masih berupa draf. Silakan review, edit isi pertanyaan/jawaban di bawah, lalu klik <strong>"Terbitkan ke Siswa Sekarang"</strong>.
+                ℹ️ Mudah: {generatedQuestions.filter(q => normalizeDifficultyValue(q.difficulty) === 'mudah').length} · Sedang: {generatedQuestions.filter(q => normalizeDifficultyValue(q.difficulty) === 'sedang').length} · Sukar: {generatedQuestions.filter(q => normalizeDifficultyValue(q.difficulty) === 'sukar').length} · Total Poin Maksimal: <strong>{generatedQuestions.reduce((acc, q) => acc + (Number(q.points) > 0 ? Number(q.points) : 10), 0)} Poin</strong>. Review draf di bawah lalu klik <strong>"Terbitkan ke Siswa Sekarang"</strong>.
               </p>
             </div>
 
@@ -1653,13 +1881,27 @@ export default function CreateQuestions() {
                       : 'bg-gray-50/80 border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                         q.type === 'pg' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
                       }`}>
                         {q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'}
                       </span>
+                      {(() => {
+                        const dMeta = getDifficultyBadgeMeta(q.difficulty);
+                        const pts = Number(q.points) > 0 ? Number(q.points) : 10;
+                        return (
+                          <>
+                            <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${dMeta.badgeClass}`}>
+                              {dMeta.label}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200/80 text-slate-800 tabular-nums">
+                              {pts} Poin
+                            </span>
+                          </>
+                        );
+                      })()}
                       <span className="font-bold text-gray-900 text-sm">Butir Soal #{idx + 1}</span>
                     </div>
 
@@ -1711,7 +1953,7 @@ export default function CreateQuestions() {
                   {isEditingThis ? (
                     /* Inline Editing Mode */
                     <div className="space-y-4 pt-2">
-                      <div className="grid sm:grid-cols-4 gap-3">
+                      <div className="grid sm:grid-cols-6 gap-3">
                         <div className="sm:col-span-3">
                           <label className="block text-xs font-bold text-gray-700 mb-1">Teks Pertanyaan</label>
                           <textarea
@@ -1743,6 +1985,39 @@ export default function CreateQuestions() {
                             <option value="pg">Pilihan Ganda (PG)</option>
                             <option value="essay">Esai</option>
                           </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Kesukaran</label>
+                          <select
+                            value={normalizeDifficultyValue(q.difficulty, 'sedang')}
+                            onChange={e => {
+                              const nextDiff = normalizeDifficultyValue(e.target.value, 'sedang');
+                              const updated = [...generatedQuestions];
+                              updated[idx].difficulty = nextDiff;
+                              updated[idx].points = difficultyConfig[nextDiff].points;
+                              setGeneratedQuestions(updated);
+                            }}
+                            className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold"
+                          >
+                            <option value="mudah">Mudah</option>
+                            <option value="sedang">Sedang</option>
+                            <option value="sukar">Sukar (HOTS)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Poin Soal</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={Number(q.points) > 0 ? Number(q.points) : 10}
+                            onChange={e => {
+                              const updated = [...generatedQuestions];
+                              updated[idx].points = Math.max(1, Number(e.target.value) || 1);
+                              setGeneratedQuestions(updated);
+                            }}
+                            className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-center tabular-nums"
+                          />
                         </div>
                       </div>
 
@@ -2311,6 +2586,14 @@ export default function CreateQuestions() {
 
               {Array.isArray(selectedTask.content) && selectedTask.content.map((q: any, idx: number) => (
                 <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${getDifficultyBadgeMeta(q.difficulty).badgeClass}`}>
+                      {getDifficultyBadgeMeta(q.difficulty).label}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200/80 text-slate-800 tabular-nums">
+                      {Number(q.points) > 0 ? Number(q.points) : 10} Poin
+                    </span>
+                  </div>
                   <p className="font-bold text-gray-900 mb-2">{idx + 1}. {q.question}</p>
                   {q.type === 'pg' && q.options && (
                     <div className="space-y-1 pl-4">
@@ -2553,6 +2836,8 @@ export default function CreateQuestions() {
                     onClick={() => {
                       const newQ = {
                         type: 'pg',
+                        difficulty: 'sedang',
+                        points: difficultyConfig.sedang.points || 20,
                         question: 'Tulis pertanyaan baru...',
                         options: buildDefaultOptions(form.optionCount),
                         answer: 'A'
@@ -2570,8 +2855,38 @@ export default function CreateQuestions() {
 
                 {Array.isArray(editingExistingTask.content) && editingExistingTask.content.map((q: any, qIdx: number) => (
                   <div key={qIdx} className="bg-amber-50/40 p-4 rounded-xl border border-amber-200/70 space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-xs text-gray-700">Soal #{qIdx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})</span>
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-xs text-gray-700">Soal #{qIdx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})</span>
+                        <select
+                          value={normalizeDifficultyValue(q.difficulty, 'sedang')}
+                          onChange={e => {
+                            const updated = [...editingExistingTask.content];
+                            updated[qIdx].difficulty = normalizeDifficultyValue(e.target.value, 'sedang');
+                            setEditingExistingTask({ ...editingExistingTask, content: updated });
+                          }}
+                          className="px-2 py-0.5 bg-white border border-amber-300 rounded-md text-[11px] font-bold text-gray-800"
+                        >
+                          <option value="mudah">Mudah</option>
+                          <option value="sedang">Sedang</option>
+                          <option value="sukar">Sukar (HOTS)</option>
+                        </select>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={Number(q.points) > 0 ? Number(q.points) : 10}
+                            onChange={e => {
+                              const updated = [...editingExistingTask.content];
+                              updated[qIdx].points = Math.max(1, Number(e.target.value) || 1);
+                              setEditingExistingTask({ ...editingExistingTask, content: updated });
+                            }}
+                            className="w-14 px-1.5 py-0.5 bg-white border border-amber-300 rounded-md text-[11px] font-bold text-center tabular-nums"
+                          />
+                          <span className="text-[11px] font-semibold text-gray-600">Poin</span>
+                        </div>
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -2986,6 +3301,8 @@ export default function CreateQuestions() {
                         onClick={() => {
                           const newQ = {
                             type: republishTask.type === 'essay' ? 'essay' : 'pg',
+                            difficulty: 'sedang',
+                            points: difficultyConfig.sedang.points || 20,
                             question: 'Tulis pertanyaan baru...',
                             options: republishTask.type === 'essay' ? [] : buildDefaultOptions(form.optionCount),
                             answer: 'A'
@@ -3000,8 +3317,38 @@ export default function CreateQuestions() {
 
                     {republishQuestions.map((q: any, qIdx: number) => (
                       <div key={qIdx} className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-2 text-xs">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-gray-700">Soal #{qIdx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})</span>
+                        <div className="flex justify-between items-center flex-wrap gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-gray-700">Soal #{qIdx + 1} ({q.type === 'pg' ? 'Pilihan Ganda' : 'Esai'})</span>
+                            <select
+                              value={normalizeDifficultyValue(q.difficulty, 'sedang')}
+                              onChange={e => {
+                                const updated = [...republishQuestions];
+                                updated[qIdx].difficulty = normalizeDifficultyValue(e.target.value, 'sedang');
+                                setRepublishQuestions(updated);
+                              }}
+                              className="px-2 py-0.5 bg-white border border-gray-300 rounded-md text-[11px] font-bold text-gray-800"
+                            >
+                              <option value="mudah">Mudah</option>
+                              <option value="sedang">Sedang</option>
+                              <option value="sukar">Sukar (HOTS)</option>
+                            </select>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min={1}
+                                max={1000}
+                                value={Number(q.points) > 0 ? Number(q.points) : 10}
+                                onChange={e => {
+                                  const updated = [...republishQuestions];
+                                  updated[qIdx].points = Math.max(1, Number(e.target.value) || 1);
+                                  setRepublishQuestions(updated);
+                                }}
+                                className="w-14 px-1.5 py-0.5 bg-white border border-gray-300 rounded-md text-[11px] font-bold text-center tabular-nums"
+                              />
+                              <span className="text-[11px] font-semibold text-gray-600">Poin</span>
+                            </div>
+                          </div>
                           <button
                             type="button"
                             onClick={() => {

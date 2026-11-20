@@ -1,6 +1,104 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getCuratedCpDataset } from '../src/lib/cpDatabase';
 import { resolveRelevantYoutubeVideo } from '../src/lib/youtubeLibrary';
+import {
+  buildAnalyzeModulPrompt,
+  buildMultiFormatMaterialPrompt,
+  buildCreativeAssistantPrompt
+} from '../src/lib/bahanAjarPrompts';
+
+export interface LiveYoutubeItem {
+  id: string;
+  url: string;
+  title: string;
+  channel: string;
+  duration: string;
+  thumbnail: string;
+}
+
+export async function searchLiveYoutubeVideos(subject: string, topic: string): Promise<LiveYoutubeItem[]> {
+  const cleanTopic = (topic || '').replace(/^Modul Ajar:\s*/i, '').trim();
+  const cleanSubject = (subject || '').trim();
+  const queries = [
+    `${cleanTopic} ${cleanSubject} SMA pembelajaran`.trim(),
+    `${cleanTopic} pembelajaran`.trim()
+  ].filter(Boolean);
+
+  for (let qi = 0; qi < queries.length; qi++) {
+    const q = queries[qi];
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), qi === 0 ? 2800 : 2000);
+      const resp = await fetch(
+        `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8'
+          },
+          signal: controller.signal
+        }
+      );
+      clearTimeout(timer);
+      if (!resp.ok) continue;
+      const html = await resp.text();
+      const match = html.match(/var ytInitialData = (\{.+?\});<\/script>/);
+      if (!match) continue;
+
+      const data = JSON.parse(match[1]);
+      const sections =
+        data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer
+          ?.contents || [];
+      const found: LiveYoutubeItem[] = [];
+      const seen = new Set<string>();
+
+      for (const sec of sections) {
+        const items = sec?.itemSectionRenderer?.contents || [];
+        for (const it of items) {
+          const vr = it?.videoRenderer;
+          if (!vr || !vr.videoId || seen.has(vr.videoId)) continue;
+          const titleText =
+            vr.title?.runs?.map((r: any) => r.text).join('') || vr.title?.simpleText || '';
+          const channelText =
+            vr.ownerText?.runs?.map((r: any) => r.text).join('') || 'YouTube Edukasi';
+          const durationText = vr.lengthText?.simpleText || '';
+          if (!titleText) continue;
+          seen.add(vr.videoId);
+          found.push({
+            id: vr.videoId,
+            url: `https://www.youtube.com/watch?v=${vr.videoId}`,
+            title: titleText,
+            channel: channelText,
+            duration: durationText,
+            thumbnail: `https://i.ytimg.com/vi/${vr.videoId}/hqdefault.jpg`
+          });
+          if (found.length >= 6) break;
+        }
+        if (found.length >= 6) break;
+      }
+
+      if (found.length > 0) return found;
+    } catch {
+      // Try next query
+    }
+  }
+  return [];
+}
+
+function isValidCustomVideoUrl(url?: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const clean = url.trim();
+  if (!clean || clean.includes('dQw4w9WgXcQ') || clean.includes('search_query')) return false;
+  const ytMatch = clean.match(
+    /(?:youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([a-zA-Z0-9_-]{11})/
+  );
+  return Boolean(
+    (ytMatch && ytMatch[1]) ||
+      clean.endsWith('.mp4') ||
+      clean.endsWith('.webm') ||
+      clean.startsWith('data:video/')
+  );
+}
 
 export function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -28,51 +126,71 @@ export function parseJsonSafely(text: string) {
   }
 }
 
-export async function generateContentWithFallback(ai: GoogleGenAI, prompt: string) {
-  // Prioritas model super cepat agar tidak timeout di serverless Vercel (10-15s limit pada free plan)
-  const models = [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-3.1-flash-lite',
-    'gemini-3.8-flash',
-    'gemini-flash-latest'
-  ];
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Timeout (${Math.round(timeoutMs / 1000)}d) pada ${label}`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function generateContentWithFallback(
+  ai: GoogleGenAI,
+  prompt: string,
+  preferredThinking: ThinkingLevel = ThinkingLevel.LOW
+) {
+  const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
+  const attemptTimeoutMs = preferredThinking === ThinkingLevel.MEDIUM ? 45000 : 28000;
   let lastError: any = null;
 
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
+        const config: Record<string, any> = {
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingLevel: model === 'gemini-4-hydrogen' ? preferredThinking : ThinkingLevel.LOW
           }
-        });
+        };
+        const response = await withTimeout(
+          ai.models.generateContent({
+            model,
+            contents: prompt,
+            config
+          }),
+          attemptTimeoutMs,
+          `${model} attempt ${attempt + 1}`
+        );
 
         const text = response.text;
         if (text) {
           return parseJsonSafely(text);
         }
       } catch (err: any) {
-        console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err.message);
+        console.warn(`Model ${model} attempt ${attempt + 1} gagal atau sibuk:`, err?.message);
         lastError = err;
-        const isUnavailable = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE') || err?.message?.includes('high demand');
-        const isQuotaOrRateLimit = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase()?.includes('quota') || err?.message?.toLowerCase()?.includes('resource_exhausted');
+        const msgLower = String(err?.message || '').toLowerCase();
+        const isUnavailable = err?.status === 503 || msgLower.includes('503') || msgLower.includes('unavailable') || msgLower.includes('high demand');
+        const isNotFound = err?.status === 404 || msgLower.includes('404') || msgLower.includes('not found');
+        const isQuotaOrRateLimit = err?.status === 429 || msgLower.includes('429') || msgLower.includes('quota') || msgLower.includes('resource_exhausted');
+        const isTimeout = msgLower.includes('timeout');
 
-        if (isUnavailable) {
-          if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 800));
-            continue;
-          }
-          break;
-        } else if (isQuotaOrRateLimit) {
-          // Immediately switch to next model when quota is hit
-          break;
-        } else {
+        if (isNotFound || isQuotaOrRateLimit || isTimeout) {
           break;
         }
+        if (isUnavailable && attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          continue;
+        }
+        break;
       }
     }
   }
@@ -81,7 +199,23 @@ export async function generateContentWithFallback(ai: GoogleGenAI, prompt: strin
 }
 
 export async function handleMaterialGeneration(body: any, apiKey: string) {
-  const { subject, grade, topic, description } = body || {};
+  const {
+    subject,
+    grade,
+    topic,
+    description,
+    selectedMeetingIndex,
+    selectedFormats,
+    tingkatKesulitan,
+    videoDurationMinutes,
+    enableLeaderboard,
+    customFormatPrompt,
+    analysis,
+    jumlahLatihanSoal,
+    jenisLatihanSoal,
+    customVideoUrl,
+    includeVideoSupport
+  } = body || {};
   if (!subject || !grade || !topic) {
     throw new Error('Missing required fields: subject, grade, topic');
   }
@@ -94,8 +228,77 @@ export async function handleMaterialGeneration(body: any, apiKey: string) {
       }
     }
   });
+
+  const shouldResolveVideo =
+    isValidCustomVideoUrl(customVideoUrl) ||
+    includeVideoSupport !== false ||
+    (Array.isArray(selectedFormats) &&
+      (selectedFormats.includes('video_pembelajaran') ||
+        selectedFormats.includes('web_pembelajaran')));
+
+  if (Array.isArray(selectedFormats) && selectedFormats.length > 0) {
+    const v2Prompt = buildMultiFormatMaterialPrompt({
+      subject,
+      grade,
+      topic,
+      description,
+      selectedFormats,
+      tingkatKesulitan: tingkatKesulitan || 'reguler',
+      videoDurationMinutes,
+      enableLeaderboard,
+      customFormatPrompt,
+      analysis,
+      selectedMeetingIndex,
+      jumlahLatihanSoal,
+      jenisLatihanSoal
+    });
+
+    const [parsedData, liveVideos] = await Promise.all([
+      generateContentWithFallback(ai, v2Prompt, ThinkingLevel.LOW),
+      shouldResolveVideo && !isValidCustomVideoUrl(customVideoUrl)
+        ? Promise.race([
+            searchLiveYoutubeVideos(subject, topic),
+            new Promise<LiveYoutubeItem[]>(resolve => setTimeout(() => resolve([]), 3500))
+          ])
+        : Promise.resolve([])
+    ]);
+
+    if (parsedData && typeof parsedData === 'object') {
+      parsedData.version = 2;
+      parsedData.selectedFormats = selectedFormats;
+      if (typeof jumlahLatihanSoal === 'number') {
+        parsedData.jumlahLatihanSoal = jumlahLatihanSoal;
+      }
+      if (jenisLatihanSoal) {
+        parsedData.jenisLatihanSoal = jenisLatihanSoal;
+      }
+
+      if (isValidCustomVideoUrl(customVideoUrl)) {
+        parsedData.videoUrl = customVideoUrl.trim();
+        parsedData.videoTitle = parsedData.videoTitle || `Video Pembelajaran: ${topic}`;
+        parsedData.videoChannel = 'Video Pilihan Guru';
+        if (liveVideos.length > 0) parsedData.suggestedVideos = liveVideos;
+      } else if (liveVideos.length > 0) {
+        parsedData.videoUrl = liveVideos[0].url;
+        parsedData.videoTitle = liveVideos[0].title;
+        parsedData.videoChannel = liveVideos[0].channel;
+        parsedData.suggestedVideos = liveVideos;
+      } else if (
+        selectedFormats.includes('video_pembelajaran') ||
+        selectedFormats.includes('web_pembelajaran') ||
+        includeVideoSupport
+      ) {
+        const resolved = resolveRelevantYoutubeVideo(subject, topic, parsedData.videoUrl);
+        parsedData.videoUrl = resolved.videoUrl;
+        if (!parsedData.videoTitle) parsedData.videoTitle = resolved.videoTitle;
+        if (!parsedData.videoChannel) parsedData.videoChannel = resolved.videoChannel;
+      }
+    }
+    return parsedData;
+  }
+
   const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
-  
+
   const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif, menyenangkan (joyful, mindful, meaningful), dan gamifikasi edukatif untuk siswa SMA di SMAN 21 Garut:
 Mata Pelajaran: ${subject}
 Kelas/Tingkat: ${grade}
@@ -107,125 +310,103 @@ Hasil bahan ajar HARUS sangat menarik dan mengajak siswa AKTIF, memuat elemen ga
 Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
   "imageUrl": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
-  "videoUrl": "URL video YouTube edukasi yang relevan (misalnya dari Kok Bisa, Zenius, Ruangguru, Kemendikbud, atau format pencarian https://www.youtube.com/results?search_query=...)",
+  "videoUrl": "URL video YouTube edukasi yang relevan",
   "mediaType": "both",
-  "mindMap": [
-    "Konsep Inti 1",
-    "Konsep Inti 2",
-    "Konsep Inti 3",
-    "Aplikasi Nyata"
-  ],
-  "petaKonsep": {
-    "topikUtama": "Nama Topik Sentral",
-    "ringkasan": "Intisari keterkaitan konsep dalam 1-2 kalimat pemantik",
-    "cabang": [
-      {
-        "id": "cabang-1",
-        "nama": "1. Konsep Dasar & Pondasi",
-        "deskripsi": "Prinsip utama yang wajib dipahami siswa",
-        "kataKunci": ["Poin A", "Poin B", "Poin C"],
-        "warna": "blue"
-      },
-      {
-        "id": "cabang-2",
-        "nama": "2. Mekanisme & Contoh Nyata",
-        "deskripsi": "Bagaimana konsep ini bekerja di kehidupan nyata",
-        "kataKunci": ["Poin D", "Poin E"],
-        "warna": "emerald"
-      },
-      {
-        "id": "cabang-3",
-        "nama": "3. Analisis Kritis & Solusi Masa Depan",
-        "deskripsi": "Penerapan praktis, inovasi, dan tantangan yang harus dipecahkan siswa",
-        "kataKunci": ["Poin F", "Poin G"],
-        "warna": "purple"
-      }
-    ]
-  },
-  "gamifikasi": {
-    "judulMisi": "Nama Misi Petualangan Siswa (contoh: 'Misi Detektif: Menguak Rahasia ...')",
-    "skenario": "Latar belakang narasi misi yang seru untuk memicu antusiasme siswa SMA",
-    "totalXp": 150,
-    "badgeReward": {
-      "nama": "Gelar Master Penjelajah",
-      "icon": "🏆",
-      "deskripsi": "Diberikan kepada siswa yang berhasil menuntaskan seluruh tantangan eksplorasi aktif"
-    },
-    "tantanganAktif": [
-      {
-        "level": 1,
-        "judul": "Tantangan 1: Observasi Detektif",
-        "instruksi": "Petunjuk aktivitas aktif mandiri/kelompok",
-        "tekaTeki": "Teka-teki atau fenomena awal pemantik rasa ingin tahu",
-        "aksiSiswa": "Aksi aktif yang harus dikerjakan siswa",
-        "xp": 50
-      },
-      {
-        "level": 2,
-        "judul": "Tantangan 2: Uji Eksperimen & Logika",
-        "instruksi": "Petunjuk eksplorasi konsep",
-        "tekaTeki": "Kasus pemecahan masalah atau analogi kritis",
-        "aksiSiswa": "Aksi kolaborasi aktif siswa",
-        "xp": 50
-      },
-      {
-        "level": 3,
-        "judul": "Tantangan 3: Kreasi Solusi Cerdas",
-        "instruksi": "Petunjuk aksi penutup",
-        "tekaTeki": "Tantangan akhir untuk merumuskan ide kreatif",
-        "aksiSiswa": "Presentasi kilat atau perumusan solusi tim",
-        "xp": 50
-      }
-    ],
-    "skenarioDebatKelas": "Pertanyaan dilematis atau mosi debat seru untuk memicu diskusi vokal dan aktif seluruh siswa di kelas"
-  },
-  "funFact": "1 fakta mengejutkan / unik / 'tahukah kamu' yang memicu rasa penasaran siswa SMA tentang topik ini.",
-  "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari atau dunia kerja/teknologi.",
+  "mindMap": ["Konsep Inti 1", "Konsep Inti 2", "Konsep Inti 3", "Aplikasi Nyata"],
+  "funFact": "1 fakta mengejutkan / unik yang memicu rasa penasaran siswa SMA tentang topik ini.",
+  "realWorldApplication": "Studi kasus / penerapan seru topik ini di kehidupan sehari-hari.",
   "materials": [
-    {
-      "title": "1. Pengantar Konsep & Cerita / Analogi Seru",
-      "content": "Jelaskan pembuka materi dengan bahasa akrab siswa SMA, gunakan analogi kehidupan sehari-hari yang mudah diingat."
-    },
-    {
-      "title": "2. Pembahasan Inti & Konsep Kunci",
-      "content": "Penjelasan mendalam, lengkap dengan poin-poin terstruktur, definisi, dan contoh konkret."
-    },
-    {
-      "title": "3. Tips Cepat Paham & Rangkuman",
-      "content": "Cara mudah mengingat / mnemonik / ringkasan intisari materi agar siswa tidak mudah lupa."
-    }
+    { "title": "1. Pengantar Konsep & Analogi", "content": "Pembuka materi yang akrab dan mudah dipahami." },
+    { "title": "2. Pembahasan Inti & Konsep Kunci", "content": "Penjelasan mendalam dengan poin-poin terstruktur." },
+    { "title": "3. Tips Cepat Paham & Rangkuman", "content": "Ringkasan intisari materi." }
   ],
   "interactiveQuestions": [
-    {
-      "question": "Pertanyaan pancingan / kuis pemahaman 1?",
-      "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
-      "answer": "A",
-      "explanation": "Penjelasan ringkas mengapa jawaban ini benar."
-    },
-    {
-      "question": "Pertanyaan pancingan / kuis pemahaman 2?",
-      "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
-      "answer": "B",
-      "explanation": "Penjelasan ringkas mengapa jawaban ini benar."
-    }
+    { "question": "Pertanyaan kuis 1?", "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"], "answer": "A", "explanation": "Penjelasan singkat." }
   ]
 }`;
 
-  const parsed = await generateContentWithFallback(ai, prompt);
+  const [parsed, liveVideos] = await Promise.all([
+    generateContentWithFallback(ai, prompt, ThinkingLevel.LOW),
+    Promise.race([
+      searchLiveYoutubeVideos(subject, topic),
+      new Promise<LiveYoutubeItem[]>(resolve => setTimeout(() => resolve([]), 3500))
+    ])
+  ]);
   if (parsed && typeof parsed === 'object') {
-    const resolved = resolveRelevantYoutubeVideo(subject, topic, parsed.videoUrl);
-    parsed.videoUrl = resolved.videoUrl;
-    if (!parsed.videoTitle) parsed.videoTitle = resolved.videoTitle;
-    if (!parsed.videoChannel) parsed.videoChannel = resolved.videoChannel;
+    if (liveVideos.length > 0) {
+      parsed.videoUrl = liveVideos[0].url;
+      parsed.videoTitle = liveVideos[0].title;
+      parsed.videoChannel = liveVideos[0].channel;
+      parsed.suggestedVideos = liveVideos;
+    } else {
+      const resolved = resolveRelevantYoutubeVideo(subject, topic, parsed.videoUrl);
+      parsed.videoUrl = resolved.videoUrl;
+      if (!parsed.videoTitle) parsed.videoTitle = resolved.videoTitle;
+      if (!parsed.videoChannel) parsed.videoChannel = resolved.videoChannel;
+    }
   }
   return parsed;
 }
 
+export async function handleAnalyzeModulGeneration(body: any, apiKey: string) {
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+  });
+  const prompt = buildAnalyzeModulPrompt(body || {});
+  return await generateContentWithFallback(ai, prompt, ThinkingLevel.LOW);
+}
+
+export async function handleMaterialAssistantGeneration(body: any, apiKey: string) {
+  const {
+    actionId,
+    customInstruction,
+    subject,
+    grade,
+    topic,
+    tingkatKesulitan,
+    currentMaterialSummary,
+    tujuanPembelajaran
+  } = body || {};
+  if (!actionId || !subject || !topic) {
+    throw new Error('Data konteks materi atau aksi asisten AI tidak lengkap.');
+  }
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+  });
+  const prompt = buildCreativeAssistantPrompt({
+    actionId,
+    customInstruction,
+    subject,
+    grade: grade || 'X',
+    topic,
+    tingkatKesulitan: tingkatKesulitan || 'reguler',
+    currentMaterialSummary: currentMaterialSummary || topic,
+    tujuanPembelajaran: Array.isArray(tujuanPembelajaran) ? tujuanPembelajaran : []
+  });
+  return await generateContentWithFallback(ai, prompt, ThinkingLevel.LOW);
+}
+
 export async function handleQuestionsGeneration(body: any, apiKey: string) {
-  const { topic, type, count } = body || {};
-  if (!topic || !type || !count) {
+  const { topic, type, count, optionCount, difficultyBreakdown } = body || {};
+  const mudahCount = Math.max(0, Number(difficultyBreakdown?.mudah?.count) || 0);
+  const sedangCount = Math.max(0, Number(difficultyBreakdown?.sedang?.count) || 0);
+  const sukarCount = Math.max(0, Number(difficultyBreakdown?.sukar?.count) || 0);
+  const mudahPts = Math.max(1, Number(difficultyBreakdown?.mudah?.points) || 10);
+  const sedangPts = Math.max(1, Number(difficultyBreakdown?.sedang?.points) || 20);
+  const sukarPts = Math.max(1, Number(difficultyBreakdown?.sukar?.points) || 30);
+  const breakdownTotal = mudahCount + sedangCount + sukarCount;
+  const effectiveCount = breakdownTotal > 0 ? breakdownTotal : Number(count);
+
+  if (!topic || !type || !effectiveCount) {
     throw new Error('Missing required fields: topic, type, count');
   }
+
+  const numOptions = Math.min(5, Math.max(3, Number(optionCount) || 4));
+  const optionLabels = Array.from({ length: numOptions }, (_, i) => String.fromCharCode(65 + i));
+  const optionLabelsText = optionLabels.join(', ');
+  const sampleOptionsJson = JSON.stringify(optionLabels.map(l => `Teks pilihan ${l}`));
 
   const ai = new GoogleGenAI({
     apiKey,
@@ -235,27 +416,42 @@ export async function handleQuestionsGeneration(body: any, apiKey: string) {
       }
     }
   });
-  
+
+  const difficultyRules =
+    breakdownTotal > 0
+      ? `DISTRIBUSI TINGKAT KESUKARAN & POIN SOAL (WAJIB DIPATUHI TEPAT):
+- Soal Tingkat "mudah" (Level Kognitif C1-C2 Mengingat/Memahami): TEPAT ${mudahCount} butir soal, masing-masing bernilai "points": ${mudahPts}
+- Soal Tingkat "sedang" (Level Kognitif C3-C4 Mengaplikasi/Menganalisis): TEPAT ${sedangCount} butir soal, masing-masing bernilai "points": ${sedangPts}
+- Soal Tingkat "sukar" (Level Kognitif C5-C6 Mengevaluasi/HOTS): TEPAT ${sukarCount} butir soal, masing-masing bernilai "points": ${sukarPts}
+Susun berurutan dari Mudah -> Sedang -> Sukar dan pastikan jumlah totalnya TEPAT ${effectiveCount} butir soal.\n`
+      : `Sertakan atribut "difficulty" ("mudah" | "sedang" | "sukar") dan "points" (angka poin proporsional) pada setiap butir soal.\n`;
+
   let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
-  prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
-  prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
+  prompt += `Jumlah butir soal yang dibuat: Tepat ${effectiveCount} butir soal.\n`;
+  prompt += `Jenis soal: ${type === 'pg' ? `Semua Pilihan Ganda (PG) dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText})` : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : `Kombinasi Campuran (Pilihan Ganda dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText}) & Esai)`}.\n`;
+  prompt += difficultyRules;
+  prompt += `PENTING: Untuk setiap soal bertipe "pg", array "options" WAJIB berisi TEPAT ${numOptions} pilihan jawaban (${optionLabelsText}) tanpa awalan huruf di dalam teksnya.\n`;
   prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
   prompt += `[\n`;
   prompt += `  {\n`;
   prompt += `    "type": "pg",\n`;
+  prompt += `    "difficulty": "mudah",\n`;
+  prompt += `    "points": ${mudahPts},\n`;
   prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
-  prompt += `    "options": ["Teks pilihan A", "Teks pilihan B", "Teks pilihan C", "Teks pilihan D"],\n`;
+  prompt += `    "options": ${sampleOptionsJson},\n`;
   prompt += `    "answer": "A",\n`;
   prompt += `    "explanation": "Penjelasan singkat jawaban yang tepat."\n`;
   prompt += `  },\n`;
   prompt += `  {\n`;
   prompt += `    "type": "essay",\n`;
+  prompt += `    "difficulty": "sukar",\n`;
+  prompt += `    "points": ${sukarPts},\n`;
   prompt += `    "question": "Kalimat pertanyaan esai pemahaman konsep?",\n`;
   prompt += `    "answerKey": "Kunci jawaban dan poin kriteria penilaian guru."\n`;
   prompt += `  }\n`;
   prompt += `]`;
 
-  return await generateContentWithFallback(ai, prompt);
+  return await generateContentWithFallback(ai, prompt, ThinkingLevel.LOW);
 }
 
 export async function handleGradeEssayGeneration(body: any, apiKey: string) {
@@ -643,7 +839,7 @@ Gunakan struktur JSON berikut:
 
 PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur runtut dari Pertemuan 1 sampai Pertemuan ${totalMeetings}.`;
 
-  return await generateContentWithFallback(ai, prompt);
+  return await generateContentWithFallback(ai, prompt, ThinkingLevel.MEDIUM);
 }
 
 export async function handleCpSearchGeneration(body: any, apiKey: string) {
@@ -653,7 +849,14 @@ export async function handleCpSearchGeneration(body: any, apiKey: string) {
   }
 
   const targetJenjang = jenjang || 'SMA / MA (Sekolah Menengah Atas)';
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build'
+      }
+    }
+  });
 
   const prompt = `Anda adalah pakar kurikulum nasional Kementerian Pendidikan Dasar dan Menengah RI yang menguasai naskah regulasi resmi terbaru:
 "Keputusan Kepala Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP) Kementerian Pendidikan Dasar dan Menengah Nomor 046/H/KR/2025 tentang Capaian Pembelajaran pada Pendidikan Anak Usia Dini, Jenjang Pendidikan Dasar, dan Jenjang Pendidikan Menengah pada Kurikulum Merdeka".

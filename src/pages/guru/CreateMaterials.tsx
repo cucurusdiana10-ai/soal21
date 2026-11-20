@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../components/AuthProvider';
 import { supabase } from '../../lib/supabase';
@@ -93,6 +93,7 @@ export default function CreateMaterials() {
   const [saving, setSaving] = useState(false);
 
   const [result, setResult] = useState<MultiFormatBahanAjarContent | any>(null);
+  const studioResultRef = useRef<HTMLDivElement | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [showAssistant, setShowAssistant] = useState(true);
   const [fullscreenMaterial, setFullscreenMaterial] = useState<any | null>(null);
@@ -236,8 +237,11 @@ export default function CreateMaterials() {
     const upper = (raw || '').toUpperCase();
     if (upper.includes('XII') || upper.includes('12')) return 'XII';
     if (upper.includes('XI') || upper.includes('11')) return 'XI';
-    if (upper.includes('X') || upper.includes('10')) return 'X';
-    return raw || '';
+    if (/\bX\b/.test(upper) || upper.includes('KELAS X') || upper.includes('10')) return 'X';
+    if (upper.includes('FASE F')) return 'XI';
+    if (upper.includes('FASE E')) return 'X';
+    if (upper.includes('X')) return 'X';
+    return '';
   };
 
   const applyModuleSelection = (mod: any, meetingIdxStr: string = 'ALL') => {
@@ -383,10 +387,26 @@ export default function CreateMaterials() {
 
   const handleGenerate = async () => {
     setActionFeedback(null);
-    if (!form.subject || !form.grade || !form.topic) {
+
+    let effectiveGrade = form.grade;
+    if (!effectiveGrade && selectedClassIds.length > 0) {
+      const firstSelectedClass = classes.find(c => c.id === selectedClassIds[0]);
+      const inferred = firstSelectedClass ? normalizeGrade(firstSelectedClass.name) : '';
+      if (inferred) {
+        effectiveGrade = inferred;
+        setForm(prev => ({ ...prev, grade: inferred }));
+      }
+    }
+
+    const missingFields: string[] = [];
+    if (!form.subject.trim()) missingFields.push('Mata Pelajaran');
+    if (!effectiveGrade.trim()) missingFields.push('Tingkat Kelas');
+    if (!form.topic.trim()) missingFields.push('Topik / Materi Pokok');
+
+    if (missingFields.length > 0) {
       setActionFeedback({
         type: 'error',
-        text: 'Lengkapi Mata Pelajaran, Tingkat Kelas, dan Topik Materi terlebih dahulu.'
+        text: `Lengkapi terlebih dahulu pada Langkah 2: ${missingFields.join(', ')}.`
       });
       return;
     }
@@ -407,7 +427,7 @@ export default function CreateMaterials() {
     if (analysis?.butuhKonfirmasiGuru && !analysisConfirmed) {
       setActionFeedback({
         type: 'error',
-        text: 'Analisis Modul Ajar menandai informasi yang belum lengkap. Tinjau kotak Analisis Modul Ajar dan klik "Konfirmasi Hasil Analisis" terlebih dahulu.'
+        text: 'Analisis Modul Ajar menandai informasi yang belum lengkap. Tinjau kotak Analisis Modul Ajar di Langkah 1 dan klik "Konfirmasi Hasil Analisis" terlebih dahulu.'
       });
       return;
     }
@@ -429,7 +449,7 @@ export default function CreateMaterials() {
 
       const data = await generateMaterialApi({
         subject: form.subject,
-        grade: form.grade,
+        grade: effectiveGrade,
         topic: form.topic,
         description: form.description,
         pertemuanList,
@@ -481,6 +501,9 @@ export default function CreateMaterials() {
         type: 'success',
         text: 'Bahan ajar berhasil disusun! Anda dapat meninjau video pembelajaran, latihan soal, atau menyunting sebelum dibagikan ke siswa.'
       });
+      setTimeout(() => {
+        studioResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
     } catch (err: any) {
       setActionFeedback({ type: 'error', text: formatAiErrorMessage(err) });
     } finally {
@@ -1542,7 +1565,7 @@ export default function CreateMaterials() {
                     max={30}
                     value={jumlahLatihanSoal}
                     onChange={e =>
-                      setJumlahLatihanSoal(Math.max(0, Math.min(30, parseInt(e.target.value || '0', 10))))
+                      setJumlahLatihanSoal(Math.max(0, Math.min(30, parseInt(e.target.value || '0', 10) || 0)))
                     }
                     className="w-16 px-2 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-900 text-center tabular-nums"
                   />
@@ -1689,6 +1712,33 @@ export default function CreateMaterials() {
             </div>
           </div>
 
+          {actionFeedback && (
+            <div
+              className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-medium ${
+                actionFeedback.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  : 'bg-red-50 border-red-200 text-red-900'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {actionFeedback.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                )}
+                <span>{actionFeedback.text}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActionFeedback(null)}
+                className="p-1 rounded-lg hover:bg-black/5 shrink-0"
+                aria-label="Tutup pesan"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           <div className="pt-2 flex flex-wrap items-center justify-between gap-4">
             <div className="text-xs text-slate-500">
               Format aktif:{' '}
@@ -1724,7 +1774,7 @@ export default function CreateMaterials() {
 
       {/* GENERATED RESULT STUDIO + AI CREATIVE ASSISTANT */}
       {result && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs">
+        <div ref={studioResultRef} className="bg-white rounded-2xl border border-slate-200 shadow-xs">
           {/* Studio Header Bar */}
           <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50 rounded-t-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>

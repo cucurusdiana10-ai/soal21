@@ -3,8 +3,12 @@ import {
   handleQuestionsGeneration,
   handleGradeEssayGeneration,
   handleModulGeneration,
-  handleCpSearchGeneration
+  handleCpSearchGeneration,
+  handleAnalyzeModulGeneration,
+  handleMaterialAssistantGeneration,
+  searchLiveYoutubeVideos
 } from './_gemini';
+import { resolveRelevantYoutubeVideo } from '../src/lib/youtubeLibrary';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,6 +20,35 @@ export default async function handler(req: any, res: any) {
   }
 
   const url = req.url || '';
+
+  if (req.method === 'GET' && url.includes('search-youtube')) {
+    try {
+      const qs = new URL(url, 'http://localhost').searchParams;
+      const subject = qs.get('subject') || '';
+      const topic = qs.get('topic') || qs.get('q') || '';
+      const liveVideos = await searchLiveYoutubeVideos(subject, topic);
+      if (liveVideos.length > 0) {
+        return res.status(200).json({ videos: liveVideos, source: 'youtube-live' });
+      }
+      const fallback = resolveRelevantYoutubeVideo(subject, topic);
+      return res.status(200).json({
+        videos: [
+          { id: '', url: fallback.videoUrl, title: fallback.videoTitle, channel: fallback.videoChannel, duration: '', thumbnail: '' },
+          ...fallback.alternativeVideos.map(v => ({
+            id: v.id,
+            url: v.url,
+            title: v.title,
+            channel: v.channel,
+            duration: '',
+            thumbnail: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`
+          }))
+        ],
+        source: 'curated-fallback'
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || 'Gagal mencari video YouTube', videos: [] });
+    }
+  }
 
   if (req.method === 'GET') {
     return res.status(200).json({ status: 'ready', url, platform: 'vercel' });
@@ -40,6 +73,16 @@ export default async function handler(req: any, res: any) {
       } catch {
         // ignore
       }
+    }
+
+    if (url.includes('analyze-modul')) {
+      const result = await handleAnalyzeModulGeneration(body, apiKey);
+      return res.status(200).json(result);
+    }
+
+    if (url.includes('material-assistant')) {
+      const result = await handleMaterialAssistantGeneration(body, apiKey);
+      return res.status(200).json(result);
     }
 
     if (url.includes('generate-modul') || url.includes('modul')) {

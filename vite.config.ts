@@ -2,7 +2,8 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv, Plugin } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { buildMultiFormatMaterialPrompt } from './src/lib/bahanAjarPrompts';
 
 function parseJsonSafely(text: string) {
   if (!text) throw new Error('Respon AI kosong');
@@ -31,17 +32,39 @@ function parseJsonSafely(text: string) {
 }
 
 function apiDevPlugin(geminiApiKey: string): Plugin {
-  const executeWithFallback = async (ai: GoogleGenAI, prompt: string) => {
-    const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
-    let lastErr = null;
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout>;
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timeout (${Math.round(ms / 1000)}s) pada ${label}`)), ms);
+      })
+    ]).finally(() => clearTimeout(timer));
+  };
+
+  const executeWithFallback = async (
+    ai: GoogleGenAI,
+    prompt: string,
+    thinkingLevel: ThinkingLevel = ThinkingLevel.LOW
+  ) => {
+    const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
+    const timeoutMs = thinkingLevel === ThinkingLevel.MEDIUM ? 45000 : 28000;
+    let lastErr: any = null;
     for (const model of models) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: { responseMimeType: 'application/json' }
-          });
+          const response = await withTimeout(
+            ai.models.generateContent({
+              model,
+              contents: prompt,
+              config: {
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingLevel }
+              }
+            }),
+            timeoutMs,
+            model
+          );
           const text = response.text;
           if (text) return parseJsonSafely(text);
         } catch (e: any) {
@@ -95,7 +118,21 @@ function apiDevPlugin(geminiApiKey: string): Plugin {
               }
 
               const data = body ? JSON.parse(body) : {};
-              const { subject, grade, topic, description } = data;
+              const {
+                subject,
+                grade,
+                topic,
+                description,
+                selectedFormats,
+                tingkatKesulitan,
+                videoDurationMinutes,
+                enableLeaderboard,
+                customFormatPrompt,
+                analysis,
+                selectedMeetingIndex,
+                jumlahLatihanSoal,
+                jenisLatihanSoal
+              } = data;
               if (!subject || !grade || !topic) {
                 res.statusCode = 400;
                 return res.end(JSON.stringify({ error: 'Data subject, grade, dan topic wajib diisi.' }));
@@ -105,6 +142,31 @@ function apiDevPlugin(geminiApiKey: string): Plugin {
                 apiKey,
                 httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
               });
+
+              if (Array.isArray(selectedFormats) && selectedFormats.length > 0) {
+                const v2Prompt = buildMultiFormatMaterialPrompt({
+                  subject,
+                  grade,
+                  topic,
+                  description,
+                  selectedFormats,
+                  tingkatKesulitan: tingkatKesulitan || 'reguler',
+                  videoDurationMinutes,
+                  enableLeaderboard,
+                  customFormatPrompt,
+                  analysis,
+                  selectedMeetingIndex,
+                  jumlahLatihanSoal,
+                  jenisLatihanSoal
+                });
+                const parsed = await executeWithFallback(ai, v2Prompt, ThinkingLevel.LOW);
+                if (parsed && typeof parsed === 'object') {
+                  parsed.version = 2;
+                  parsed.selectedFormats = selectedFormats;
+                }
+                return res.end(JSON.stringify(parsed));
+              }
+
               const fullTopic = topic + (description ? ` - Petunjuk Khusus Guru: ${description}` : '');
 
               const prompt = `Sebagai asisten guru ahli pembelajaran digital interaktif dan menyenangkan untuk siswa SMA di SMAN 21 Garut, buatkan bahan ajar interaktif, seru, dan mudah dipahami untuk:
@@ -116,7 +178,7 @@ Bahan ajar harus memuat elemen visual/media (Gambar dan/atau Rekomendasi Video P
 Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis berikut:
 {
   "imageUrl": "URL foto Unsplash berkualitas tinggi dan relevan dengan topik, contoh: https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
-  "videoUrl": "URL video pembelajaran YouTube yang relevan dengan topik (contoh: https://www.youtube.com/watch?v=dQw4w9WgXcQ atau https://youtu.be/xxx atau link embed edukasi relevan)",
+  "videoUrl": "URL video pembelajaran YouTube yang relevan dengan topik",
   "mediaType": "both",
   "mindMap": [
     "Konsep Inti 1",
@@ -156,7 +218,7 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
   ]
 }`;
 
-              const parsed = await executeWithFallback(ai, prompt);
+              const parsed = await executeWithFallback(ai, prompt, ThinkingLevel.LOW);
               return res.end(JSON.stringify(parsed));
             } catch (err: any) {
               console.error('Error in /api/generate-material:', err);
@@ -185,8 +247,8 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
               }
 
               const data = body ? JSON.parse(body) : {};
-              const { topic, type, count } = data;
-              if (!topic || !type || !count) {
+              const { topic, type, count, optionCount, difficultyBreakdown } = data;
+              if (!topic || !type || (!count && !difficultyBreakdown)) {
                 res.statusCode = 400;
                 return res.end(JSON.stringify({ error: 'Missing required fields: topic, type, count' }));
               }
@@ -196,26 +258,57 @@ Kembalikan respon DALAM FORMAT JSON MURNI yang valid dengan struktur persis beri
                 httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
               });
 
+              const numOptions = Math.min(5, Math.max(3, Number(optionCount) || 4));
+              const optionLabels = Array.from({ length: numOptions }, (_, i) => String.fromCharCode(65 + i));
+              const optionLabelsText = optionLabels.join(', ');
+              const sampleOptionsJson = JSON.stringify(optionLabels.map(l => `Teks pilihan ${l}`));
+
+              const mudahCount = Math.max(0, Number(difficultyBreakdown?.mudah?.count) || 0);
+              const sedangCount = Math.max(0, Number(difficultyBreakdown?.sedang?.count) || 0);
+              const sukarCount = Math.max(0, Number(difficultyBreakdown?.sukar?.count) || 0);
+              const mudahPts = Math.max(1, Number(difficultyBreakdown?.mudah?.points) || 10);
+              const sedangPts = Math.max(1, Number(difficultyBreakdown?.sedang?.points) || 20);
+              const sukarPts = Math.max(1, Number(difficultyBreakdown?.sukar?.points) || 30);
+              const totalFromBreakdown = mudahCount + sedangCount + sukarCount;
+              const effectiveCount = totalFromBreakdown > 0 ? totalFromBreakdown : Number(count) || 5;
+
+              let difficultyRules = '';
+              if (totalFromBreakdown > 0) {
+                difficultyRules = `\nKOMPOSISI TINGKAT KESUKARAN & POIN WAJIB:\n` +
+                  `- Soal tingkat "mudah" (C1-C2 pemahaman dasar): TEPAT ${mudahCount} soal, masing-masing bernilai "points": ${mudahPts}.\n` +
+                  `- Soal tingkat "sedang" (C3-C4 aplikasi/analisis): TEPAT ${sedangCount} soal, masing-masing bernilai "points": ${sedangPts}.\n` +
+                  `- Soal tingkat "sukar" (C5-C6 evaluasi/HOTS): TEPAT ${sukarCount} soal, masing-masing bernilai "points": ${sukarPts}.\n` +
+                  `Susun soal secara berurutan atau terdistribusi dengan tepat dan sertakan field "difficulty" ("mudah" | "sedang" | "sukar") serta "points" (angka) pada setiap item JSON.\n`;
+              } else {
+                difficultyRules = `\nSetiap butir soal wajib memiliki field "difficulty" ("mudah" | "sedang" | "sukar") dan "points" (angka bobot poin soal, misal 10 untuk mudah, 20 untuk sedang, 30 untuk sukar).\n`;
+              }
+
               let prompt = `Sebagai asisten guru SMAN 21 Garut, buatkan paket soal evaluasi/ujian berkualitas tinggi, mendidik, dan jelas tentang materi: "${topic}".\n`;
-              prompt += `Jumlah butir soal yang dibuat: Tepat ${count} butir soal.\n`;
-              prompt += `Jenis soal: ${type === 'pg' ? 'Semua Pilihan Ganda (PG) 4 opsi (A, B, C, D)' : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : 'Kombinasi Campuran (Pilihan Ganda & Esai)'}.\n`;
+              prompt += `Jumlah butir soal yang dibuat: Tepat ${effectiveCount} butir soal.\n`;
+              prompt += `Jenis soal: ${type === 'pg' ? `Semua Pilihan Ganda (PG) dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText})` : type === 'essay' ? 'Semua Esai / Uraian Terbuka' : `Kombinasi Campuran (Pilihan Ganda dengan TEPAT ${numOptions} opsi jawaban (${optionLabelsText}) & Esai)`}.\n`;
+              prompt += difficultyRules;
+              prompt += `PENTING: Untuk setiap soal bertipe "pg", array "options" WAJIB berisi TEPAT ${numOptions} pilihan jawaban (${optionLabelsText}) tanpa awalan huruf di dalam teksnya.\n`;
               prompt += `Berikan respons DALAM FORMAT JSON ARRAY murni dengan struktur tiap item:\n`;
               prompt += `[\n`;
               prompt += `  {\n`;
               prompt += `    "type": "pg",\n`;
+              prompt += `    "difficulty": "mudah",\n`;
+              prompt += `    "points": ${mudahPts},\n`;
               prompt += `    "question": "Kalimat pertanyaan pilihan ganda yang jelas?",\n`;
-              prompt += `    "options": ["Teks pilihan A", "Teks pilihan B", "Teks pilihan C", "Teks pilihan D"],\n`;
+              prompt += `    "options": ${sampleOptionsJson},\n`;
               prompt += `    "answer": "A",\n`;
               prompt += `    "explanation": "Penjelasan singkat jawaban yang tepat."\n`;
               prompt += `  },\n`;
               prompt += `  {\n`;
               prompt += `    "type": "essay",\n`;
+              prompt += `    "difficulty": "sukar",\n`;
+              prompt += `    "points": ${sukarPts},\n`;
               prompt += `    "question": "Kalimat pertanyaan esai pemahaman konsep?",\n`;
               prompt += `    "answerKey": "Kunci jawaban dan poin kriteria penilaian guru."\n`;
               prompt += `  }\n`;
               prompt += `]`;
 
-              const parsed = await executeWithFallback(ai, prompt);
+              const parsed = await executeWithFallback(ai, prompt, ThinkingLevel.LOW);
               return res.end(JSON.stringify(parsed));
             } catch (err: any) {
               console.error('Error in /api/generate-questions:', err);
@@ -620,13 +713,9 @@ PASTIKAN seluruh array pertemuan berjumlah ${totalMeetings} item, dengan alur ru
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiKey = env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+  const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
 
   return {
-    define: {
-      'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(apiKey),
-      'import.meta.env.GEMINI_API_KEY': JSON.stringify(apiKey),
-    },
     plugins: [react(), tailwindcss(), apiDevPlugin(apiKey)],
     resolve: {
       alias: {

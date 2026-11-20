@@ -15,6 +15,8 @@ import { saveAs } from 'file-saver';
 
 export interface ImportedQuestion {
   type: 'pg' | 'essay';
+  difficulty?: 'mudah' | 'sedang' | 'sukar';
+  points?: number;
   question: string;
   options: string[];
   answer: string;
@@ -126,7 +128,7 @@ export async function downloadWordQuestionTemplate(
             spacing: { after: 280 },
             children: [
               new TextRun({
-                text: '4. Baris petunjuk ini akan diabaikan otomatis oleh sistem saat di-import. Silakan edit atau tambahkan soal di bawah garis "--- MULAI SOAL ---".',
+                text: '4. (Opsional) Anda dapat menambahkan tag tingkat kesukaran & poin seperti [MUDAH|10], [SEDANG|20], atau [SUKAR|30] di awal pertanyaan. Baris petunjuk ini akan diabaikan otomatis saat di-import.',
                 size: 20,
                 font: 'Calibri'
               })
@@ -152,7 +154,7 @@ export async function downloadWordQuestionTemplate(
             children: [
               new TextRun({ text: '1. ', bold: true, size: 22, font: 'Calibri' }),
               new TextRun({
-                text: 'Tuliskan teks pertanyaan pilihan ganda nomor 1 di sini sesuai materi yang diajarkan...',
+                text: '[MUDAH|10] Tuliskan teks pertanyaan pilihan ganda nomor 1 di sini sesuai materi yang diajarkan...',
                 size: 22,
                 font: 'Calibri'
               })
@@ -184,7 +186,7 @@ export async function downloadWordQuestionTemplate(
             children: [
               new TextRun({ text: '2. ', bold: true, size: 22, font: 'Calibri' }),
               new TextRun({
-                text: 'Tuliskan teks pertanyaan pilihan ganda nomor 2 di sini...',
+                text: '[SEDANG|20] Tuliskan teks pertanyaan pilihan ganda nomor 2 di sini...',
                 size: 22,
                 font: 'Calibri'
               })
@@ -216,7 +218,7 @@ export async function downloadWordQuestionTemplate(
             children: [
               new TextRun({ text: '3. ', bold: true, size: 22, font: 'Calibri' }),
               new TextRun({
-                text: '[ESAI] Jelaskan secara ringkas konsep utama materi pembelajaran dan berikan contoh penerapannya dalam kehidupan sehari-hari!',
+                text: '[ESAI] [SUKAR|30] Jelaskan secara ringkas konsep utama materi pembelajaran dan berikan contoh penerapannya dalam kehidupan sehari-hari!',
                 size: 22,
                 font: 'Calibri'
               })
@@ -440,15 +442,33 @@ export function parseQuestionsFromText(
     answer: string;
     explanation: string;
     forcedEssay: boolean;
+    difficulty?: 'mudah' | 'sedang' | 'sukar';
+    points?: number;
   } | null = null;
 
   const flushCurrent = () => {
     if (!current || current.questionLines.length === 0) return;
     let qText = current.questionLines.join('\n').trim();
-    const isEssayTag = /^\[(ESAI|ESSAY|URAIAN)\]\s*/i.test(qText);
+    const isEssayTag = /\[(ESAI|ESSAY|URAIAN)\]/i.test(qText);
     if (isEssayTag) {
-      qText = qText.replace(/^\[(ESAI|ESSAY|URAIAN)\]\s*/i, '').trim();
+      qText = qText.replace(/\[(ESAI|ESSAY|URAIAN)\]\s*/gi, '').trim();
     }
+
+    let parsedDifficulty: 'mudah' | 'sedang' | 'sukar' = current.difficulty || 'sedang';
+    let parsedPoints: number | undefined = current.points;
+    const diffMatch = qText.match(/\[(MUDAH|SEDANG|SUKAR|SULIT)(?:\s*[|:]\s*(\d+))?\]/i);
+    if (diffMatch) {
+      const rawLevel = diffMatch[1].toLowerCase();
+      parsedDifficulty = rawLevel === 'mudah' ? 'mudah' : rawLevel === 'sedang' ? 'sedang' : 'sukar';
+      if (diffMatch[2]) {
+        const pts = parseInt(diffMatch[2], 10);
+        if (pts > 0) parsedPoints = pts;
+      }
+      qText = qText.replace(diffMatch[0], '').trim();
+    }
+
+    const defaultPtsByDiff = parsedDifficulty === 'mudah' ? 10 : parsedDifficulty === 'sukar' ? 30 : 20;
+    const finalPoints = parsedPoints && parsedPoints > 0 ? parsedPoints : defaultPtsByDiff;
 
     const optKeys = Object.keys(current.options).sort();
     const hasOptions = optKeys.length >= 2 && !current.forcedEssay && !isEssayTag;
@@ -470,6 +490,8 @@ export function parseQuestionsFromText(
 
       questions.push({
         type: 'pg',
+        difficulty: parsedDifficulty,
+        points: finalPoints,
         question: qText,
         options: finalOptions,
         answer: validAns,
@@ -479,6 +501,8 @@ export function parseQuestionsFromText(
     } else {
       questions.push({
         type: 'essay',
+        difficulty: parsedDifficulty,
+        points: finalPoints,
         question: qText,
         options: [],
         answer: current.answer || '',
@@ -503,6 +527,22 @@ export function parseQuestionsFromText(
     const keyMatch = line.match(/^(?:kunci(?:\s*jawaban)?|jawaban|answer)\s*[:=]\s*(.+)$/i);
     if (keyMatch && current) {
       current.answer = keyMatch[1].trim();
+      continue;
+    }
+
+    // Check if line is Difficulty: "Tingkat: Mudah"
+    const tingkatMatch = line.match(/^(?:tingkat(?:\s*kesukaran)?|kesukaran|level)\s*[:=]\s*(mudah|sedang|sukar|sulit)$/i);
+    if (tingkatMatch && current) {
+      const lv = tingkatMatch[1].toLowerCase();
+      current.difficulty = lv === 'mudah' ? 'mudah' : lv === 'sedang' ? 'sedang' : 'sukar';
+      continue;
+    }
+
+    // Check if line is Points: "Poin: 20" or "Skor: 20"
+    const poinMatch = line.match(/^(?:poin|skor|nilai)\s*[:=]\s*(\d+)$/i);
+    if (poinMatch && current) {
+      const pts = parseInt(poinMatch[1], 10);
+      if (pts > 0) current.points = pts;
       continue;
     }
 
@@ -536,7 +576,7 @@ export function parseQuestionsFromText(
         options: {},
         answer: '',
         explanation: '',
-        forcedEssay: /^\[(ESAI|ESSAY|URAIAN)\]/i.test(qBody)
+        forcedEssay: /\[(ESAI|ESSAY|URAIAN)\]/i.test(qBody)
       };
       continue;
     }
@@ -811,6 +851,11 @@ export async function downloadPublishedTaskAsWord(
   );
 
   questions.forEach((q, idx) => {
+    const diffLabel =
+      q.difficulty === 'mudah' ? 'Mudah' : q.difficulty === 'sukar' ? 'Sukar' : q.difficulty === 'sedang' ? 'Sedang' : '';
+    const ptsLabel = Number(q.points) > 0 ? `${Number(q.points)} Poin` : '';
+    const metaSuffix = [diffLabel, ptsLabel].filter(Boolean).join(' · ');
+
     // Soal Text
     docChildren.push(
       new Paragraph({
@@ -822,6 +867,17 @@ export async function downloadPublishedTaskAsWord(
             size: 22,
             font: 'Calibri'
           }),
+          ...(metaSuffix
+            ? [
+                new TextRun({
+                  text: `[${metaSuffix}] `,
+                  bold: true,
+                  size: 18,
+                  color: '475569',
+                  font: 'Calibri'
+                })
+              ]
+            : []),
           new TextRun({
             text: q.question || '',
             size: 22,

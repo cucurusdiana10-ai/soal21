@@ -64,16 +64,20 @@ export default function SiswaNilai() {
       if (sub.score_pg !== undefined && sub.score_pg !== null) {
         pgDisplay = `${Math.round(sub.score_pg)} (${weightPg}%)`;
       } else if (Array.isArray(task?.content)) {
-        const pgQuestions = task.content.filter((q: any) => q.type === 'pg');
-        if (pgQuestions.length > 0 && sub.answers) {
-          let correct = 0;
-          task.content.forEach((q: any, idx: number) => {
-            if (q.type === 'pg') {
-              const ans = sub.answers[idx] ?? sub.answers[String(idx)];
-              if (String(ans).trim().toLowerCase() === String(q.answer).trim().toLowerCase()) correct++;
+        let earnedPgPts = 0;
+        let totalPgPts = 0;
+        task.content.forEach((q: any, idx: number) => {
+          if (q.type === 'pg') {
+            const pts = Number(q?.points) > 0 ? Number(q.points) : 1;
+            totalPgPts += pts;
+            const ans = sub.answers?.[idx] ?? sub.answers?.[String(idx)];
+            if (String(ans).trim().toLowerCase() === String(q.answer).trim().toLowerCase()) {
+              earnedPgPts += pts;
             }
-          });
-          const rawPg = Math.round((correct / pgQuestions.length) * 100);
+          }
+        });
+        if (totalPgPts > 0 && sub.answers) {
+          const rawPg = Math.round((earnedPgPts / totalPgPts) * 100);
           pgDisplay = `${rawPg} (${weightPg}%)`;
         }
       }
@@ -81,12 +85,35 @@ export default function SiswaNilai() {
       if (sub.score_essay !== undefined && sub.score_essay !== null) {
         essayDisplay = `${Math.round(sub.score_essay)} (${weightEssay}%)`;
       } else if (sub.essay_scores && typeof sub.essay_scores === 'object') {
-        const scores = Object.values(sub.essay_scores).map(Number).filter(n => !isNaN(n));
-        if (scores.length > 0) {
-          const rawEssay = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-          essayDisplay = `${rawEssay} (${weightEssay}%)`;
+        if (Array.isArray(task?.content)) {
+          let essayWeightedSum = 0;
+          let essayTotalPts = 0;
+          let hasAnyEssayScore = false;
+          task.content.forEach((q: any, idx: number) => {
+            if (q.type === 'essay') {
+              const rawVal = sub.essay_scores[idx] ?? sub.essay_scores[String(idx)];
+              const pts = Number(q?.points) > 0 ? Number(q.points) : 1;
+              essayTotalPts += pts;
+              if (rawVal !== undefined && rawVal !== null && !isNaN(Number(rawVal))) {
+                hasAnyEssayScore = true;
+                essayWeightedSum += Math.max(0, Math.min(100, Number(rawVal))) * pts;
+              }
+            }
+          });
+          if (hasAnyEssayScore && essayTotalPts > 0) {
+            const rawEssay = Math.round(essayWeightedSum / essayTotalPts);
+            essayDisplay = `${rawEssay} (${weightEssay}%)`;
+          } else {
+            essayDisplay = 'Menunggu Koreksi';
+          }
         } else {
-          essayDisplay = 'Menunggu Koreksi';
+          const scores = Object.values(sub.essay_scores).map(Number).filter(n => !isNaN(n));
+          if (scores.length > 0) {
+            const rawEssay = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+            essayDisplay = `${rawEssay} (${weightEssay}%)`;
+          } else {
+            essayDisplay = 'Menunggu Koreksi';
+          }
         }
       }
     }

@@ -276,8 +276,8 @@ export function calculateExamResult(
 } {
   const safeQuestions = Array.isArray(questions) ? questions : [];
   const totalQuestions = safeQuestions.length;
-  const pointsPerQuestion = totalQuestions > 0 ? 100 / totalQuestions : 0;
-  let calculatedScore = 0;
+  let earnedPgPoints = 0;
+  let totalPgPoints = 0;
   let hasEssay = false;
 
   for (let i = 0; i < safeQuestions.length; i++) {
@@ -285,16 +285,19 @@ export function calculateExamResult(
     const ans = answers[i] ?? (answers as any)[String(i)] ?? '';
 
     if (q.type === 'pg') {
+      const qPts = Number(q?.points) > 0 ? Number(q.points) : 1;
+      totalPgPoints += qPts;
       const isCorrect = String(ans).trim().toLowerCase() === String(q.answer).trim().toLowerCase();
       if (isCorrect) {
-        calculatedScore += pointsPerQuestion;
+        earnedPgPoints += qPts;
       }
     } else if (q.type === 'essay') {
       hasEssay = true;
     }
   }
 
-  const roundedPgScore = Math.min(100, Math.round(calculatedScore));
+  const pgPercent = totalPgPoints > 0 ? (earnedPgPoints / totalPgPoints) * 100 : 0;
+  const roundedPgScore = Math.min(100, Math.round(pgPercent));
   const finalScore = hasEssay ? roundedPgScore : roundedPgScore;
   const finalStatus: 'graded' | 'submitted' = hasEssay ? 'submitted' : 'graded';
   const answeredCount = countAnsweredQuestions(answers);

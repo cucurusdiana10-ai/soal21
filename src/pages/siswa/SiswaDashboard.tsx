@@ -932,6 +932,8 @@ function SiswaTugas() {
       return {
         idx: i,
         type: q?.type === 'essay' ? 'essay' : 'pg',
+        difficulty: q?.difficulty || 'sedang',
+        points: Number(q?.points) > 0 ? Number(q.points) : 1,
         question: q?.question || `Soal #${i + 1}`,
         options: rawOpts,
         answer: q?.answer || '',
